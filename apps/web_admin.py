@@ -14,7 +14,7 @@ from telethon import TelegramClient
 from telethon.tl.functions.channels import GetFullChannelRequest
 
 from jobeco.db.session import SessionLocal
-from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage
+from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage, ParserLog
 from jobeco.settings import settings
 from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text
 from jobeco.processing.pipeline import process_text_message
@@ -560,6 +560,51 @@ async def vacancies_page(
       "search_mode": search_mode,
       "categories": categories,
       "channels": channels,
+    },
+  )
+
+
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page(
+  request: Request,
+  _: bool = Depends(require_auth),
+  limit: int = Query(200, ge=10, le=1000),
+):
+  """
+  Human-friendly parser logs (English) for admin.
+  """
+  async with SessionLocal() as s:
+    rows = (
+      await s.execute(
+        select(ParserLog)
+        .order_by(desc(ParserLog.id))
+        .limit(limit)
+      )
+    ).scalars().all()
+
+  # Reverse for chronological order.
+  rows = list(reversed(rows))
+  logs = [
+    {
+      "id": r.id,
+      "created_at": r.created_at.isoformat() if r.created_at else None,
+      "level": r.level,
+      "event": r.event,
+      "message_en": r.message_en,
+      "channel_username": r.channel_username,
+      "tg_message_id": r.tg_message_id,
+      "vacancy_id": r.vacancy_id,
+      "extra": r.extra or {},
+    }
+    for r in rows
+  ]
+
+  return templates.TemplateResponse(
+    "logs.html",
+    {
+      "request": request,
+      "logs": logs,
+      "limit": limit,
     },
   )
 

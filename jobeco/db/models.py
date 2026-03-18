@@ -156,3 +156,25 @@ class ApiKeyUsage(Base):
   endpoint: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
   status_code: Mapped[int] = mapped_column(Integer, nullable=False)
   requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ParserLog(Base):
+  __tablename__ = "parser_logs"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+  # Example values: INFO / WARNING / ERROR
+  level: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+
+  # Short event key, used for grouping/filters in future.
+  event: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+  # Human readable message (English as requested by UI).
+  message_en: Mapped[str] = mapped_column(Text, nullable=False)
+
+  channel_username: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+  tg_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+  vacancy_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
+  extra: Mapped[dict] = mapped_column(JSONB(astext_type=Text()), nullable=False, server_default="{}")

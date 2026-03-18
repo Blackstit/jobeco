@@ -7,12 +7,46 @@ from sqlalchemy import text
 from telethon import events
 
 from jobeco.db.session import SessionLocal
-from jobeco.db.models import Vacancy
+from jobeco.db.models import Vacancy, ParserLog
 from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
 
 log = structlog.get_logger()
+
+
+async def persist_parser_log(
+  *,
+  level: str,
+  event: str,
+  message_en: str,
+  channel_username: str | None = None,
+  tg_message_id: int | None = None,
+  vacancy_id: int | None = None,
+  extra: dict | None = None,
+) -> None:
+  """
+  Store parser lifecycle events for the admin UI.
+
+  This is intentionally "best effort": logging must not break ingestion.
+  """
+  try:
+    async with SessionLocal() as s:
+      s.add(
+        ParserLog(
+          level=level,
+          event=event,
+          message_en=message_en,
+          channel_username=channel_username,
+          tg_message_id=tg_message_id,
+          vacancy_id=vacancy_id,
+          extra=extra or {},
+        )
+      )
+      await s.commit()
+  except Exception:
+    # Never block parsing due to logging issues.
+    return
 
 
 async def is_duplicate(embedding: list[float]) -> bool:
@@ -48,7 +82,7 @@ async def is_duplicate(embedding: list[float]) -> bool:
     return bool(sim is not None and float(sim) >= threshold)
 
 
-async def save_vacancy(payload: dict, embedding: list[float] | None) -> None:
+async def save_vacancy(payload: dict, embedding: list[float] | None) -> int:
   async with SessionLocal() as s:
     # postprocess contacts: dedupe + remove obvious footer/channel contacts
     contacts = payload.get("contacts", []) or []
@@ -105,7 +139,10 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> None:
       language=payload.get("language"),
     )
     s.add(v)
+    await s.flush()
+    vacancy_id = int(v.id)  # assigned after flush
     await s.commit()
+    return vacancy_id
 
 
 async def process_message(event: events.NewMessage.Event) -> None:
@@ -127,15 +164,51 @@ async def process_message(event: events.NewMessage.Event) -> None:
   except Exception:
     source_url = None
 
+  channel_username = getattr(event.chat, "username", None)
+  msg_id = getattr(msg, "id", None)
+  if channel_username:
+    channel_username = str(channel_username).lstrip("@")
+
+  await persist_parser_log(
+    level="INFO",
+    event="post_detected",
+    message_en=f"Detected a post in channel @{channel_username}" if channel_username else "Detected a post in a channel",
+    channel_username=channel_username,
+    tg_message_id=msg_id,
+  )
+
   # Prevalidation (cheap) - skip non-vacancy content
   pv = await prevalidate_post(text_raw)
   if not pv.get("is_vacancy", True):
     log.info("prevalidate_skip", msg_id=msg.id, content_type=pv.get("content_type"), reason=pv.get("reason"))
+    await persist_parser_log(
+      level="WARNING",
+      event="prevalidate_skip",
+      message_en=f"Post skipped: not a vacancy (reason={pv.get('reason') or 'unknown'})",
+      channel_username=channel_username,
+      tg_message_id=msg_id,
+      extra={"content_type": pv.get("content_type")},
+    )
     return
+
+  await persist_parser_log(
+    level="INFO",
+    event="post_passed_prevalidation",
+    message_en="Post passed pre-validation",
+    channel_username=channel_username,
+    tg_message_id=msg_id,
+  )
 
   embedding = await embed_text(text_raw)
   if embedding and await is_duplicate(embedding):
     log.info("dedup_skip", msg_id=msg.id)
+    await persist_parser_log(
+      level="INFO",
+      event="dedup_skip",
+      message_en="Post skipped: duplicate detected",
+      channel_username=channel_username,
+      tg_message_id=msg_id,
+    )
     return
 
   analysis = await analyze_with_openrouter(text_raw)
@@ -171,8 +244,15 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "language": analysis.get("language") or pv.get("language"),
     "created_at": datetime.utcnow().isoformat(),
   }
-
-  await save_vacancy(payload, embedding)
+  vacancy_id = await save_vacancy(payload, embedding)
+  await persist_parser_log(
+    level="INFO",
+    event="vacancy_added",
+    message_en=f"Vacancy added. ID {vacancy_id}",
+    channel_username=channel_username,
+    tg_message_id=msg_id,
+    vacancy_id=vacancy_id,
+  )
   log.info("vacancy_saved", msg_id=msg.id, domains=analysis.get("domains"), risk_label=analysis.get("risk_label"))
 
 
@@ -192,9 +272,33 @@ async def process_text_message(
   if not text_raw:
     return False
 
+  await persist_parser_log(
+    level="INFO",
+    event="post_detected",
+    message_en=f"Detected a post in channel @{tg_channel_username}" if tg_channel_username else "Detected a post in a channel",
+    channel_username=tg_channel_username,
+    tg_message_id=tg_message_id,
+  )
+
   pv = await prevalidate_post(text_raw)
   if not pv.get("is_vacancy", True):
+    await persist_parser_log(
+      level="WARNING",
+      event="prevalidate_skip",
+      message_en=f"Post skipped: not a vacancy (reason={pv.get('reason') or 'unknown'})",
+      channel_username=tg_channel_username,
+      tg_message_id=tg_message_id,
+      extra={"content_type": pv.get("content_type")},
+    )
     return False
+
+  await persist_parser_log(
+    level="INFO",
+    event="post_passed_prevalidation",
+    message_en="Post passed pre-validation",
+    channel_username=tg_channel_username,
+    tg_message_id=tg_message_id,
+  )
 
   embedding = await embed_text(text_raw)
   if embedding and await is_duplicate(embedding):
@@ -232,5 +336,13 @@ async def process_text_message(
     "language": analysis.get("language") or pv.get("language"),
     "created_at": datetime.utcnow().isoformat(),
   }
-  await save_vacancy(payload, embedding)
+  vacancy_id = await save_vacancy(payload, embedding)
+  await persist_parser_log(
+    level="INFO",
+    event="vacancy_added",
+    message_en=f"Vacancy added. ID {vacancy_id}",
+    channel_username=tg_channel_username,
+    tg_message_id=tg_message_id,
+    vacancy_id=vacancy_id,
+  )
   return True
