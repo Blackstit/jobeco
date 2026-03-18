@@ -14,12 +14,17 @@ from telethon import TelegramClient
 from telethon.tl.functions.channels import GetFullChannelRequest
 
 from jobeco.db.session import SessionLocal
-from jobeco.db.models import Vacancy, Channel, SystemSettings
+from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser
 from jobeco.settings import settings
 from jobeco.openrouter.client import categorize_channel
 from jobeco.processing.pipeline import process_text_message
 from jobeco.openrouter.client import analyze_with_openrouter
-from jobeco.runtime_settings import get_runtime_settings, upsert_system_settings, load_system_settings_raw, set_admin_password_hash
+from jobeco.runtime_settings import (
+  get_runtime_settings,
+  upsert_system_settings,
+  load_system_settings_raw,
+)
+from jobeco.auth.passwords import hash_password_pbkdf2, verify_password_pbkdf2
 
 
 app = FastAPI(title="Job-Eco Admin")
@@ -27,14 +32,19 @@ app.add_middleware(SessionMiddleware, secret_key=secrets.token_urlsafe(32))
 
 templates = Jinja2Templates(directory="templates")
 
-# Простая авторизация через пароль из .env
-ADMIN_PASSWORD = settings.openrouter_api_key[:8] if settings.openrouter_api_key else "admin123"  # Используем первые 8 символов API ключа как пароль
-
-
 async def require_auth(request: Request):
   """Проверка авторизации."""
   if not request.session.get("authenticated"):
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+  user_id = request.session.get("user_id")
+  if not user_id:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+  async with SessionLocal() as s:
+    u = (await s.execute(select(AdminUser).where(AdminUser.id == int(user_id), AdminUser.is_active == True))).scalar_one_or_none()
+    if not u:
+      raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
   return True
 
 
@@ -57,28 +67,35 @@ async def login_page(request: Request):
 
 
 @app.post("/login")
-async def login(request: Request, password: str = Form(...)):
-  import hashlib
+async def login(request: Request, email: str = Form(...), password: str = Form(...)):
+  email = (email or "").strip().lower()
+  if not email or not password:
+    return templates.TemplateResponse(
+      "login.html",
+      {"request": request, "error": "Введите email и пароль"},
+      status_code=401,
+    )
 
-  # 1) DB-based password hash (optional)
-  raw = await load_system_settings_raw()
-  admin_hash = (raw.get("admin") or {}).get("admin_password_hash")
-  if admin_hash:
-    candidate = hashlib.sha256(password.encode("utf-8")).hexdigest()
-    if candidate == admin_hash:
-      request.session["authenticated"] = True
-      return RedirectResponse(url="/", status_code=303)
-    # fall through to fallback below (for easier recovery)
+  async with SessionLocal() as s:
+    u = (await s.execute(select(AdminUser).where(AdminUser.email == email))).scalar_one_or_none()
+    if not u or not u.is_active:
+      return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": "Неверный email или пароль"},
+        status_code=401,
+      )
 
-  # 2) Fallback password (legacy behavior)
-  if password == ADMIN_PASSWORD:
+    if not verify_password_pbkdf2(password, u.password_hash):
+      return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": "Неверный email или пароль"},
+        status_code=401,
+      )
+
     request.session["authenticated"] = True
+    request.session["user_id"] = u.id
+    request.session["user_email"] = u.email
     return RedirectResponse(url="/", status_code=303)
-  return templates.TemplateResponse(
-    "login.html",
-    {"request": request, "error": "Неверный пароль"},
-    status_code=401,
-  )
 
 
 @app.get("/logout")
@@ -101,6 +118,11 @@ async def settings_page(
   if tab not in allowed_tabs:
     tab = "parser"
 
+  users = None
+  if tab == "users":
+    async with SessionLocal() as s:
+      users = (await s.execute(select(AdminUser).order_by(AdminUser.id.asc()))).scalars().all()
+
   return templates.TemplateResponse(
     "settings.html",
     {
@@ -110,6 +132,7 @@ async def settings_page(
       "prompts": prompts,
       "env": settings,
       "saved": saved,
+      "users": users,
     },
   )
 
@@ -169,9 +192,21 @@ async def settings_save(
     await upsert_system_settings(raw)
 
   elif tab == "users":
-    new_pw = (form.get("admin_password") or "").strip()
-    if new_pw:
-      await set_admin_password_hash(new_pw)
+    email = (form.get("email") or "").strip().lower()
+    pw = (form.get("password") or "").strip()
+    is_active_raw = (form.get("is_active") or "true").lower()
+    is_active = is_active_raw in ("1", "true", "yes", "on")
+
+    if not email or not pw:
+      raise HTTPException(status_code=400, detail="email and password are required")
+
+    async with SessionLocal() as s:
+      exists = (await s.execute(select(AdminUser).where(AdminUser.email == email))).scalar_one_or_none()
+      if exists:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+      pwd_hash = hash_password_pbkdf2(pw)
+      s.add(AdminUser(email=email, password_hash=pwd_hash, is_active=is_active))
+      await s.commit()
 
   # sessions: read-only for now
 
