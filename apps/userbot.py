@@ -98,22 +98,21 @@ async def main_async() -> None:
       chat_id = getattr(chat, "id", None)
       chat_username = getattr(chat, "username", None)
       
-      # Пропускаем личные чаты (id > 0 означает пользователя)
-      if chat_id and chat_id > 0:
-        return
-      
       # Проверяем, что это канал (broadcast), а не группа
-      # В Telethon каналы имеют broadcast=True
+      # В Telethon каналы имеют broadcast=True, а группы/чаты часто megagroup=True
       is_broadcast = getattr(chat, "broadcast", False)
-      if not is_broadcast:
-        # Это группа, а не канал - пропускаем
+      is_megagroup = getattr(chat, "megagroup", False)
+      if not is_broadcast and not is_megagroup:
         return
       
       # Проверяем, что канал в списке разрешённых
       is_allowed = False
-      if chat_id and chat_id in allowed_channels:
-        is_allowed = True
-      elif chat_username and chat_username in allowed_channels:
+      if chat_id:
+        # Telethon для каналов/групп часто использует id со знаком.
+        # В БД мы храним tg_id как положительное число, поэтому сравниваем и модуль.
+        if chat_id in allowed_channels or abs(chat_id) in allowed_channels:
+          is_allowed = True
+      if (not is_allowed) and chat_username and chat_username in allowed_channels:
         is_allowed = True
       
       if not is_allowed:
