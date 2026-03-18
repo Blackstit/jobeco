@@ -77,6 +77,57 @@ def _parse_csv_list(value: str | None) -> list[str]:
   return out
 
 
+def _contacts_list_to_dict(contacts: list[str] | None) -> dict[str, str]:
+  """
+  Convert stored contacts (list[str] from LLM) into a typed dict for API consumers.
+
+  Note: the DB stores only raw strings; we apply simple heuristics to classify.
+  """
+  out: dict[str, str] = {}
+  for raw in contacts or []:
+    if raw is None:
+      continue
+    c = str(raw).strip()
+    if not c:
+      continue
+
+    lc = c.lower()
+    label = "Other"
+    val = c
+
+    if lc.startswith("mailto:"):
+      label = "Email"
+      val = c[7:].strip()
+    elif c.startswith("@"):
+      label = "Telegram"
+      val = c
+    elif lc.startswith("t.me/"):
+      label = "Telegram"
+      val = c
+    elif lc.startswith("http://") or lc.startswith("https://"):
+      if "linkedin.com" in lc:
+        label = "LinkedIn"
+      elif "t.me/" in lc:
+        label = "Telegram"
+      else:
+        label = "URL"
+    else:
+      # Very rough email/phone detection (kept intentionally simple for MVP).
+      if "@" in c and "." in c and not c.startswith("@"):
+        label = "Email"
+      elif any(ch.isdigit() for ch in c) and len(c) >= 7:
+        label = "Phone"
+
+    if label in out:
+      # Keep stable formatting for multiple contacts of the same type.
+      if val not in out[label].split(", "):
+        out[label] = out[label] + ", " + val
+    else:
+      out[label] = val
+
+  return out
+
+
 async def _enforce_api_key_limits_and_log(
   *,
   s,
@@ -718,8 +769,8 @@ async def api_public_vacancies(
   request: Request,
   page: int = Query(1, ge=1),
   per_page: int = Query(50, ge=1, le=200),
-  include_blocks: bool = Query(False),
-  include_raw_text: bool = Query(False),
+  include_blocks: bool = Query(True),
+  include_raw_text: bool = Query(True),
 ):
   api_key_token = request.headers.get("X-API-Key") or ""
   api_key_token = api_key_token.strip()
@@ -798,11 +849,19 @@ async def api_public_vacancies(
     ).scalars().all()
 
     out_lang = (cfg.get("output") or {}).get("language") or "en"
-    include_blocks_flag = bool(include_blocks)
 
     items = []
     for v in rows:
       summary = v.summary_en if out_lang == "en" else (v.summary_ru or v.summary_en)
+      contacts_dict = _contacts_list_to_dict(getattr(v, "contacts", None))
+      derived_source_url = None
+      try:
+        tg_user = (getattr(v, "tg_channel_username", None) or "").lstrip("@")
+        tg_msg_id = getattr(v, "tg_message_id", None)
+        if tg_user and tg_msg_id:
+          derived_source_url = f"https://t.me/{tg_user}/{tg_msg_id}"
+      except Exception:
+        derived_source_url = None
       item = {
         "id": v.id,
         "title": v.title,
@@ -816,21 +875,25 @@ async def api_public_vacancies(
         "salary_max_usd": v.salary_max_usd,
         "recruiter": v.recruiter,
         "summary": summary,
-        "contacts": v.contacts or [],
-        "source_url": v.source_url,
+        # Skills extracted by LLM (Vacancy.stack is an ARRAY(Text) in DB).
+        # Expose as `skills` for client contract, keep `stack` as backward-compatible alias.
+        "skills": v.stack or [],
+        "stack": v.stack or [],
+        "contacts": contacts_dict,
+        "source_url": v.source_url or derived_source_url,
         "created_at": v.created_at.isoformat() if v.created_at else None,
       }
-      if include_blocks_flag:
-        item.update(
-          {
-            "description": v.description,
-            "responsibilities": v.responsibilities,
-            "requirements": v.requirements,
-            "conditions": v.conditions,
-          }
-        )
-      if include_raw_text:
-        item["raw_text"] = v.raw_text
+      # Requirement: always include vacancy blocks and raw text.
+      # We keep query params for backward compatibility, but ignore their values.
+      item.update(
+        {
+          "description": v.description,
+          "responsibilities": v.responsibilities,
+          "requirements": v.requirements,
+          "conditions": v.conditions,
+          "raw_text": v.raw_text,
+        }
+      )
       items.append(item)
 
   return {"page": page, "per_page": per_page, "total": total, "items": items}

@@ -26,8 +26,8 @@
 Query параметры (пагинация/включение доп.данных):
 - `page` (int, default `1`)
 - `per_page` (int, default `50`, max `200`)
-- `include_blocks` (bool, default `0/false`) — добавить блоки `description/responsibilities/requirements/conditions`
-- `include_raw_text` (bool, default `0/false`) — добавить поле `raw_text`
+- `include_blocks` (bool, legacy) — сейчас игнорируется: блоки `description/responsibilities/requirements/conditions` возвращаются всегда
+- `include_raw_text` (bool, legacy) — сейчас игнорируется: `raw_text` возвращается всегда
 
 Пример запроса:
 ```bash
@@ -87,14 +87,19 @@ curl -s \
       "salary_max_usd": 12000,
       "recruiter": null,
       "summary": "…",
-      "contacts": ["@SomeBot", "email@example.com", "..."],
-      "source_url": null,
+      "skills": ["Rust", "Web3", "ECS"],
+      "stack": ["Rust", "Web3", "ECS"],
+      "contacts": {
+        "Telegram": "@SomeBot",
+        "Email": "email@example.com"
+      },
+      "source_url": "https://t.me/<channel>/<message>",
       "created_at": "2026-03-18T16:08:08.600111+00:00",
-      "description": "…",            // только если include_blocks=1
-      "responsibilities": "…",      // только если include_blocks=1
-      "requirements": "…",          // только если include_blocks=1
-      "conditions": "…"             // только если include_blocks=1
-      "raw_text": "…"              // только если include_raw_text=1
+      "description": "…",
+      "responsibilities": "…",
+      "requirements": "…",
+      "conditions": "…",
+      "raw_text": "…"
     }
   ]
 }
@@ -102,7 +107,8 @@ curl -s \
 
 Пояснения:
 - `summary` — берётся из `summary_en` (на проде сейчас всегда EN по умолчанию)
-- `contacts` — список строк
+- `contacts` — словарь `{"Telegram": "@username", "LinkedIn": "url", "Email": "email", "URL": "..."}`.
+  Если контактов одного типа несколько — значения объединяются через запятую.
 - `source_url` — ссылка на оригинальный источник (если она извлечена)
 
 ## 5) Rate limits и usage

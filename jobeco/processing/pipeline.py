@@ -117,6 +117,16 @@ async def process_message(event: events.NewMessage.Event) -> None:
   if not text_raw:
     return
 
+  # Best-effort source URL so public API doesn't return `null` for Telethon-ingested rows.
+  source_url: str | None = None
+  try:
+    chat_username = getattr(event.chat, "username", None)
+    if chat_username and getattr(msg, "id", None):
+      uname = str(chat_username).lstrip("@")
+      source_url = f"https://t.me/{uname}/{msg.id}"
+  except Exception:
+    source_url = None
+
   # Prevalidation (cheap) - skip non-vacancy content
   pv = await prevalidate_post(text_raw)
   if not pv.get("is_vacancy", True):
@@ -134,7 +144,7 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "tg_message_id": msg.id,
     "tg_channel_id": getattr(event.chat, "id", None),
     "tg_channel_username": getattr(event.chat, "username", None),
-    "source_url": None,
+    "source_url": source_url,
     "company_name": analysis.get("company_name"),
     "title": analysis.get("title"),
     "location_type": analysis.get("location_type"),
