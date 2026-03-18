@@ -574,6 +574,41 @@ async def logs_page(
   Human-friendly parser logs (English) for admin.
   """
   async with SessionLocal() as s:
+    # Backfill: if userbot was running an older code version (or migrations
+    # were not applied), the UI may show "No parser logs yet.".
+    # Here we ensure at least `vacancy_added` events exist for recent vacancies.
+    recent_vacancies = (
+      await s.execute(select(Vacancy).order_by(desc(Vacancy.id)).limit(50))
+    ).scalars().all()
+    recent_ids = [v.id for v in recent_vacancies if v.id is not None]
+    if recent_ids:
+      existing_rows = (
+        await s.execute(
+          select(ParserLog.vacancy_id).where(
+            ParserLog.event == "vacancy_added",
+            ParserLog.vacancy_id.in_(recent_ids),
+          )
+        )
+      ).scalars().all()
+      existing_set = {int(x) for x in existing_rows if x is not None}
+
+      missing = [v for v in recent_vacancies if int(v.id) not in existing_set]
+      for v in missing:
+        s.add(
+          ParserLog(
+            level="INFO",
+            event="vacancy_added",
+            message_en=f"Vacancy added. ID {v.id}",
+            channel_username=v.tg_channel_username,
+            tg_message_id=v.tg_message_id,
+            vacancy_id=v.id,
+            extra={},
+            created_at=v.created_at,
+          )
+        )
+      if missing:
+        await s.commit()
+
     rows = (
       await s.execute(
         select(ParserLog)
