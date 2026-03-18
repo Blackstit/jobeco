@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h2 class="text-2xl font-semibold mb-2">Документация API</h2>
+  <p class="text-sm text-slate-400">Публичная выдача вакансий внешним сервисам через ключи.</p>
+</div>
+
+<div class="space-y-4">
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div class="text-sm font-semibold mb-2">1) Раздел ключей</div>
+    <div class="text-xs text-slate-400 mb-3">
+      Управление ключами и фильтрами выполняется тут: <a href="/api/keys" class="text-blue-400 hover:underline">/api/keys</a>
+    </div>
+    <div class="text-xs text-slate-300">
+      Ключ задаёт фильтры выдачи (domains/role/recruiter/company_domain/location_type/salary_min_usd/salary_max_usd/risk_label)
+      и лимиты (requests_per_minute, daily_quota).
+    </div>
+  </div>
+
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div class="text-sm font-semibold mb-2">2) Публичный endpoint</div>
+    <div class="text-xs text-slate-400 mb-2">URL:</div>
+    <div class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 font-mono break-all">
+      GET /api/public/vacancies
+    </div>
+    <div class="text-xs text-slate-400 mt-3 mb-2">Авторизация:</div>
+    <div class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 font-mono break-all">
+      X-API-Key: &lt;token&gt;
+    </div>
+    <div class="text-xs text-slate-400 mt-3 mb-2">Параметры (query):</div>
+    <div class="text-xs text-slate-300 space-y-1">
+      <div><span class="text-slate-400">page</span> — номер страницы (default: 1)</div>
+      <div><span class="text-slate-400">per_page</span> — размер страницы (default: 50, max: 200)</div>
+      <div><span class="text-slate-400">include_blocks</span> — 1 чтобы добавить description/responsibilities/requirements/conditions</div>
+      <div><span class="text-slate-400">include_raw_text</span> — 1 чтобы добавить raw_text</div>
+    </div>
+  </div>
+
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div class="text-sm font-semibold mb-2">3) Пример запроса</div>
+    <pre class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-x-auto">
+curl -s \</n+  -H "Accept: application/json" \</n+  -H "X-API-Key: YOUR_TOKEN" \</n+  "http://YOUR_HOST/api/public/vacancies?page=1&per_page=20"
+    </pre>
+  </div>
+
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div class="text-sm font-semibold mb-2">4) Rate limits</div>
+    <div class="text-xs text-slate-300">
+      Лимиты настраиваются в UI для каждого ключа:
+      <span class="font-mono">requests_per_minute</span> и <span class="font-mono">daily_quota</span>.
+      При превышении вернётся <span class="font-mono">HTTP 429</span>.
+    </div>
+  </div>
+
+  <div class="bg-emerald-950/70 border border-emerald-800 rounded-xl p-4">
+    <div class="text-sm font-semibold mb-2">Ответ сервера</div>
+    <div class="text-xs text-slate-200">
+      JSON: <span class="font-mono">{ page, per_page, total, items[] }</span>.
+      В <span class="font-mono">items</span> всегда есть <span class="font-mono">summary</span> (берётся из <span class="font-mono">summary_en</span> по умолчанию),
+      а опционально добавляются блоки и/or raw_text.
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+

@@ -509,6 +509,14 @@ async def api_keys_page(
   )
 
 
+@app.get("/api/docs", response_class=HTMLResponse)
+async def api_docs_page(
+  request: Request,
+  _: bool = Depends(require_auth),
+):
+  return templates.TemplateResponse("api_docs.html", {"request": request})
+
+
 @app.post("/api/keys/create", response_class=HTMLResponse)
 async def api_keys_create(
   request: Request,
