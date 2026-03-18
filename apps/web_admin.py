@@ -547,12 +547,36 @@ async def api_keys_page(
 ):
   async with SessionLocal() as s:
     keys, usage_map = await _load_api_keys_overview(s)
+    admin_users = (
+      await s.execute(select(AdminUser).where(AdminUser.is_active == True).order_by(AdminUser.id.asc()))
+    ).scalars().all()
+    owner_email_map = {u.id: u.email for u in admin_users}
+    now = datetime.utcnow()
+    expires_period_map: dict[int, str] = {}
+    for k in keys:
+      if getattr(k, "expires_at", None) is None:
+        expires_period_map[int(k.id)] = "forever"
+        continue
+      try:
+        created_at = getattr(k, "created_at", None) or now
+        delta_days = (k.expires_at - created_at).total_seconds() / 86400.0
+        if delta_days <= 45:
+          expires_period_map[int(k.id)] = "1m"
+        elif delta_days <= 120:
+          expires_period_map[int(k.id)] = "3m"
+        else:
+          expires_period_map[int(k.id)] = "1y"
+      except Exception:
+        expires_period_map[int(k.id)] = "custom"
   return templates.TemplateResponse(
     "api_keys.html",
     {
       "request": request,
       "keys": keys,
       "usage_map": usage_map,
+      "admin_users": admin_users,
+      "owner_email_map": owner_email_map,
+      "expires_period_map": expires_period_map,
       "generated_token": None,
       "flash": request.query_params.get("flash"),
       "created": request.query_params.get("created"),
@@ -574,6 +598,12 @@ async def api_keys_create(
   _: bool = Depends(require_auth),
 ):
   form = await request.form()
+  current_admin_id_raw = request.session.get("user_id")
+  try:
+    current_admin_id = int(current_admin_id_raw) if current_admin_id_raw is not None else None
+  except Exception:
+    current_admin_id = None
+
   name = (form.get("name") or "").strip()
   if not name:
     raise HTTPException(status_code=400, detail="name is required")
@@ -601,11 +631,30 @@ async def api_keys_create(
   is_active_raw = (form.get("is_active") or "").lower()
   is_active = is_active_raw in ("1", "true", "yes", "on") or not is_active_raw
 
+  owner_id_raw = (form.get("owner_id") or "").strip()
+  owner_id = None
+  if owner_id_raw:
+    try:
+      owner_id = int(owner_id_raw)
+    except Exception:
+      owner_id = None
+  if owner_id is None:
+    owner_id = current_admin_id
+
+  expires_period = (form.get("expires_period") or "forever").strip()
+  expires_at = None
+  if expires_period in ("1m", "3m", "1y"):
+    now = datetime.utcnow()
+    days = 30 if expires_period == "1m" else (90 if expires_period == "3m" else 365)
+    expires_at = now + timedelta(days=days)
+
   token = _generate_api_key_token()
   key = ApiKey(
     name=name,
     api_key_hash=_hash_api_key_token(token),
     is_active=is_active,
+    owner_id=owner_id,
+    expires_at=expires_at,
     config={
       "filters": {
         "domains": domains,
@@ -626,6 +675,27 @@ async def api_keys_create(
     await s.commit()
     await s.refresh(key)
     keys, usage_map = await _load_api_keys_overview(s)
+    admin_users = (
+      await s.execute(select(AdminUser).where(AdminUser.is_active == True).order_by(AdminUser.id.asc()))
+    ).scalars().all()
+    owner_email_map = {u.id: u.email for u in admin_users}
+    now = datetime.utcnow()
+    expires_period_map: dict[int, str] = {}
+    for k in keys:
+      if getattr(k, "expires_at", None) is None:
+        expires_period_map[int(k.id)] = "forever"
+        continue
+      try:
+        created_at = getattr(k, "created_at", None) or now
+        delta_days = (k.expires_at - created_at).total_seconds() / 86400.0
+        if delta_days <= 45:
+          expires_period_map[int(k.id)] = "1m"
+        elif delta_days <= 120:
+          expires_period_map[int(k.id)] = "3m"
+        else:
+          expires_period_map[int(k.id)] = "1y"
+      except Exception:
+        expires_period_map[int(k.id)] = "custom"
 
   return templates.TemplateResponse(
     "api_keys.html",
@@ -633,6 +703,9 @@ async def api_keys_create(
       "request": request,
       "keys": keys,
       "usage_map": usage_map,
+      "admin_users": admin_users,
+      "owner_email_map": owner_email_map,
+      "expires_period_map": expires_period_map,
       "generated_token": token,
       "flash": f"API key created (id={key.id})",
       "created": "1",
@@ -681,6 +754,27 @@ async def api_keys_regenerate(
     key.api_key_hash = _hash_api_key_token(token)
     await s.commit()
     keys, usage_map = await _load_api_keys_overview(s)
+    admin_users = (
+      await s.execute(select(AdminUser).where(AdminUser.is_active == True).order_by(AdminUser.id.asc()))
+    ).scalars().all()
+    owner_email_map = {u.id: u.email for u in admin_users}
+    now = datetime.utcnow()
+    expires_period_map: dict[int, str] = {}
+    for k in keys:
+      if getattr(k, "expires_at", None) is None:
+        expires_period_map[int(k.id)] = "forever"
+        continue
+      try:
+        created_at = getattr(k, "created_at", None) or now
+        delta_days = (k.expires_at - created_at).total_seconds() / 86400.0
+        if delta_days <= 45:
+          expires_period_map[int(k.id)] = "1m"
+        elif delta_days <= 120:
+          expires_period_map[int(k.id)] = "3m"
+        else:
+          expires_period_map[int(k.id)] = "1y"
+      except Exception:
+        expires_period_map[int(k.id)] = "custom"
 
   return templates.TemplateResponse(
     "api_keys.html",
@@ -688,6 +782,9 @@ async def api_keys_regenerate(
       "request": request,
       "keys": keys,
       "usage_map": usage_map,
+      "admin_users": admin_users,
+      "owner_email_map": owner_email_map,
+      "expires_period_map": expires_period_map,
       "generated_token": token,
       "flash": f"API key regenerated (id={api_key_id})",
       "created": "0",
@@ -702,6 +799,12 @@ async def api_keys_update(
   _: bool = Depends(require_auth),
 ):
   form = await request.form()
+  current_admin_id_raw = request.session.get("user_id")
+  try:
+    current_admin_id = int(current_admin_id_raw) if current_admin_id_raw is not None else None
+  except Exception:
+    current_admin_id = None
+
   name = (form.get("name") or "").strip()
   domains = _parse_csv_list(form.get("domains"))
   role = (form.get("role") or "").strip() or None
@@ -726,6 +829,24 @@ async def api_keys_update(
   is_active_raw = (form.get("is_active") or "").lower()
   is_active = is_active_raw in ("1", "true", "yes", "on")
 
+  owner_id_raw = (form.get("owner_id") or "").strip()
+  owner_id: int | None = None
+  set_owner_id = False
+  if owner_id_raw:
+    try:
+      owner_id = int(owner_id_raw)
+      set_owner_id = True
+    except Exception:
+      owner_id = None
+
+  expires_period = (form.get("expires_period") or "forever").strip()
+  expires_at = None
+  keep_existing_expires = expires_period == "custom"
+  if expires_period in ("1m", "3m", "1y"):
+    now = datetime.utcnow()
+    days = 30 if expires_period == "1m" else (90 if expires_period == "3m" else 365)
+    expires_at = now + timedelta(days=days)
+
   async with SessionLocal() as s:
     key = (await s.execute(select(ApiKey).where(ApiKey.id == api_key_id))).scalar_one_or_none()
     if not key:
@@ -734,6 +855,9 @@ async def api_keys_update(
     if name:
       key.name = name
     key.is_active = is_active
+    if set_owner_id:
+      key.owner_id = owner_id
+    key.expires_at = key.expires_at if keep_existing_expires else expires_at
     key.config = {
       "filters": {
         "domains": domains,
@@ -750,6 +874,27 @@ async def api_keys_update(
 
     await s.commit()
     keys, usage_map = await _load_api_keys_overview(s)
+    admin_users = (
+      await s.execute(select(AdminUser).where(AdminUser.is_active == True).order_by(AdminUser.id.asc()))
+    ).scalars().all()
+    owner_email_map = {u.id: u.email for u in admin_users}
+    now = datetime.utcnow()
+    expires_period_map: dict[int, str] = {}
+    for k in keys:
+      if getattr(k, "expires_at", None) is None:
+        expires_period_map[int(k.id)] = "forever"
+        continue
+      try:
+        created_at = getattr(k, "created_at", None) or now
+        delta_days = (k.expires_at - created_at).total_seconds() / 86400.0
+        if delta_days <= 45:
+          expires_period_map[int(k.id)] = "1m"
+        elif delta_days <= 120:
+          expires_period_map[int(k.id)] = "3m"
+        else:
+          expires_period_map[int(k.id)] = "1y"
+      except Exception:
+        expires_period_map[int(k.id)] = "custom"
 
   return templates.TemplateResponse(
     "api_keys.html",
@@ -757,6 +902,9 @@ async def api_keys_update(
       "request": request,
       "keys": keys,
       "usage_map": usage_map,
+      "admin_users": admin_users,
+      "owner_email_map": owner_email_map,
+      "expires_period_map": expires_period_map,
       "generated_token": None,
       "flash": "API key updated",
       "created": "0",
@@ -778,10 +926,16 @@ async def api_public_vacancies(
     raise HTTPException(status_code=401, detail="Missing X-API-Key header")
 
   token_hash = _hash_api_key_token(api_key_token)
+  now = datetime.utcnow()
   async with SessionLocal() as s:
     api_key = (
       await s.execute(
-        select(ApiKey).where(ApiKey.api_key_hash == token_hash, ApiKey.is_active == True)  # noqa: E712
+        select(ApiKey).where(
+          ApiKey.api_key_hash == token_hash,
+          ApiKey.is_active == True,  # noqa: E712
+          # NULL expires_at means "infinite".
+          or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
+        )
       )
     ).scalar_one_or_none()
     if not api_key:

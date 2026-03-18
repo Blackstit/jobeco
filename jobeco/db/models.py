@@ -125,6 +125,14 @@ class ApiKey(Base):
   api_key_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
   is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
+  # Owner admin user (nullable for backward compatibility).
+  owner_id: Mapped[int | None] = mapped_column(
+    Integer, ForeignKey("admin_users.id", ondelete="SET NULL"), nullable=True, index=True
+  )
+
+  # Expiration date/time for the token. `NULL` means "infinite".
+  expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
   # Arbitrary filter config and output preferences for this key.
   # Example:
   # {
