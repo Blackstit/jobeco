@@ -52,6 +52,13 @@
         </svg>
         <span>API</span>
       </a>
+      <a href="/api/docs" class="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-800 hover:bg-slate-800/60 transition {% if request.url.path == '/api/docs' %}bg-slate-800 text-white{% else %}text-slate-300{% endif %}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h10M7 16h6" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3h6l2 2v16H7V5l2-2z" />
+        </svg>
+        <span>Документация</span>
+      </a>
 
       <details class="group">
         <summary class="cursor-pointer flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-800 hover:bg-slate-800/60 transition {% if request.url.path == '/settings' %}bg-slate-800 text-white{% else %}text-slate-300{% endif %}">
