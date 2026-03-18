@@ -57,9 +57,9 @@
   </div>
 </div>
 
-<div id="vacRoot" class="flex gap-4">
+<div id="vacRoot" class="flex gap-4 overflow-hidden">
   <!-- List -->
-  <div id="vacList" class="w-full transition-all">
+  <div id="vacList" class="w-full transition-all overflow-y-auto h-[80vh] pr-1">
     <div class="space-y-3">
       {% for v in vacancies %}
       <div id="vac-card-{{ v.id }}"
@@ -126,8 +126,8 @@
   </div>
 
   <!-- Details pane -->
-  <div id="vacPane" class="hidden w-1/2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
-    <div class="p-4 border-b border-slate-800 flex items-start justify-between gap-3 sticky top-0 bg-slate-950">
+  <div id="vacPane" class="hidden w-1/2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden h-[80vh] flex flex-col">
+    <div class="p-4 border-b border-slate-800 flex items-start justify-between gap-3 bg-slate-950 flex-none">
       <div class="min-w-0">
         <div class="text-lg font-semibold" id="pTitle">—</div>
         <div class="text-sm text-slate-400 mt-1" id="pCompany"></div>
@@ -135,11 +135,14 @@
         <div class="mt-2 text-xs text-slate-500" id="pMeta"></div>
       </div>
       <div class="flex items-center gap-2">
-        <a id="pSource" target="_blank" rel="noreferrer" class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition hidden">Source ↗</a>
+        <a id="pSource" target="_blank" rel="noreferrer" class="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded transition hidden">
+          <span class="text-lg leading-none" aria-hidden>↗</span>
+          <span class="sr-only">Source</span>
+        </a>
         <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="closeVacancyPane()">Close</button>
       </div>
     </div>
-    <div class="p-4 overflow-y-auto max-h-[80vh] space-y-4">
+    <div class="p-4 overflow-y-auto space-y-4 flex-1 pb-10">
       <div id="secSummary" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
         <div class="text-sm font-semibold mb-2">AI summary</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pSummary"></div>
@@ -164,7 +167,7 @@
         <div class="text-sm font-semibold mb-2">Original text</div>
         <details class="text-sm text-slate-200">
           <summary class="cursor-pointer select-none text-slate-400">Show</summary>
-          <div class="mt-2 whitespace-pre-wrap" id="pRaw"></div>
+          <div class="mt-2 whitespace-pre-wrap max-h-[40vh] overflow-y-auto pr-1" id="pRaw"></div>
         </details>
       </div>
     </div>
@@ -305,6 +308,7 @@ function closeVacancyPane() {
   document.getElementById("vacList").classList.remove("w-1/2");
   document.getElementById("vacList").classList.add("w-full");
   document.querySelectorAll("[id^='vac-card-']").forEach((el) => el.classList.remove("ring-2","ring-blue-500/50"));
+  document.body.classList.remove("overflow-hidden");
 }
 
 async function deleteVacancy(id) {
@@ -327,6 +331,7 @@ async function openVacancyPane(id) {
   document.getElementById("vacPane").classList.remove("hidden");
   document.getElementById("vacList").classList.remove("w-full");
   document.getElementById("vacList").classList.add("w-1/2");
+  document.body.classList.add("overflow-hidden");
 
   document.getElementById("pTitle").textContent = v.title || "—";
   document.getElementById("pCompany").textContent = v.company_name || "";
