@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h2 class="text-2xl font-semibold mb-2">API</h2>
+  <p class="text-sm text-slate-400">Создавай ключи и настраивай фильтры выдачи вакансий для внешних сервисов.</p>
+</div>
+
+{% if flash %}
+  <div class="mb-4 p-3 rounded-lg bg-slate-800/60 border border-slate-700 text-sm text-slate-200">
+    {{ flash }}
+  </div>
+{% endif %}
+
+{% if generated_token %}
+  <div class="mb-6 p-4 rounded-xl bg-emerald-950/70 border border-emerald-800 text-emerald-100">
+    <div class="font-semibold mb-2">Секретный токен (показан один раз)</div>
+    <div class="text-xs text-emerald-200 mb-2">
+      Используй его в заголовке: <span class="font-mono">X-API-Key: {{ generated_token }}</span>
+    </div>
+    <div class="bg-slate-900 border border-emerald-800 rounded-lg p-3 break-all font-mono text-sm">
+      {{ generated_token }}
+    </div>
+    <div class="text-xs text-emerald-200 mt-2">
+      Токен больше не будет отображаться. Сохрани его в безопасном месте.
+    </div>
+  </div>
+{% endif %}
+
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4 mb-8">
+  <div>
+    <div class="text-sm font-semibold mb-1">Создать ключ</div>
+    <div class="text-xs text-slate-400">Фильтры задаются на уровне ключа.</div>
+  </div>
+
+  <form method="post" action="/api/keys/create" class="space-y-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="text-sm text-slate-200">Название ключа</label>
+        <input name="name" type="text" required class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="Web3 board / AI bot / ..."/>
+      </div>
+      <div>
+        <label class="text-sm text-slate-200">Active</label>
+        <div class="mt-3">
+          <input name="is_active" type="checkbox" value="1" checked class="h-4 w-4 text-blue-500 rounded"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="text-sm text-slate-200">Domains (через запятую)</label>
+        <input name="domains" type="text" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="web3,ai,igaming"/>
+        <div class="text-xs text-slate-500 mt-1">Поддерживаемый набор: web3, ai, igaming, tech, gaming, traffic</div>
+      </div>
+      <div>
+        <label class="text-sm text-slate-200">Location type</label>
+        <select name="location_type" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+          <option value="">(любое)</option>
+          <option value="remote">remote</option>
+          <option value="hybrid">hybrid</option>
+          <option value="office">office</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label class="text-sm text-slate-200">Role</label>
+        <input name="role" type="text" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="engineer / analyst / ..."/>
+      </div>
+      <div>
+        <label class="text-sm text-slate-200">Recruiter</label>
+        <input name="recruiter" type="text" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="HR / name / ..."/>
+      </div>
+      <div>
+        <label class="text-sm text-slate-200">Company domain</label>
+        <input name="company_domain" type="text" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="example.com"/>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="text-sm text-slate-200">Salary min (USD)</label>
+        <input name="salary_min_usd" type="number" min="0" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="1000"/>
+      </div>
+      <div>
+        <label class="text-sm text-slate-200">Salary max (USD)</label>
+        <input name="salary_max_usd" type="number" min="0" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="3000"/>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="text-sm text-slate-200">Risk label</label>
+        <select name="risk_label" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+          <option value="">(не фильтровать)</option>
+          <option value="high-risk">high-risk</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-sm text-slate-200">Requests per minute</label>
+        <input name="requests_per_minute" type="number" min="0" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="60"/>
+      </div>
+    </div>
+
+    <div>
+      <label class="text-sm text-slate-200">Daily quota</label>
+      <input name="daily_quota" type="number" min="0" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="5000"/>
+      <div class="text-xs text-slate-500 mt-1">
+        Оставь пустым, если квота не нужна.
+      </div>
+    </div>
+
+    <div class="pt-2 flex items-center justify-between">
+      <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+        Создать
+      </button>
+      <div class="text-xs text-slate-500">
+        Эндпоинт: <span class="font-mono">GET /api/public/vacancies</span>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="space-y-4">
+  <div class="text-sm font-semibold mb-1">Ключи</div>
+
+  {% for k in keys %}
+    {% set filters = (k.config or {}).get('filters', {}) %}
+    {% set limits = k.limits or {} %}
+    {% set u = usage_map.get(k.id) %}
+
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="font-semibold text-sm truncate">{{ k.name }}</div>
+            {% if k.is_active %}
+              <span class="text-xs px-2 py-1 rounded-full bg-emerald-900/60 border border-emerald-800 text-emerald-200">active</span>
+            {% else %}
+              <span class="text-xs px-2 py-1 rounded-full bg-rose-900/60 border border-rose-800 text-rose-200">inactive</span>
+            {% endif %}
+          </div>
+          <div class="text-xs text-slate-500">id: {{ k.id }}</div>
+        </div>
+
+        <div class="text-right">
+          <div class="text-xs text-slate-500">usage 24h</div>
+          <div class="text-lg font-semibold">{{ u.used_24h if u else 0 }}</div>
+          <div class="text-xs text-slate-500 mt-1">last used: {{ u.last_used_at if u else 'n/a' }}</div>
+        </div>
+      </div>
+
+      <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="text-sm">
+          <div class="text-xs text-slate-400 mb-2">Filters</div>
+          <div class="flex flex-wrap gap-2">
+            {% for d in (filters.get('domains') or []) %}
+              <span class="text-xs px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200">{{ d }}</span>
+            {% endfor %}
+            {% if not (filters.get('domains') or []) %}
+              <span class="text-xs text-slate-500">(all domains)</span>
+            {% endif %}
+          </div>
+          <div class="text-xs text-slate-500 mt-2">
+            role: {{ filters.get('role') or '-' }} |
+            recruiter: {{ filters.get('recruiter') or '-' }}
+          </div>
+          <div class="text-xs text-slate-500 mt-1">
+            company_domain: {{ filters.get('company_domain') or '-' }} |
+            location: {{ filters.get('location_type') or '-' }}
+          </div>
+          <div class="text-xs text-slate-500 mt-1">
+            salary: {{ filters.get('salary_min_usd') if filters.get('salary_min_usd') is not none else '-' }} -
+            {{ filters.get('salary_max_usd') if filters.get('salary_max_usd') is not none else '-' }} |
+            risk: {{ filters.get('risk_label') or '-' }}
+          </div>
+        </div>
+
+        <div class="text-sm">
+          <div class="text-xs text-slate-400 mb-2">Limits</div>
+          <div class="text-xs text-slate-500">
+            rpm: {{ limits.get('requests_per_minute') or '∞' }} |
+            daily: {{ limits.get('daily_quota') or '∞' }}
+          </div>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <form method="post" action="/api/keys/{{ k.id }}/toggle">
+              <button class="px-3 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs">
+                Toggle
+              </button>
+            </form>
+            <form method="post" action="/api/keys/{{ k.id }}/regenerate">
+              <button class="px-3 py-1 bg-amber-600 hover:bg-amber-700 border border-amber-700 rounded-lg text-xs">
+                Regenerate
+              </button>
+            </form>
+            <form method="post" action="/api/keys/{{ k.id }}/delete" onsubmit="return confirm('Delete this API key?');">
+              <button class="px-3 py-1 bg-rose-600 hover:bg-rose-700 border border-rose-700 rounded-lg text-xs">
+                Delete
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <details class="mt-4">
+        <summary class="cursor-pointer text-xs text-slate-300 hover:text-white">
+          Редактировать фильтры и лимиты
+        </summary>
+        <form method="post" action="/api/keys/{{ k.id }}/update" class="mt-3 grid grid-cols-1 gap-3">
+          <input type="hidden" name="name" value="{{ k.name }}" />
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400">Domains</label>
+              <input
+                name="domains"
+                type="text"
+                value="{{ (filters.get('domains') or [])|join(',') }}"
+                class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Location type</label>
+              <select
+                name="location_type"
+                class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"
+              >
+                <option value="" {% if not filters.get('location_type') %}selected{% endif %}>(не фильтровать)</option>
+                <option value="remote" {% if filters.get('location_type') == 'remote' %}selected{% endif %}>remote</option>
+                <option value="hybrid" {% if filters.get('location_type') == 'hybrid' %}selected{% endif %}>hybrid</option>
+                <option value="office" {% if filters.get('location_type') == 'office' %}selected{% endif %}>office</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label class="text-xs text-slate-400">Role</label>
+              <input name="role" type="text" value="{{ filters.get('role') or '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Recruiter</label>
+              <input name="recruiter" type="text" value="{{ filters.get('recruiter') or '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Company domain</label>
+              <input name="company_domain" type="text" value="{{ filters.get('company_domain') or '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400">Salary min (USD)</label>
+              <input name="salary_min_usd" type="number" min="0" value="{{ filters.get('salary_min_usd') if filters.get('salary_min_usd') is not none else '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Salary max (USD)</label>
+              <input name="salary_max_usd" type="number" min="0" value="{{ filters.get('salary_max_usd') if filters.get('salary_max_usd') is not none else '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400">Risk label</label>
+              <select name="risk_label" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500">
+                <option value="" {% if not filters.get('risk_label') %}selected{% endif %}>(не фильтровать)</option>
+                <option value="high-risk" {% if filters.get('risk_label') == 'high-risk' %}selected{% endif %}>high-risk</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Requests per minute</label>
+              <input name="requests_per_minute" type="number" min="0" value="{{ limits.get('requests_per_minute') if limits.get('requests_per_minute') is not none else '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+            <div>
+              <label class="text-xs text-slate-400">Daily quota</label>
+              <input name="daily_quota" type="number" min="0" value="{{ limits.get('daily_quota') if limits.get('daily_quota') is not none else '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
+            </div>
+            <div class="flex items-center gap-2">
+              <input name="is_active" type="checkbox" value="1" {% if k.is_active %}checked{% endif %} class="h-4 w-4 text-blue-500 rounded"/>
+              <span class="text-xs text-slate-300">Active</span>
+            </div>
+          </div>
+
+          <div class="pt-1">
+            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-medium transition">
+              Save
+            </button>
+          </div>
+        </form>
+      </details>
+    </div>
+  {% endfor %}
+</div>
+
+<div class="mt-8 p-4 rounded-xl bg-slate-900 border border-slate-800">
+  <div class="text-sm font-semibold mb-2">Как использовать</div>
+  <div class="text-xs text-slate-400 mb-2">Пример запроса:</div>
+  <pre class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-x-auto">
+curl -H "X-API-Key: &lt;YOUR_TOKEN&gt;" "https://YOUR_HOST/api/public/vacancies?per_page=20&page=1"
+  </pre>
+</div>
+{% endblock %}
+

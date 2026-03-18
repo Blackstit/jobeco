@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
@@ -113,3 +113,38 @@ class SystemSettings(Base):
   # Single JSON blob for runtime config (parser/openrouter/prompts/admin UI).
   data: Mapped[dict] = mapped_column("data", JSONB, nullable=False, server_default="{}")
   updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ApiKey(Base):
+  __tablename__ = "api_keys"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+  # We store only the hash of the secret token.
+  api_key_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
+  is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+
+  # Arbitrary filter config and output preferences for this key.
+  # Example:
+  # {
+  #   "filters": {"domains": ["web3"], "location_type": "remote"},
+  #   "output": {"language": "en", "include_contacts": true}
+  # }
+  config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+  # Example:
+  # {"requests_per_minute": 60, "daily_quota": 5000}
+  limits: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+
+  created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ApiKeyUsage(Base):
+  __tablename__ = "api_key_usage"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  api_key_id: Mapped[int] = mapped_column(Integer, ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=False, index=True)
+  endpoint: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+  status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+  requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

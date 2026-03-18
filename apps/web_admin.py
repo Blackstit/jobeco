@@ -1,7 +1,9 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
+import hashlib
+import secrets
 
-from fastapi import FastAPI, Request, Query, Form, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Query, Form, Depends, HTTPException, status, Header
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -12,7 +14,7 @@ from telethon import TelegramClient
 from telethon.tl.functions.channels import GetFullChannelRequest
 
 from jobeco.db.session import SessionLocal
-from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser
+from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage
 from jobeco.settings import settings
 from jobeco.openrouter.client import categorize_channel
 from jobeco.processing.pipeline import process_text_message
@@ -46,6 +48,122 @@ async def require_auth(request: Request):
     if not u:
       raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
   return True
+
+
+def _hash_api_key_token(token: str) -> str:
+  return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _generate_api_key_token() -> str:
+  # URL-safe token; it will be shown once (because we store only its hash).
+  return secrets.token_urlsafe(32)
+
+
+def _parse_csv_list(value: str | None) -> list[str]:
+  if not value:
+    return []
+  items: list[str] = []
+  for x in value.split(","):
+    v = (x or "").strip().lower()
+    if v:
+      items.append(v)
+  # De-duplicate preserving order.
+  seen: set[str] = set()
+  out: list[str] = []
+  for v in items:
+    if v not in seen:
+      seen.add(v)
+      out.append(v)
+  return out
+
+
+async def _enforce_api_key_limits_and_log(
+  *,
+  s,
+  api_key: ApiKey,
+  endpoint: str,
+  status_code: int,
+):
+  """
+  Логирует usage и проверяет ограничения.
+
+  Важно: это простая реализация через COUNT по окнам (1 мин / 24 часа).
+  Для прод-среды при высокой нагрузке стоит заменить на Redis-RateLimit.
+  """
+  limits = api_key.limits or {}
+  now = datetime.utcnow()
+
+  requests_per_minute = limits.get("requests_per_minute")
+  daily_quota = limits.get("daily_quota")
+
+  # Будем логировать только если лимиты не превышены или если это уже ошибка 429.
+  if status_code != 429:
+    minute_start = now - timedelta(minutes=1)
+    day_start = now - timedelta(days=1)
+
+    q_min = await s.execute(
+      select(func.count())
+      .select_from(ApiKeyUsage)
+      .where(
+        ApiKeyUsage.api_key_id == api_key.id,
+        ApiKeyUsage.requested_at >= minute_start,
+      )
+    )
+    used_min = q_min.scalar() or 0
+    if requests_per_minute is not None:
+      try:
+        requests_per_minute_int = int(requests_per_minute)
+      except Exception:
+        requests_per_minute_int = None
+      if requests_per_minute_int is not None and used_min >= requests_per_minute_int:
+        # Логируем 429 и возвращаем ошибку.
+        s.add(
+          ApiKeyUsage(
+            api_key_id=api_key.id,
+            endpoint=endpoint,
+            status_code=429,
+            requested_at=now,
+          )
+        )
+        await s.commit()
+        raise HTTPException(status_code=429, detail="API rate limit exceeded")
+
+    q_day = await s.execute(
+      select(func.count())
+      .select_from(ApiKeyUsage)
+      .where(
+        ApiKeyUsage.api_key_id == api_key.id,
+        ApiKeyUsage.requested_at >= day_start,
+      )
+    )
+    used_day = q_day.scalar() or 0
+    if daily_quota is not None:
+      try:
+        daily_quota_int = int(daily_quota)
+      except Exception:
+        daily_quota_int = None
+      if daily_quota_int is not None and used_day >= daily_quota_int:
+        s.add(
+          ApiKeyUsage(
+            api_key_id=api_key.id,
+            endpoint=endpoint,
+            status_code=429,
+            requested_at=now,
+          )
+        )
+        await s.commit()
+        raise HTTPException(status_code=429, detail="API daily quota exceeded")
+
+  # Логируем реальную попытку (успех или внешняя обработка ошибок).
+  s.add(
+    ApiKeyUsage(
+      api_key_id=api_key.id,
+      endpoint=endpoint,
+      status_code=status_code,
+      requested_at=now,
+    )
+  )
+  await s.commit()
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -343,6 +461,371 @@ async def vacancies_page(
       "channels": channels,
     },
   )
+
+
+async def _load_api_keys_overview(s):
+  keys = (await s.execute(select(ApiKey).order_by(desc(ApiKey.id)))).scalars().all()
+  day_start = datetime.utcnow() - timedelta(days=1)
+
+  used_rows = (
+    await s.execute(
+      select(
+        ApiKeyUsage.api_key_id,
+        func.count(ApiKeyUsage.id).label("used_24h"),
+        func.max(ApiKeyUsage.requested_at).label("last_used_at"),
+      )
+      .where(ApiKeyUsage.requested_at >= day_start)
+      .group_by(ApiKeyUsage.api_key_id)
+    )
+  ).all()
+
+  usage_map: dict[int, dict] = {}
+  for r in used_rows:
+    usage_map[int(r.api_key_id)] = {
+      "used_24h": int(r.used_24h or 0),
+      "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+    }
+
+  return keys, usage_map
+
+
+@app.get("/api/keys", response_class=HTMLResponse)
+async def api_keys_page(
+  request: Request,
+  _: bool = Depends(require_auth),
+):
+  async with SessionLocal() as s:
+    keys, usage_map = await _load_api_keys_overview(s)
+  return templates.TemplateResponse(
+    "api_keys.html",
+    {
+      "request": request,
+      "keys": keys,
+      "usage_map": usage_map,
+      "generated_token": None,
+      "flash": request.query_params.get("flash"),
+      "created": request.query_params.get("created"),
+    },
+  )
+
+
+@app.post("/api/keys/create", response_class=HTMLResponse)
+async def api_keys_create(
+  request: Request,
+  _: bool = Depends(require_auth),
+):
+  form = await request.form()
+  name = (form.get("name") or "").strip()
+  if not name:
+    raise HTTPException(status_code=400, detail="name is required")
+
+  domains = _parse_csv_list(form.get("domains"))
+  role = (form.get("role") or "").strip() or None
+  recruiter = (form.get("recruiter") or "").strip() or None
+  company_domain = (form.get("company_domain") or "").strip().lower() or None
+  location_type = (form.get("location_type") or "").strip() or None
+  risk_label = (form.get("risk_label") or "").strip() or None
+
+  salary_min_raw = (form.get("salary_min_usd") or "").strip()
+  salary_max_raw = (form.get("salary_max_usd") or "").strip()
+  salary_min_usd = int(salary_min_raw) if salary_min_raw else None
+  salary_max_usd = int(salary_max_raw) if salary_max_raw else None
+
+  requests_per_minute_raw = (form.get("requests_per_minute") or "").strip()
+  daily_quota_raw = (form.get("daily_quota") or "").strip()
+  limits: dict = {}
+  if requests_per_minute_raw:
+    limits["requests_per_minute"] = int(requests_per_minute_raw)
+  if daily_quota_raw:
+    limits["daily_quota"] = int(daily_quota_raw)
+
+  is_active_raw = (form.get("is_active") or "").lower()
+  is_active = is_active_raw in ("1", "true", "yes", "on") or not is_active_raw
+
+  token = _generate_api_key_token()
+  key = ApiKey(
+    name=name,
+    api_key_hash=_hash_api_key_token(token),
+    is_active=is_active,
+    config={
+      "filters": {
+        "domains": domains,
+        "role": role,
+        "recruiter": recruiter,
+        "company_domain": company_domain,
+        "location_type": location_type,
+        "salary_min_usd": salary_min_usd,
+        "salary_max_usd": salary_max_usd,
+        "risk_label": risk_label,
+      }
+    },
+    limits=limits,
+  )
+
+  async with SessionLocal() as s:
+    s.add(key)
+    await s.commit()
+    await s.refresh(key)
+    keys, usage_map = await _load_api_keys_overview(s)
+
+  return templates.TemplateResponse(
+    "api_keys.html",
+    {
+      "request": request,
+      "keys": keys,
+      "usage_map": usage_map,
+      "generated_token": token,
+      "flash": f"API key created (id={key.id})",
+      "created": "1",
+    },
+  )
+
+
+@app.post("/api/keys/{api_key_id}/toggle", response_class=HTMLResponse)
+async def api_keys_toggle(
+  request: Request,
+  api_key_id: int,
+  _: bool = Depends(require_auth),
+):
+  async with SessionLocal() as s:
+    key = (await s.execute(select(ApiKey).where(ApiKey.id == api_key_id))).scalar_one_or_none()
+    if not key:
+      raise HTTPException(status_code=404, detail="API key not found")
+    key.is_active = not bool(key.is_active)
+    await s.commit()
+  return RedirectResponse(url="/api/keys?flash=updated", status_code=303)
+
+
+@app.post("/api/keys/{api_key_id}/delete", response_class=HTMLResponse)
+async def api_keys_delete(
+  request: Request,
+  api_key_id: int,
+  _: bool = Depends(require_auth),
+):
+  async with SessionLocal() as s:
+    await s.execute(delete(ApiKey).where(ApiKey.id == api_key_id))
+    await s.commit()
+  return RedirectResponse(url="/api/keys?flash=deleted", status_code=303)
+
+
+@app.post("/api/keys/{api_key_id}/regenerate", response_class=HTMLResponse)
+async def api_keys_regenerate(
+  request: Request,
+  api_key_id: int,
+  _: bool = Depends(require_auth),
+):
+  token = _generate_api_key_token()
+  async with SessionLocal() as s:
+    key = (await s.execute(select(ApiKey).where(ApiKey.id == api_key_id))).scalar_one_or_none()
+    if not key:
+      raise HTTPException(status_code=404, detail="API key not found")
+    key.api_key_hash = _hash_api_key_token(token)
+    await s.commit()
+    keys, usage_map = await _load_api_keys_overview(s)
+
+  return templates.TemplateResponse(
+    "api_keys.html",
+    {
+      "request": request,
+      "keys": keys,
+      "usage_map": usage_map,
+      "generated_token": token,
+      "flash": f"API key regenerated (id={api_key_id})",
+      "created": "0",
+    },
+  )
+
+
+@app.post("/api/keys/{api_key_id}/update", response_class=HTMLResponse)
+async def api_keys_update(
+  request: Request,
+  api_key_id: int,
+  _: bool = Depends(require_auth),
+):
+  form = await request.form()
+  name = (form.get("name") or "").strip()
+  domains = _parse_csv_list(form.get("domains"))
+  role = (form.get("role") or "").strip() or None
+  recruiter = (form.get("recruiter") or "").strip() or None
+  company_domain = (form.get("company_domain") or "").strip().lower() or None
+  location_type = (form.get("location_type") or "").strip() or None
+  risk_label = (form.get("risk_label") or "").strip() or None
+
+  salary_min_raw = (form.get("salary_min_usd") or "").strip()
+  salary_max_raw = (form.get("salary_max_usd") or "").strip()
+  salary_min_usd = int(salary_min_raw) if salary_min_raw else None
+  salary_max_usd = int(salary_max_raw) if salary_max_raw else None
+
+  requests_per_minute_raw = (form.get("requests_per_minute") or "").strip()
+  daily_quota_raw = (form.get("daily_quota") or "").strip()
+  limits: dict = {}
+  if requests_per_minute_raw:
+    limits["requests_per_minute"] = int(requests_per_minute_raw)
+  if daily_quota_raw:
+    limits["daily_quota"] = int(daily_quota_raw)
+
+  is_active_raw = (form.get("is_active") or "").lower()
+  is_active = is_active_raw in ("1", "true", "yes", "on")
+
+  async with SessionLocal() as s:
+    key = (await s.execute(select(ApiKey).where(ApiKey.id == api_key_id))).scalar_one_or_none()
+    if not key:
+      raise HTTPException(status_code=404, detail="API key not found")
+
+    if name:
+      key.name = name
+    key.is_active = is_active
+    key.config = {
+      "filters": {
+        "domains": domains,
+        "role": role,
+        "recruiter": recruiter,
+        "company_domain": company_domain,
+        "location_type": location_type,
+        "salary_min_usd": salary_min_usd,
+        "salary_max_usd": salary_max_usd,
+        "risk_label": risk_label,
+      }
+    }
+    key.limits = limits
+
+    await s.commit()
+    keys, usage_map = await _load_api_keys_overview(s)
+
+  return templates.TemplateResponse(
+    "api_keys.html",
+    {
+      "request": request,
+      "keys": keys,
+      "usage_map": usage_map,
+      "generated_token": None,
+      "flash": "API key updated",
+      "created": "0",
+    },
+  )
+
+
+@app.get("/api/public/vacancies")
+async def api_public_vacancies(
+  request: Request,
+  page: int = Query(1, ge=1),
+  per_page: int = Query(50, ge=1, le=200),
+  include_blocks: bool = Query(False),
+  include_raw_text: bool = Query(False),
+):
+  api_key_token = request.headers.get("X-API-Key") or ""
+  api_key_token = api_key_token.strip()
+  if not api_key_token:
+    raise HTTPException(status_code=401, detail="Missing X-API-Key header")
+
+  token_hash = _hash_api_key_token(api_key_token)
+  async with SessionLocal() as s:
+    api_key = (
+      await s.execute(
+        select(ApiKey).where(ApiKey.api_key_hash == token_hash, ApiKey.is_active == True)  # noqa: E712
+      )
+    ).scalar_one_or_none()
+    if not api_key:
+      raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # Rate limit + log (200 as a "successful attempt").
+    await _enforce_api_key_limits_and_log(
+      s=s,
+      api_key=api_key,
+      endpoint="/api/public/vacancies",
+      status_code=200,
+    )
+
+    cfg = api_key.config or {}
+    filters = cfg.get("filters") or {}
+
+    query = select(Vacancy)
+
+    domains = filters.get("domains") or []
+    domains = [str(d).strip().lower() for d in domains if str(d).strip()]
+    if domains:
+      domain_conds = [Vacancy.domains.contains([d]) for d in domains]
+      query = query.where(or_(*domain_conds))
+
+    role = filters.get("role")
+    if role:
+      query = query.where(Vacancy.role.ilike(f"%{str(role).strip()}%"))
+
+    recruiter = filters.get("recruiter")
+    if recruiter:
+      query = query.where(Vacancy.recruiter.ilike(f"%{str(recruiter).strip()}%"))
+
+    company_domain = filters.get("company_domain")
+    if company_domain:
+      query = query.where(Vacancy.company_domain == str(company_domain).strip().lower())
+
+    location_type = filters.get("location_type")
+    if location_type:
+      query = query.where(Vacancy.location_type == str(location_type).strip().lower())
+
+    risk_label = filters.get("risk_label")
+    if risk_label:
+      query = query.where(Vacancy.risk_label == str(risk_label).strip())
+
+    salary_min_usd = filters.get("salary_min_usd")
+    salary_max_usd = filters.get("salary_max_usd")
+    if salary_min_usd is not None:
+      try:
+        mi = int(salary_min_usd)
+        query = query.where(Vacancy.salary_max_usd.isnot(None)).where(Vacancy.salary_max_usd >= mi)
+      except Exception:
+        pass
+    if salary_max_usd is not None:
+      try:
+        ma = int(salary_max_usd)
+        query = query.where(Vacancy.salary_min_usd.isnot(None)).where(Vacancy.salary_min_usd <= ma)
+      except Exception:
+        pass
+
+    total = (await s.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
+    rows = (
+      await s.execute(
+        query.order_by(desc(Vacancy.id)).offset((page - 1) * per_page).limit(per_page)
+      )
+    ).scalars().all()
+
+    out_lang = (cfg.get("output") or {}).get("language") or "en"
+    include_blocks_flag = bool(include_blocks)
+
+    items = []
+    for v in rows:
+      summary = v.summary_en if out_lang == "en" else (v.summary_ru or v.summary_en)
+      item = {
+        "id": v.id,
+        "title": v.title,
+        "company_name": v.company_name,
+        "role": v.role,
+        "domains": v.domains or [],
+        "risk_label": v.risk_label,
+        "ai_score_value": v.ai_score_value,
+        "location_type": v.location_type,
+        "salary_min_usd": v.salary_min_usd,
+        "salary_max_usd": v.salary_max_usd,
+        "recruiter": v.recruiter,
+        "summary": summary,
+        "contacts": v.contacts or [],
+        "source_url": v.source_url,
+        "created_at": v.created_at.isoformat() if v.created_at else None,
+      }
+      if include_blocks_flag:
+        item.update(
+          {
+            "description": v.description,
+            "responsibilities": v.responsibilities,
+            "requirements": v.requirements,
+            "conditions": v.conditions,
+          }
+        )
+      if include_raw_text:
+        item["raw_text"] = v.raw_text
+      items.append(item)
+
+  return {"page": page, "per_page": per_page, "total": total, "items": items}
 
 
 @app.get("/api/vacancies/{vacancy_id}")
