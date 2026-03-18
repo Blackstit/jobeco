@@ -348,6 +348,20 @@ function closeChannel() {
   document.body.style.overflow = '';
 }
 </script>
+<script>
+  // Deep-link support: /channels?open_channel_id=<id>
+  // Used by the parser logs page.
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get("open_channel_id");
+    if (openId) {
+      const id = parseInt(openId, 10);
+      if (!Number.isNaN(id)) {
+        setTimeout(() => openChannel(id), 0);
+      }
+    }
+  } catch {}
+</script>
 
 <!-- Channel Modal -->
 <div id="chModal" class="hidden fixed inset-0 bg-black/70 items-center justify-center z-50 p-6"

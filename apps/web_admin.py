@@ -619,6 +619,18 @@ async def logs_page(
 
   # Reverse for chronological order.
   rows = list(reversed(rows))
+
+  # Resolve channel_id from username so logs can link into admin UI.
+  usernames = {r.channel_username for r in rows if getattr(r, "channel_username", None)}
+  channel_id_by_username: dict[str, int] = {}
+  if usernames:
+    channel_rows = (
+      await s.execute(
+        select(Channel).where(Channel.username.in_(list(usernames)))
+      )
+    ).scalars().all()
+    channel_id_by_username = {c.username: int(c.id) for c in channel_rows if c.username}
+
   logs = [
     {
       "id": r.id,
@@ -627,6 +639,7 @@ async def logs_page(
       "event": r.event,
       "message_en": r.message_en,
       "channel_username": r.channel_username,
+      "channel_id": channel_id_by_username.get(r.channel_username) if r.channel_username else None,
       "tg_message_id": r.tg_message_id,
       "vacancy_id": r.vacancy_id,
       "extra": r.extra or {},

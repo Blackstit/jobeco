@@ -498,4 +498,18 @@ async function reanalyzeVacancy(id) {
   }
 }
 </script>
+<script>
+  // Deep-link support: /vacancies?open_id=<id>
+  // Used by the parser logs page.
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get("open_id") || params.get("vacancy_id");
+    if (openId) {
+      const id = parseInt(openId, 10);
+      if (!Number.isNaN(id)) {
+        setTimeout(() => openVacancyPane(id), 0);
+      }
+    }
+  } catch {}
+</script>
 {% endblock %}

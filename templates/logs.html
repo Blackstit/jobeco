@@ -20,21 +20,51 @@
 
   <div
     id="logTerminal"
-    class="font-mono text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 h-[72vh] overflow-y-auto whitespace-pre-wrap"
+    class="font-mono text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 h-[72vh] overflow-y-auto overflow-x-hidden"
   >
     {% for l in logs %}
-      <div class="flex items-start gap-3 py-1">
-        <span class="text-slate-500 shrink-0">{{ l.created_at }}</span>
-        <span class="uppercase font-semibold shrink-0 w-20
-          {% if l.level == 'ERROR' %}text-red-300{% elif l.level == 'WARNING' %}text-yellow-300{% else %}text-sky-300{% endif %}">
+      <div class="flex items-center gap-3 py-1 whitespace-nowrap">
+        <span class="text-slate-500 shrink-0 w-56 truncate">{{ l.created_at }}</span>
+        <span
+          class="uppercase font-semibold shrink-0 w-20 text-center
+          {% if l.level == 'ERROR' %}text-red-300{% elif l.level == 'WARNING' %}text-yellow-300{% else %}text-sky-300{% endif %}"
+        >
           {{ l.level }}
         </span>
-        <span class="text-slate-200 break-words">
-          {{ l.message_en }}
-          {% if l.channel_username %}
-            <span class="text-slate-500">(@{{ l.channel_username }})</span>
+
+        <div class="flex items-center gap-2 min-w-0 flex-1">
+          <span class="text-slate-200 min-w-0 flex-1 truncate">{{ l.message_en }}</span>
+
+          {% if l.vacancy_id %}
+            <a
+              href="/vacancies?open_id={{ l.vacancy_id }}"
+              class="shrink-0 px-2 py-0.5 text-[11px] bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-200"
+              title="Open vacancy in admin"
+            >
+              Vacancy #{{ l.vacancy_id }}
+            </a>
           {% endif %}
-        </span>
+
+          {% if l.channel_id %}
+            <a
+              href="/channels?open_channel_id={{ l.channel_id }}"
+              class="shrink-0 px-2 py-0.5 text-[11px] bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-200"
+              title="Open channel in admin"
+            >
+              Channel @{{ l.channel_username }}
+            </a>
+          {% elif l.channel_username %}
+            <a
+              href="https://t.me/{{ l.channel_username }}"
+              target="_blank"
+              rel="noreferrer"
+              class="shrink-0 px-2 py-0.5 text-[11px] bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-200"
+              title="Open channel on Telegram"
+            >
+              Channel @{{ l.channel_username }}
+            </a>
+          {% endif %}
+        </div>
       </div>
     {% endfor %}
     {% if not logs %}
