@@ -16,6 +16,13 @@
       class="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
     />
     <select
+      name="search_mode"
+      class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+    >
+      <option value="text" {% if search_mode == 'text' %}selected{% endif %}>Текст</option>
+      <option value="semantic" {% if search_mode == 'semantic' %}selected{% endif %}>Семантика</option>
+    </select>
+    <select
       name="category"
       class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
     >
@@ -178,7 +185,7 @@
 <div class="mt-6 flex justify-center gap-2">
   {% if page > 1 %}
   <a
-    href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if category %}&category={{ category }}{% endif %}{% if channel %}&channel={{ channel }}{% endif %}"
+    href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if category %}&category={{ category }}{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}"
     class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
   >
     ← Назад
@@ -189,7 +196,7 @@
   </span>
   {% if page < total_pages %}
   <a
-    href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if category %}&category={{ category }}{% endif %}{% if channel %}&channel={{ channel }}{% endif %}"
+    href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if category %}&category={{ category }}{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}"
     class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
   >
     Вперёд →

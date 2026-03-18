@@ -4,7 +4,7 @@
 <div class="mb-6">
   <h2 class="text-2xl font-semibold mb-2">Документация Public API</h2>
   <p class="text-sm text-slate-400">
-    Как получить токен, настроить ключ и вызывать endpoint вакансий: <span class="font-mono">GET /api/public/vacancies</span>
+    Как получить токен, настроить ключ и вызывать endpoint вакансий: <span class="font-mono">GET /api/public/vacancies</span> (и <span class="font-mono">/api/public/vacancies/semantic-search</span>)
   </p>
 </div>
 
@@ -77,6 +77,26 @@
   </div>
 
   <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div class="text-sm font-semibold mb-2">3.1) Публичный vector/semantic endpoint</div>
+    <div class="text-xs text-slate-400 mb-2">URL:</div>
+    <div class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 font-mono break-all">
+      GET /api/public/vacancies/semantic-search
+    </div>
+
+    <div class="text-xs text-slate-400 mt-3 mb-2">Query-параметры:</div>
+    <div class="text-xs text-slate-300 space-y-1">
+      <div><span class="text-slate-400">q</span> — строка запроса для embedding</div>
+      <div><span class="text-slate-400">page</span> — номер страницы (default: 1)</div>
+      <div><span class="text-slate-400">per_page</span> — размер страницы (default: 20, max: 200)</div>
+    </div>
+
+    <div class="text-xs text-slate-400 mt-3">
+      Выдача сортируется по близости embedding (cosine distance).
+      Фильтры по ключу применяются так же, как и для <span class="font-mono">/api/public/vacancies</span>.
+    </div>
+  </div>
+
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
     <div class="text-sm font-semibold mb-2">4) Пример запроса</div>
     <pre class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-x-auto">curl -s \\
   -H "Accept: application/json" \\
@@ -106,6 +126,9 @@
           <span class="font-mono">requirements</span>,
           <span class="font-mono">conditions</span>,
           <span class="font-mono">raw_text</span>
+        </div>
+        <div>
+          <span class="font-mono">semantic_similarity</span> — только для <span class="font-mono">semantic-search</span>
         </div>
       </div>
     </div>

@@ -45,6 +45,32 @@ curl -s \
   "http://YOUR_HOST/api/public/vacancies?per_page=10&include_blocks=1"
 ```
 
+## 2.1) Публичный endpoint семантического (векторного) поиска
+
+Эндпоинт:
+- `GET /api/public/vacancies/semantic-search`
+
+Требование:
+- ключ обязателен: `X-API-Key`
+
+Query параметры:
+- `q` (string, требуется) — текст запроса для embedding
+- `page` (int, default `1`)
+- `per_page` (int, default `20`, max `200`)
+
+Логика:
+- используется тот же набор фильтров, который вы задали в ключе в `GET /api/keys`
+- вакансии сортируются по близости embedding (cosine distance): ближайшие первыми
+- в `items[]` дополнительно возвращается поле `semantic_similarity`
+
+Пример запроса:
+```bash
+curl -s \
+  -H "Accept: application/json" \
+  -H "X-API-Key: YOUR_TOKEN" \
+  "http://YOUR_HOST/api/public/vacancies/semantic-search?q=rust%20backend&per_page=10"
+```
+
 ## 3) Фильтры (задаются на уровне ключа)
 
 Фильтры настраиваются в `GET /api/keys` → Create/Update.
@@ -110,6 +136,7 @@ curl -s \
 - `contacts` — словарь `{"Telegram": "@username", "LinkedIn": "url", "Email": "email", "URL": "..."}`.
   Если контактов одного типа несколько — значения объединяются через запятую.
 - `source_url` — ссылка на оригинальный источник (если она извлечена)
+- `semantic_similarity` — только для `GET /api/public/vacancies/semantic-search` (близость запроса к вакансии)
 
 ## 5) Rate limits и usage
 

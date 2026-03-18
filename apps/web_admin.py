@@ -16,9 +16,8 @@ from telethon.tl.functions.channels import GetFullChannelRequest
 from jobeco.db.session import SessionLocal
 from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage
 from jobeco.settings import settings
-from jobeco.openrouter.client import categorize_channel
+from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text
 from jobeco.processing.pipeline import process_text_message
-from jobeco.openrouter.client import analyze_with_openrouter
 from jobeco.runtime_settings import (
   get_runtime_settings,
   upsert_system_settings,
@@ -452,32 +451,82 @@ async def vacancies_page(
   category: str | None = Query(None),
   channel: str | None = Query(None),
   search: str | None = Query(None),
+  search_mode: str = Query("text", pattern="^(text|semantic)$"),
 ):
   async with SessionLocal() as s:
-    query = select(Vacancy)
-    
-    if category:
-      query = query.where(Vacancy.category == category)
-    if channel:
-      query = query.where(Vacancy.tg_channel_username == channel)
-    if search:
-      search_filter = or_(
-        Vacancy.title.ilike(f"%{search}%"),
-        Vacancy.company_name.ilike(f"%{search}%"),
-        Vacancy.raw_text.ilike(f"%{search}%"),
-      )
-      query = query.where(search_filter)
-    
-    total = (await s.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
-    
-    vacancies = (
-      await s.execute(
-        query
-        .order_by(desc(Vacancy.id))
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-      )
-    ).scalars().all()
+    vacancies: list[object]
+    total: int
+
+    if search_mode == "semantic" and search and search.strip():
+      embedding = await embed_text(search)
+      if not embedding:
+        raise HTTPException(status_code=503, detail="Embeddings are not available (configure OPENROUTER_API_KEY).")
+
+      vec = "[" + ",".join(f"{x:.6f}" for x in embedding) + "]"
+      offset = (page - 1) * per_page
+
+      where = ["v.embedding IS NOT NULL"]
+      params: dict = {"vec": vec, "limit": per_page, "offset": offset}
+      if category:
+        where.append("v.category = :category")
+        params["category"] = category
+      if channel:
+        where.append("v.tg_channel_username = :channel")
+        params["channel"] = channel
+
+      where_sql = " AND ".join(where)
+      sql_count = f"SELECT count(*) FROM vacancies v WHERE {where_sql}"
+      sql_select = f"""
+        SELECT
+          v.id,
+          v.title,
+          v.company_name,
+          v.role,
+          v.domains,
+          v.risk_label,
+          v.ai_score_value,
+          v.location_type,
+          v.salary_min_usd,
+          v.salary_max_usd,
+          v.tg_channel_username,
+          v.raw_text,
+          v.summary_en,
+          v.category,
+          v.stack
+        FROM vacancies v
+        WHERE {where_sql}
+        ORDER BY v.embedding <=> (:vec)::vector ASC
+        LIMIT :limit OFFSET :offset
+      """
+
+      total = (await s.execute(text(sql_count), params)).scalar() or 0
+      rows = (await s.execute(text(sql_select), params)).mappings().all()
+      vacancies = [dict(r) for r in rows]
+    else:
+      query = select(Vacancy)
+
+      if category:
+        query = query.where(Vacancy.category == category)
+      if channel:
+        query = query.where(Vacancy.tg_channel_username == channel)
+      if search and search.strip():
+        search_filter = or_(
+          Vacancy.title.ilike(f"%{search}%"),
+          Vacancy.company_name.ilike(f"%{search}%"),
+          Vacancy.raw_text.ilike(f"%{search}%"),
+        )
+        query = query.where(search_filter)
+
+      total = (await s.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
+
+      vacancies = (
+        await s.execute(
+          query
+          .order_by(desc(Vacancy.id))
+          .offset((page - 1) * per_page)
+          .limit(per_page)
+        )
+      ).scalars().all()
     
     categories = (
       await s.execute(
@@ -508,6 +557,7 @@ async def vacancies_page(
       "category": category,
       "channel": channel,
       "search": search,
+      "search_mode": search_mode,
       "categories": categories,
       "channels": channels,
     },
@@ -1051,6 +1101,195 @@ async def api_public_vacancies(
       items.append(item)
 
   return {"page": page, "per_page": per_page, "total": total, "items": items}
+
+
+@app.get("/api/public/vacancies/semantic-search")
+async def api_public_vacancies_semantic_search(
+  request: Request,
+  q: str = Query(..., min_length=1),
+  page: int = Query(1, ge=1),
+  per_page: int = Query(20, ge=1, le=200),
+):
+  """
+  Semantic (vector) search over vacancy embeddings (pgvector).
+
+  Ordering: by cosine distance ascending (i.e. closest embedding first).
+  Result items keep the same structure as `/api/public/vacancies`, plus `semantic_similarity`.
+  """
+  api_key_token = (request.headers.get("X-API-Key") or "").strip()
+  if not api_key_token:
+    raise HTTPException(status_code=401, detail="Missing X-API-Key header")
+
+  token_hash = _hash_api_key_token(api_key_token)
+  now = datetime.utcnow()
+
+  async with SessionLocal() as s:
+    api_key = (
+      await s.execute(
+        select(ApiKey).where(
+          ApiKey.api_key_hash == token_hash,
+          ApiKey.is_active == True,  # noqa: E712
+          or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
+        )
+      )
+    ).scalar_one_or_none()
+    if not api_key:
+      raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # Rate limit + log (200 as a "successful attempt").
+    await _enforce_api_key_limits_and_log(
+      s=s,
+      api_key=api_key,
+      endpoint="/api/public/vacancies/semantic-search",
+      status_code=200,
+    )
+
+    embedding = await embed_text(q)
+    if not embedding:
+      raise HTTPException(
+        status_code=503,
+        detail="Embeddings are not available. Configure OPENROUTER_API_KEY for embedding generation.",
+      )
+
+    vec = "[" + ",".join(f"{x:.6f}" for x in embedding) + "]"
+
+    cfg = api_key.config or {}
+    filters = cfg.get("filters") or {}
+    out_lang = (cfg.get("output") or {}).get("language") or "en"
+
+    # Parse filters (same keys as /api/keys).
+    domains = filters.get("domains") or []
+    domains = [str(d).strip().lower() for d in domains if str(d).strip()]
+    role = filters.get("role")
+    recruiter = filters.get("recruiter")
+    company_domain = filters.get("company_domain")
+    location_type = filters.get("location_type")
+    risk_label = filters.get("risk_label")
+    salary_min_usd = filters.get("salary_min_usd")
+    salary_max_usd = filters.get("salary_max_usd")
+
+    where = ["v.embedding IS NOT NULL"]
+    params: dict = {"vec": vec, "limit": per_page, "offset": (page - 1) * per_page}
+
+    if domains:
+      # Build pg array literal: {"a","b"}
+      domains_arr = "{" + ",".join(f'"{d}"' for d in domains) + "}"
+      where.append("v.domains && (:domains_arr)::text[]")
+      params["domains_arr"] = domains_arr
+
+    if role:
+      where.append("v.role ILIKE '%' || :role || '%'")
+      params["role"] = str(role).strip()
+    if recruiter:
+      where.append("v.recruiter ILIKE '%' || :recruiter || '%'")
+      params["recruiter"] = str(recruiter).strip()
+    if company_domain:
+      where.append("v.company_domain = :company_domain")
+      params["company_domain"] = str(company_domain).strip().lower()
+    if location_type:
+      where.append("v.location_type = :location_type")
+      params["location_type"] = str(location_type).strip().lower()
+    if risk_label:
+      where.append("v.risk_label = :risk_label")
+      params["risk_label"] = str(risk_label).strip()
+    if salary_min_usd is not None:
+      try:
+        params["salary_min_usd"] = int(salary_min_usd)
+        where.append("v.salary_max_usd IS NOT NULL AND v.salary_max_usd >= :salary_min_usd")
+      except Exception:
+        pass
+    if salary_max_usd is not None:
+      try:
+        params["salary_max_usd"] = int(salary_max_usd)
+        where.append("v.salary_min_usd IS NOT NULL AND v.salary_min_usd <= :salary_max_usd")
+      except Exception:
+        pass
+
+    where_sql = " AND ".join(where) if where else "TRUE"
+
+    sql_count = f"SELECT count(*) FROM vacancies v WHERE {where_sql}"
+    sql_select = f"""
+      SELECT
+        v.id,
+        v.title,
+        v.company_name,
+        v.role,
+        v.domains,
+        v.risk_label,
+        v.ai_score_value,
+        v.location_type,
+        v.salary_min_usd,
+        v.salary_max_usd,
+        v.recruiter,
+        v.summary_en,
+        v.summary_ru,
+        v.contacts,
+        v.source_url,
+        v.created_at,
+        v.description,
+        v.responsibilities,
+        v.requirements,
+        v.conditions,
+        v.raw_text,
+        v.stack,
+        v.tg_channel_username,
+        v.tg_message_id,
+        (1 - (v.embedding <=> (:vec)::vector)) AS semantic_similarity
+      FROM vacancies v
+      WHERE {where_sql}
+      ORDER BY v.embedding <=> (:vec)::vector ASC
+      LIMIT :limit OFFSET :offset
+    """
+
+    total = (await s.execute(text(sql_count), params)).scalar() or 0
+    rows = (await s.execute(text(sql_select), params)).mappings().all()
+
+    items: list[dict] = []
+    for row in rows:
+      summary = row.get("summary_en")
+      if out_lang != "en":
+        summary = row.get("summary_ru") or row.get("summary_en")
+
+      contacts_dict = _contacts_list_to_dict(row.get("contacts"))
+
+      derived_source_url = None
+      try:
+        tg_user = (row.get("tg_channel_username") or "").lstrip("@")
+        tg_msg_id = row.get("tg_message_id")
+        if tg_user and tg_msg_id:
+          derived_source_url = f"https://t.me/{tg_user}/{tg_msg_id}"
+      except Exception:
+        derived_source_url = None
+
+      items.append(
+        {
+          "id": row.get("id"),
+          "title": row.get("title"),
+          "company_name": row.get("company_name"),
+          "role": row.get("role"),
+          "domains": row.get("domains") or [],
+          "risk_label": row.get("risk_label"),
+          "ai_score_value": row.get("ai_score_value"),
+          "location_type": row.get("location_type"),
+          "salary_min_usd": row.get("salary_min_usd"),
+          "salary_max_usd": row.get("salary_max_usd"),
+          "recruiter": row.get("recruiter"),
+          "summary": summary,
+          "skills": row.get("stack") or [],
+          "stack": row.get("stack") or [],
+          "contacts": contacts_dict,
+          "source_url": row.get("source_url") or derived_source_url,
+          "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+          "description": row.get("description"),
+          "responsibilities": row.get("responsibilities"),
+          "requirements": row.get("requirements"),
+          "conditions": row.get("conditions"),
+          "raw_text": row.get("raw_text"),
+          "semantic_similarity": float(row["semantic_similarity"]) if row.get("semantic_similarity") is not None else None,
+        }
+      )
+
+  return {"page": page, "per_page": per_page, "total": total, "items": items, "q": q}
 
 
 @app.get("/api/vacancies/{vacancy_id}")
