@@ -192,21 +192,46 @@ async def settings_save(
     await upsert_system_settings(raw)
 
   elif tab == "users":
-    email = (form.get("email") or "").strip().lower()
-    pw = (form.get("password") or "").strip()
+    user_id_raw = form.get("user_id")
+    email_raw = (form.get("email") or "").strip().lower()
+    new_pw_raw = (form.get("password") or "").strip()
     is_active_raw = (form.get("is_active") or "").lower()
     is_active = is_active_raw in ("1", "true", "yes", "on")
 
-    if not email or not pw:
-      raise HTTPException(status_code=400, detail="email and password are required")
-
     async with SessionLocal() as s:
-      exists = (await s.execute(select(AdminUser).where(AdminUser.email == email))).scalar_one_or_none()
-      if exists:
-        raise HTTPException(status_code=400, detail="User with this email already exists")
-      pwd_hash = hash_password_pbkdf2(pw)
-      s.add(AdminUser(email=email, password_hash=pwd_hash, is_active=is_active))
-      await s.commit()
+      # Update existing user (by id if provided, otherwise by email if present).
+      if user_id_raw:
+        try:
+          user_id = int(user_id_raw)
+        except ValueError:
+          raise HTTPException(status_code=400, detail="Invalid user_id")
+
+        u = (await s.execute(select(AdminUser).where(AdminUser.id == user_id))).scalar_one_or_none()
+        if not u:
+          raise HTTPException(status_code=404, detail="User not found")
+
+        u.is_active = is_active
+        if new_pw_raw:
+          u.password_hash = hash_password_pbkdf2(new_pw_raw)
+        await s.commit()
+      else:
+        # If email exists -> update it (password optional).
+        if not email_raw:
+          raise HTTPException(status_code=400, detail="email is required")
+
+        u = (await s.execute(select(AdminUser).where(AdminUser.email == email_raw))).scalar_one_or_none()
+        if u:
+          u.is_active = is_active
+          if new_pw_raw:
+            u.password_hash = hash_password_pbkdf2(new_pw_raw)
+          await s.commit()
+        else:
+          # Create new user (requires password).
+          if not new_pw_raw:
+            raise HTTPException(status_code=400, detail="password is required to create user")
+          pwd_hash = hash_password_pbkdf2(new_pw_raw)
+          s.add(AdminUser(email=email_raw, password_hash=pwd_hash, is_active=is_active))
+          await s.commit()
 
   # sessions: read-only for now
 
