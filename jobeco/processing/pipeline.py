@@ -45,7 +45,8 @@ async def persist_parser_log(
       )
       await s.commit()
   except Exception:
-    # Never block parsing due to logging issues.
+    # Never block parsing due to logging issues, but make it visible in container logs.
+    log.exception("parser_log_failed", event=event, level=level)
     return
 
 
