@@ -1,0 +1,41 @@
+# Secrets
+.env
+.env.*
+
+# Telethon sessions (private)
+data/telethon/*.session
+data/telethon/*.session-journal
+
+data/*.sqlite
+*.sqlite
+*.db
+
+# Logs
+*.log
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+
+# Virtualenv
+.venv/
+venv/
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
+
+# Python build
+build/
+dist/
+*.egg-info/
+
+# Docker / compose
+*.pid
+

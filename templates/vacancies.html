@@ -1,0 +1,489 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h2 class="text-2xl font-semibold mb-2">Вакансии</h2>
+  <p class="text-sm text-slate-400">Поиск и фильтрация вакансий</p>
+</div>
+
+<div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
+  <form method="get" action="/vacancies" class="flex flex-col md:flex-row gap-3">
+    <input
+      type="text"
+      name="search"
+      value="{{ search or '' }}"
+      placeholder="Поиск..."
+      class="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+    />
+    <select
+      name="category"
+      class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+    >
+      <option value="">Все категории</option>
+      {% for cat, count in categories %}
+      <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }} ({{ count }})</option>
+      {% endfor %}
+    </select>
+    <select
+      name="channel"
+      class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+    >
+      <option value="">Все каналы</option>
+      {% for ch, count in channels %}
+      <option value="{{ ch }}" {% if channel == ch %}selected{% endif %}>{{ ch }} ({{ count }})</option>
+      {% endfor %}
+    </select>
+    <button
+      type="submit"
+      class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition"
+    >
+      Поиск
+    </button>
+    {% if search or category or channel %}
+    <a
+      href="/vacancies"
+      class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-center transition"
+    >
+      Сбросить
+    </a>
+    {% endif %}
+  </form>
+  
+  <div class="text-xs text-slate-400 mt-3">
+    Найдено: {{ total }} вакансий
+    {% if total_pages > 1 %}
+    · Страница {{ page }} из {{ total_pages }}
+    {% endif %}
+  </div>
+</div>
+
+<div id="vacRoot" class="flex gap-4">
+  <!-- List -->
+  <div id="vacList" class="w-full transition-all">
+    <div class="space-y-3">
+      {% for v in vacancies %}
+      <div id="vac-card-{{ v.id }}"
+           class="bg-slate-900 border border-slate-800 rounded-lg p-4 hover:bg-slate-800/40 transition cursor-pointer"
+           onclick="openVacancyPane({{ v.id }})">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="font-medium text-sm truncate">{{ v.title or "Untitled" }}</div>
+              <span class="text-xs text-slate-500">#{{ v.id }}</span>
+              {% if v.ai_score_value is not none %}
+                {% set sc = v.ai_score_value %}
+                {% if sc <= 3 %}
+                  <span class="px-2 py-0.5 text-xs bg-red-900/30 text-red-300 border border-red-700/50 rounded">Score {{ sc }}/10</span>
+                {% elif sc <= 7 %}
+                  <span class="px-2 py-0.5 text-xs bg-blue-900/30 text-blue-200 border border-blue-700/40 rounded">Score {{ sc }}/10</span>
+                {% else %}
+                  <span class="px-2 py-0.5 text-xs bg-green-900/30 text-green-200 border border-green-700/40 rounded">Score {{ sc }}/10</span>
+                {% endif %}
+              {% endif %}
+              {% if v.domains %}
+                {% for d in v.domains %}
+                  <span class="px-2 py-0.5 text-xs bg-slate-800 rounded text-slate-200 border border-slate-700">{{ d }}</span>
+                {% endfor %}
+              {% endif %}
+              {% if v.risk_label == "high-risk" %}
+                <span class="px-2 py-0.5 text-xs bg-red-900/30 rounded text-red-300 border border-red-700/50">high-risk</span>
+              {% endif %}
+            </div>
+            <div class="text-xs text-slate-400 mt-1">
+              {{ v.company_name or "" }}
+              {% if v.tg_channel_username %} · @{{ v.tg_channel_username }}{% endif %}
+              {% if v.location_type %} · {{ v.location_type }}{% endif %}
+              {% if v.salary_min_usd or v.salary_max_usd %} · {{ v.salary_min_usd or "?" }}–{{ v.salary_max_usd or "?" }} USD{% endif %}
+            </div>
+            <div class="mt-2 text-sm text-slate-200">
+              {{ (v.summary_en or '') }}
+            </div>
+            <details class="mt-2 text-xs text-slate-400">
+              <summary class="cursor-pointer select-none">Original text</summary>
+              <div class="mt-2 whitespace-pre-wrap text-slate-300">{{ v.raw_text or '' }}</div>
+            </details>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation();">
+            <div class="relative">
+              <button class="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded transition" onclick="toggleVacMenu({{ v.id }})">⋯</button>
+              <div id="vac-menu-{{ v.id }}" class="hidden absolute right-0 mt-2 w-48 bg-slate-950 border border-slate-800 rounded-lg overflow-hidden z-20">
+                <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800" onclick="openSource({{ v.id }})">Source ↗</button>
+                <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800" onclick="reanalyzeVacancy({{ v.id }})">Re-analyze</button>
+                <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800 text-red-300" onclick="deleteVacancy({{ v.id }})">Delete</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      {% if not vacancies %}
+      <div class="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-400 text-sm">
+        No vacancies
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Details pane -->
+  <div id="vacPane" class="hidden w-1/2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+    <div class="p-4 border-b border-slate-800 flex items-start justify-between gap-3 sticky top-0 bg-slate-950">
+      <div class="min-w-0">
+        <div class="text-lg font-semibold" id="pTitle">—</div>
+        <div class="text-sm text-slate-400 mt-1" id="pCompany"></div>
+        <div class="mt-2 flex flex-wrap gap-2" id="pBadges"></div>
+        <div class="mt-2 text-xs text-slate-500" id="pMeta"></div>
+      </div>
+      <div class="flex items-center gap-2">
+        <a id="pSource" target="_blank" rel="noreferrer" class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition hidden">Source ↗</a>
+        <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="closeVacancyPane()">Close</button>
+      </div>
+    </div>
+    <div class="p-4 overflow-y-auto max-h-[80vh] space-y-4">
+      <div id="secSummary" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <div class="text-sm font-semibold mb-2">AI summary</div>
+        <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pSummary"></div>
+      </div>
+      <div id="secDesc" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <div class="text-sm font-semibold mb-2">Description</div>
+        <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pDesc"></div>
+      </div>
+      <div id="secResp" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <div class="text-sm font-semibold mb-2">Responsibilities</div>
+        <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pResp"></div>
+      </div>
+      <div id="secReq" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <div class="text-sm font-semibold mb-2">Requirements</div>
+        <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pReq"></div>
+      </div>
+      <div id="secContacts" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <div class="text-sm font-semibold mb-2">Contacts</div>
+        <div class="space-y-2 text-sm" id="pContacts"></div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <div class="text-sm font-semibold mb-2">Original text</div>
+        <details class="text-sm text-slate-200">
+          <summary class="cursor-pointer select-none text-slate-400">Show</summary>
+          <div class="mt-2 whitespace-pre-wrap" id="pRaw"></div>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if total_pages > 1 %}
+<div class="mt-6 flex justify-center gap-2">
+  {% if page > 1 %}
+  <a
+    href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if category %}&category={{ category }}{% endif %}{% if channel %}&channel={{ channel }}{% endif %}"
+    class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
+  >
+    ← Назад
+  </a>
+  {% endif %}
+  <span class="px-4 py-2 text-slate-400 text-sm">
+    Страница {{ page }} из {{ total_pages }}
+  </span>
+  {% if page < total_pages %}
+  <a
+    href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if category %}&category={{ category }}{% endif %}{% if channel %}&channel={{ channel }}{% endif %}"
+    class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
+  >
+    Вперёд →
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+<script>
+function ensureToastRoot() {
+  let root = document.getElementById("toastRoot");
+  if (root) return root;
+  root = document.createElement("div");
+  root.id = "toastRoot";
+  root.className = "fixed bottom-4 right-4 z-50 space-y-2";
+  document.body.appendChild(root);
+  return root;
+}
+
+function showToast(message, kind = "info", opts = {}) {
+  const root = ensureToastRoot();
+  const el = document.createElement("div");
+  const base = "flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg text-sm";
+  const styles = {
+    info: "bg-slate-950 border-slate-800 text-slate-200",
+    success: "bg-emerald-950 border-emerald-800 text-emerald-100",
+    error: "bg-red-950 border-red-800 text-red-100",
+  };
+  el.className = `${base} ${styles[kind] || styles.info}`;
+
+  if (opts.spinner) {
+    const sp = document.createElement("div");
+    sp.className = "w-4 h-4 rounded-full border-2 border-slate-500 border-t-transparent animate-spin";
+    el.appendChild(sp);
+  }
+  const msg = document.createElement("div");
+  msg.className = "min-w-0";
+  msg.textContent = message;
+  el.appendChild(msg);
+
+  root.appendChild(el);
+  const timeoutMs = opts.timeoutMs ?? (kind === "info" && opts.spinner ? 15000 : 3500);
+  const t = setTimeout(() => el.remove(), timeoutMs);
+  return { close: () => { clearTimeout(t); el.remove(); } };
+}
+
+function escapeHtml(s) {
+  return (s || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function renderBulletText(text) {
+  const raw = (text || "").trim();
+  if (!raw) return "";
+
+  const lines = raw.split(/\r?\n/);
+  const blocks = [];
+  let list = [];
+  let para = [];
+
+  const flushPara = () => {
+    const p = para.join(" ").trim();
+    if (p) blocks.push(`<p class="mt-2 first:mt-0 text-sm text-slate-200 leading-relaxed">${escapeHtml(p)}</p>`);
+    para = [];
+  };
+  const flushList = () => {
+    if (!list.length) return;
+    const items = list.map((x) => `<li class="ml-5 list-disc">${escapeHtml(x)}</li>`).join("");
+    blocks.push(`<ul class="mt-2 first:mt-0 space-y-1 text-sm text-slate-200 leading-relaxed">${items}</ul>`);
+    list = [];
+  };
+
+  for (const ln of lines) {
+    const s = (ln || "").trim();
+    if (!s) {
+      flushList();
+      flushPara();
+      continue;
+    }
+    const m = s.match(/^[-*]\s+(.*)$/);
+    if (m) {
+      flushPara();
+      list.push(m[1].trim());
+    } else {
+      flushList();
+      para.push(s);
+    }
+  }
+  flushList();
+  flushPara();
+  return blocks.join("");
+}
+
+function toggleVacMenu(id) {
+  const el = document.getElementById(`vac-menu-${id}`);
+  el.classList.toggle('hidden');
+}
+
+document.addEventListener('click', () => {
+  document.querySelectorAll("[id^='vac-menu-']").forEach((el) => el.classList.add('hidden'));
+});
+
+async function openSource(id) {
+  const res = await fetch(`/api/vacancies/${id}`);
+  if (!res.ok) return;
+  const v = await res.json();
+  if (v.source_url) window.open(v.source_url, "_blank");
+}
+
+function closeVacancyPane() {
+  document.getElementById("vacPane").classList.add("hidden");
+  document.getElementById("vacList").classList.remove("w-1/2");
+  document.getElementById("vacList").classList.add("w-full");
+  document.querySelectorAll("[id^='vac-card-']").forEach((el) => el.classList.remove("ring-2","ring-blue-500/50"));
+}
+
+async function deleteVacancy(id) {
+  if (!confirm("Delete vacancy?")) return;
+  const res = await fetch(`/api/vacancies/${id}/delete`, { method: "POST" });
+  if (res.ok) location.reload();
+}
+
+async function openVacancyPane(id) {
+  const res = await fetch(`/api/vacancies/${id}`);
+  if (!res.ok) return;
+  const v = await res.json();
+
+  // highlight selected
+  document.querySelectorAll("[id^='vac-card-']").forEach((el) => el.classList.remove("ring-2","ring-blue-500/50"));
+  const card = document.getElementById(`vac-card-${id}`);
+  if (card) card.classList.add("ring-2","ring-blue-500/50");
+
+  // open pane
+  document.getElementById("vacPane").classList.remove("hidden");
+  document.getElementById("vacList").classList.remove("w-full");
+  document.getElementById("vacList").classList.add("w-1/2");
+
+  document.getElementById("pTitle").textContent = v.title || "—";
+  document.getElementById("pCompany").textContent = v.company_name || "";
+
+  const badges = document.getElementById("pBadges");
+  badges.innerHTML = "";
+  (v.domains || []).forEach((d) => {
+    const s = document.createElement("span");
+    s.className = "px-2 py-0.5 text-xs bg-slate-800 rounded text-slate-200 border border-slate-700";
+    s.textContent = d;
+    badges.appendChild(s);
+  });
+  if (v.risk_label === "high-risk") {
+    const s = document.createElement("span");
+    s.className = "px-2 py-0.5 text-xs bg-red-900/30 rounded text-red-300 border border-red-700/50";
+    s.textContent = "high-risk";
+    badges.appendChild(s);
+  }
+  (v.stack || []).slice(0, 10).forEach((t) => {
+    const s = document.createElement("span");
+    s.className = "px-2 py-0.5 text-xs bg-blue-900/30 rounded text-slate-200 border border-blue-700/30";
+    s.textContent = t;
+    badges.appendChild(s);
+  });
+
+  const meta = [];
+  if (v.ai_score_value !== null && v.ai_score_value !== undefined) meta.push(`Score: ${v.ai_score_value}/10`);
+  if (v.location_type) meta.push(`Location: ${v.location_type}`);
+  if (v.salary_min_usd || v.salary_max_usd) meta.push(`Salary: ${v.salary_min_usd || "?"}–${v.salary_max_usd || "?"} USD`);
+  if (v.recruiter) meta.push(`Recruiter: ${v.recruiter}`);
+  document.getElementById("pMeta").textContent = meta.join(" · ");
+
+  document.getElementById("pSummary").textContent = v.summary_en || "";
+  document.getElementById("pDesc").innerHTML = renderBulletText(v.description || "");
+  document.getElementById("pResp").innerHTML = renderBulletText(v.responsibilities || "");
+  document.getElementById("pReq").innerHTML = renderBulletText(v.requirements || "");
+  document.getElementById("pRaw").textContent = v.raw_text || "";
+
+  // show/hide sections if empty
+  const showIf = (secId, txt) => {
+    const el = document.getElementById(secId);
+    if (!el) return;
+    if ((txt || "").trim()) el.classList.remove("hidden");
+    else el.classList.add("hidden");
+  };
+  showIf("secSummary", v.summary_en);
+  showIf("secDesc", v.description);
+  showIf("secResp", v.responsibilities);
+  showIf("secReq", v.requirements);
+
+  const c = document.getElementById("pContacts");
+  c.innerHTML = "";
+  (v.contacts || []).forEach((x) => {
+    const row = document.createElement("div");
+    const lower = (x || "").toLowerCase();
+    let label = "Contact";
+    let href = null;
+    if (lower.includes("linkedin.com")) { label = "LinkedIn"; href = x; }
+    else if (lower.startsWith("http")) { label = "Website"; href = x; }
+    else if (lower.startsWith("mailto:")) { label = "Email"; href = x; }
+    else if (lower.includes("@") && !lower.includes(" ")) { label = "Telegram"; }
+    row.innerHTML = `<span class="text-slate-400">${label}:</span> `;
+    if (href) {
+      const a = document.createElement("a");
+      a.href = href;
+      a.target = "_blank";
+      a.rel = "noreferrer";
+      a.className = "underline hover:text-white";
+      a.textContent = x;
+      row.appendChild(a);
+    } else {
+      const span = document.createElement("span");
+      span.textContent = x;
+      row.appendChild(span);
+    }
+    c.appendChild(row);
+  });
+  const secContacts = document.getElementById("secContacts");
+  if (secContacts) {
+    if ((v.contacts || []).length) secContacts.classList.remove("hidden");
+    else secContacts.classList.add("hidden");
+  }
+
+  const src = document.getElementById("pSource");
+  if (src) {
+    if (v.source_url) {
+      src.href = v.source_url;
+      src.classList.remove("hidden");
+    } else {
+      src.classList.add("hidden");
+    }
+  }
+}
+
+async function reanalyzeVacancy(id) {
+  // UI feedback
+  const menuBtn = document.querySelector(`#vac-menu-${id} button[onclick^='reanalyzeVacancy']`);
+  if (menuBtn) {
+    menuBtn.disabled = true;
+    menuBtn.classList.add("opacity-60", "cursor-not-allowed");
+    menuBtn.textContent = "Re-analyzing…";
+  }
+  const card = document.getElementById(`vac-card-${id}`);
+  if (card) card.classList.add("opacity-70");
+
+  const toast = showToast("Re-analyzing vacancy…", "info", { spinner: true, timeoutMs: 60000 });
+  try {
+    const res = await fetch(`/api/vacancies/${id}/reanalyze`, { method: "POST" });
+    if (!res.ok) {
+      let t = "";
+      try {
+        const j = await res.json();
+        t = j?.detail ? String(j.detail) : JSON.stringify(j);
+      } catch {
+        t = await res.text().catch(() => "");
+      }
+      showToast(`Re-analyze failed: ${t || res.status}`, "error");
+      return;
+    }
+    showToast("Re-analyze completed", "success");
+
+    // Refresh pane (if open) + refresh card fields without full reload
+    await openVacancyPane(id);
+    try {
+      const r2 = await fetch(`/api/vacancies/${id}`);
+      if (r2.ok) {
+        const v = await r2.json();
+        const c = document.getElementById(`vac-card-${id}`);
+        if (c) {
+          // title
+          const titleEl = c.querySelector(".font-medium.text-sm");
+          if (titleEl) titleEl.textContent = v.title || "Untitled";
+          // company/meta line
+          const metaEl = c.querySelector(".text-xs.text-slate-400.mt-1");
+          if (metaEl) {
+            const parts = [];
+            if (v.company_name) parts.push(v.company_name);
+            if (v.tg_channel_username) parts.push(`@${v.tg_channel_username}`);
+            if (v.location_type) parts.push(v.location_type);
+            if (v.salary_min_usd || v.salary_max_usd) parts.push(`${v.salary_min_usd || "?"}–${v.salary_max_usd || "?"} USD`);
+            metaEl.textContent = parts.join(" · ");
+          }
+          // summary
+          const sumEl = c.querySelector(".mt-2.text-sm.text-slate-200");
+          if (sumEl) sumEl.textContent = v.summary_en || "";
+        }
+      }
+    } catch {}
+  } finally {
+    toast.close();
+    if (menuBtn) {
+      menuBtn.disabled = false;
+      menuBtn.classList.remove("opacity-60", "cursor-not-allowed");
+      menuBtn.textContent = "Re-analyze";
+    }
+    if (card) card.classList.remove("opacity-70");
+  }
+}
+</script>
+{% endblock %}

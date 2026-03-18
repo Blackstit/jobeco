@@ -1,0 +1,223 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+import structlog
+from sqlalchemy import text
+from telethon import events
+
+from jobeco.db.session import SessionLocal
+from jobeco.db.models import Vacancy
+from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post
+from jobeco.settings import settings
+
+log = structlog.get_logger()
+
+
+async def is_duplicate(embedding: list[float]) -> bool:
+  # cosine distance in pgvector: <=> (smaller is closer)
+  # similarity = 1 - distance
+  vec = "[" + ",".join(f"{x:.6f}" for x in embedding) + "]"
+  q = text(
+    """
+    SELECT 1
+    FROM vacancies
+    WHERE embedding IS NOT NULL
+    ORDER BY embedding <=> (:vec)::vector
+    LIMIT 1
+    """
+  )
+  async with SessionLocal() as s:
+    row = (await s.execute(q, {"vec": vec})).first()
+    if not row:
+      return False
+    # compute similarity from distance in a second query to avoid extra select:
+    q2 = text(
+      """
+      SELECT 1 - (embedding <=> (:vec)::vector) as sim
+      FROM vacancies
+      WHERE embedding IS NOT NULL
+      ORDER BY embedding <=> (:vec)::vector
+      LIMIT 1
+      """
+    )
+    sim = (await s.execute(q2, {"vec": vec})).scalar()
+    return bool(sim is not None and float(sim) >= settings.dedup_threshold)
+
+
+async def save_vacancy(payload: dict, embedding: list[float] | None) -> None:
+  async with SessionLocal() as s:
+    # postprocess contacts: dedupe + remove obvious footer/channel contacts
+    contacts = payload.get("contacts", []) or []
+    clean_contacts: list[str] = []
+    seen = set()
+    channel_username = (payload.get("tg_channel_username") or "").lstrip("@").lower()
+    for c in contacts:
+      if not c:
+        continue
+      c_str = str(c).strip()
+      if not c_str:
+        continue
+      lc = c_str.lower()
+      # drop generic channel footer links/usernames
+      if channel_username and (lc == f"@{channel_username}" or channel_username in lc and "t.me/" in lc):
+        continue
+      if "subscribe" in lc or "подпис" in lc or "channel" in lc and "t.me/" in lc:
+        continue
+      if lc in seen:
+        continue
+      seen.add(lc)
+      clean_contacts.append(c_str)
+
+    v = Vacancy(
+      tg_message_id=payload.get("tg_message_id"),
+      tg_channel_id=payload.get("tg_channel_id"),
+      tg_channel_username=payload.get("tg_channel_username"),
+      source_url=payload.get("source_url"),
+      company_name=payload.get("company_name"),
+      title=payload.get("title"),
+      location_type=payload.get("location_type"),
+      salary_min_usd=payload.get("salary_min_usd"),
+      salary_max_usd=payload.get("salary_max_usd"),
+      stack=payload.get("stack", []),
+      category=payload.get("category"),
+      ai_score_value=payload.get("ai_score_value"),
+      summary_ru=payload.get("summary_ru"),
+      summary_en=payload.get("summary_en"),
+      raw_text=payload.get("raw_text"),
+      metadata_json=payload.get("metadata", {}),
+      embedding=embedding,
+      # new fields (if present)
+      domains=payload.get("domains", []),
+      risk_label=payload.get("risk_label"),
+      recruiter=payload.get("recruiter"),
+      contacts=clean_contacts,
+      description=payload.get("description"),
+      responsibilities=payload.get("responsibilities"),
+      requirements=payload.get("requirements"),
+      conditions=payload.get("conditions"),
+      role=payload.get("role"),
+      seniority=payload.get("seniority"),
+      standardized_title=payload.get("standardized_title"),
+      language=payload.get("language"),
+    )
+    s.add(v)
+    await s.commit()
+
+
+async def process_message(event: events.NewMessage.Event) -> None:
+  msg = event.message
+  if not msg or not getattr(msg, "message", None):
+    return
+
+  text_raw = (msg.message or "").strip()
+  if not text_raw:
+    return
+
+  # Prevalidation (cheap) - skip non-vacancy content
+  pv = await prevalidate_post(text_raw)
+  if not pv.get("is_vacancy", True):
+    log.info("prevalidate_skip", msg_id=msg.id, content_type=pv.get("content_type"), reason=pv.get("reason"))
+    return
+
+  embedding = await embed_text(text_raw)
+  if embedding and await is_duplicate(embedding):
+    log.info("dedup_skip", msg_id=msg.id)
+    return
+
+  analysis = await analyze_with_openrouter(text_raw)
+
+  payload = {
+    "tg_message_id": msg.id,
+    "tg_channel_id": getattr(event.chat, "id", None),
+    "tg_channel_username": getattr(event.chat, "username", None),
+    "source_url": None,
+    "company_name": analysis.get("company_name"),
+    "title": analysis.get("title"),
+    "location_type": analysis.get("location_type"),
+    "salary_min_usd": analysis.get("salary_min_usd"),
+    "salary_max_usd": analysis.get("salary_max_usd"),
+    "stack": analysis.get("stack", []),
+    "category": analysis.get("category"),  # kept for backward compat
+    "ai_score_value": analysis.get("ai_score_value"),
+    "summary_ru": analysis.get("summary_ru"),
+    "summary_en": analysis.get("summary_en"),
+    "raw_text": text_raw,
+    "metadata": analysis.get("metadata", {}),
+    "domains": [str(x).lower() for x in (analysis.get("domains") or []) if str(x).strip()],
+    "risk_label": analysis.get("risk_label"),
+    "recruiter": analysis.get("recruiter"),
+    "contacts": analysis.get("contacts") or [],
+    "description": analysis.get("description"),
+    "responsibilities": analysis.get("responsibilities"),
+    "requirements": analysis.get("requirements"),
+    "conditions": analysis.get("conditions"),
+    "role": analysis.get("role"),
+    "seniority": analysis.get("seniority"),
+    "standardized_title": analysis.get("standardized_title"),
+    "language": analysis.get("language") or pv.get("language"),
+    "created_at": datetime.utcnow().isoformat(),
+  }
+
+  await save_vacancy(payload, embedding)
+  log.info("vacancy_saved", msg_id=msg.id, domains=analysis.get("domains"), risk_label=analysis.get("risk_label"))
+
+
+async def process_text_message(
+  *,
+  text_raw: str,
+  tg_message_id: int | None,
+  tg_channel_id: int | None,
+  tg_channel_username: str | None,
+  source_url: str | None,
+) -> bool:
+  """
+  Process a raw text message (used by admin-web 'fetch last 5').
+  Returns True if vacancy saved, False if skipped.
+  """
+  text_raw = (text_raw or "").strip()
+  if not text_raw:
+    return False
+
+  pv = await prevalidate_post(text_raw)
+  if not pv.get("is_vacancy", True):
+    return False
+
+  embedding = await embed_text(text_raw)
+  if embedding and await is_duplicate(embedding):
+    return False
+
+  analysis = await analyze_with_openrouter(text_raw)
+  payload = {
+    "tg_message_id": tg_message_id,
+    "tg_channel_id": tg_channel_id,
+    "tg_channel_username": tg_channel_username,
+    "source_url": source_url,
+    "company_name": analysis.get("company_name"),
+    "title": analysis.get("title"),
+    "location_type": analysis.get("location_type"),
+    "salary_min_usd": analysis.get("salary_min_usd"),
+    "salary_max_usd": analysis.get("salary_max_usd"),
+    "stack": analysis.get("stack", []),
+    "category": analysis.get("category"),
+    "ai_score_value": analysis.get("ai_score_value"),
+    "summary_ru": analysis.get("summary_ru"),
+    "summary_en": analysis.get("summary_en"),
+    "raw_text": text_raw,
+    "metadata": analysis.get("metadata", {}),
+    "domains": [str(x).lower() for x in (analysis.get("domains") or []) if str(x).strip()],
+    "risk_label": analysis.get("risk_label"),
+    "recruiter": analysis.get("recruiter"),
+    "contacts": analysis.get("contacts") or [],
+    "description": analysis.get("description"),
+    "responsibilities": analysis.get("responsibilities"),
+    "requirements": analysis.get("requirements"),
+    "conditions": analysis.get("conditions"),
+    "role": analysis.get("role"),
+    "seniority": analysis.get("seniority"),
+    "standardized_title": analysis.get("standardized_title"),
+    "language": analysis.get("language") or pv.get("language"),
+    "created_at": datetime.utcnow().isoformat(),
+  }
+  await save_vacancy(payload, embedding)
+  return True

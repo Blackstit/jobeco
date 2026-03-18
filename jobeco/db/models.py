@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+from pgvector.sqlalchemy import Vector
+
+from jobeco.db.base import Base
+
+
+class Channel(Base):
+  __tablename__ = "channels"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  tg_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+  username: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+  title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+  bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+  members_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+  created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+  # AI metadata (exists in DB)
+  ai_domains: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+  ai_tags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+  ai_risk_label: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+
+
+class Vacancy(Base):
+  __tablename__ = "vacancies"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+  # raw telegram linkage
+  tg_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+  tg_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+  tg_channel_username: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+  source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+  # extracted core fields (minimal to start)
+  company_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+  title: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+  location_type: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # remote/hybrid/office
+  salary_min_usd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  salary_max_usd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  stack: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+  category: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # white-tech/igaming/high-risk-scam
+  ai_score_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+  # AI outputs
+  summary_ru: Mapped[str | None] = mapped_column(Text, nullable=True)
+  summary_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+  raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+  # "metadata" is reserved in SQLAlchemy Declarative API, so we use a different attribute name
+  # while keeping the column name as "metadata".
+  metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
+
+  embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+
+  created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+  # Structured fields already present in DB (keep optional to avoid strictness)
+  company_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+  company_domain: Mapped[str | None] = mapped_column(String(64), nullable=True)
+  company_size: Mapped[str | None] = mapped_column(String(32), nullable=True)
+  standardized_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+  currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
+  country_city: Mapped[str | None] = mapped_column(String(255), nullable=True)
+  experience_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  english_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+  ai_summary_ru: Mapped[str | None] = mapped_column(Text, nullable=True)
+  ai_summary_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+  ai_red_flags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+  external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True, unique=True)
+  source_channel: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+
+  role: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+  seniority: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+  domain: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+  language: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+  recruiter: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+  contacts: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+
+  description: Mapped[str | None] = mapped_column(Text, nullable=True)
+  responsibilities: Mapped[str | None] = mapped_column(Text, nullable=True)
+  requirements: Mapped[str | None] = mapped_column(Text, nullable=True)
+  conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+  content_type: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+  validation_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+  validation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+  risk_label: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+  domains: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")

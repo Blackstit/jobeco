@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h2 class="text-2xl font-semibold mb-2">Dashboard</h2>
+  <p class="text-sm text-slate-400">Общая статистика и последние вакансии</p>
+</div>
+
+<!-- Stats -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+    <p class="text-xs text-slate-400 mb-1">Всего вакансий</p>
+    <p class="text-2xl font-semibold">{{ total_vacancies }}</p>
+  </div>
+  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+    <p class="text-xs text-slate-400 mb-1">Каналов</p>
+    <p class="text-2xl font-semibold">{{ total_channels }}</p>
+  </div>
+  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+    <p class="text-xs text-slate-400 mb-1">Категорий</p>
+    <p class="text-2xl font-semibold">{{ category_stats|length }}</p>
+  </div>
+  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+    <p class="text-xs text-slate-400 mb-1">Обновлено</p>
+    <p class="text-sm text-slate-300">{{ now.strftime("%H:%M UTC") }}</p>
+  </div>
+</div>
+
+<!-- Category Stats -->
+{% if category_stats %}
+<div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
+  <h3 class="text-sm font-semibold mb-3">Статистика по категориям</h3>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    {% for cat, count in category_stats %}
+    <div class="text-sm">
+      <span class="text-slate-400">{{ cat or "n/a" }}:</span>
+      <span class="font-semibold ml-2">{{ count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Latest Vacancies -->
+<div class="bg-slate-900 border border-slate-800 rounded-lg">
+  <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+    <h3 class="text-sm font-semibold">Последние вакансии</h3>
+    <a href="/vacancies" class="text-xs text-blue-400 hover:underline">Все →</a>
+  </div>
+  <div class="divide-y divide-slate-800">
+    {% for v in last_vacancies %}
+    <div class="p-4 hover:bg-slate-800/50 transition">
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-1">
+            <h4 class="font-medium text-sm truncate">
+              {{ v.title or "Без названия" }}
+            </h4>
+            <span class="text-xs text-slate-500">#{{ v.id }}</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-2">
+            {% if v.company_name %}
+            <span>{{ v.company_name }}</span>
+            {% endif %}
+            {% if v.tg_channel_username %}
+            <span>@{{ v.tg_channel_username }}</span>
+            {% endif %}
+            {% if v.category %}
+            <span class="px-2 py-0.5 bg-slate-800 rounded text-slate-300">{{ v.category }}</span>
+            {% endif %}
+            {% if v.stack %}
+            <div class="flex flex-wrap gap-1">
+              {% for tech in v.stack[:3] %}
+              <span class="px-1.5 py-0.5 bg-blue-900/30 rounded text-xs">{{ tech }}</span>
+              {% endfor %}
+              {% if v.stack|length > 3 %}
+              <span class="text-slate-500">+{{ v.stack|length - 3 }}</span>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% if v.salary_min_usd or v.salary_max_usd %}
+        <div class="text-right text-xs text-emerald-400 whitespace-nowrap">
+          <div>{{ v.salary_min_usd or "?" }} – {{ v.salary_max_usd or "?" }} $</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% if not last_vacancies %}
+    <div class="p-8 text-center text-slate-400 text-sm">
+      Нет вакансий
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

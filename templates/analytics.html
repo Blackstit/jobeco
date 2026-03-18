@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h2 class="text-2xl font-semibold mb-2">Аналитика</h2>
+  <p class="text-sm text-slate-400">Статистика и аналитика по вакансиям</p>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+    <h3 class="text-sm font-semibold mb-4">Статистика по категориям</h3>
+    <div class="space-y-3">
+      {% for cat, count in category_stats %}
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-slate-300">{{ cat or "n/a" }}</span>
+        <span class="font-semibold">{{ count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+    <h3 class="text-sm font-semibold mb-4">Топ каналов</h3>
+    <div class="space-y-2 max-h-[400px] overflow-y-auto">
+      {% for ch, count in channel_stats %}
+      <div class="flex items-center justify-between p-2 bg-slate-800/50 rounded text-sm">
+        <span class="text-slate-300">@{{ ch or "unknown" }}</span>
+        <span class="font-semibold">{{ count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
+  <h3 class="text-sm font-semibold mb-4">Статистика по датам (последние 30 дней)</h3>
+  <div class="space-y-2">
+    {% for date, count in date_stats %}
+    <div class="flex items-center justify-between p-2 bg-slate-800/50 rounded text-sm">
+      <span class="text-slate-300">{{ date.strftime("%Y-%m-%d") if date else "n/a" }}</span>
+      <span class="font-semibold">{{ count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+  <h3 class="text-sm font-semibold mb-4">Средняя зарплата по категориям</h3>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for cat, avg_min, avg_max, count in salary_stats %}
+    <div class="p-3 bg-slate-800/50 rounded-lg border border-slate-800">
+      <p class="font-semibold text-sm mb-1">{{ cat or "n/a" }}</p>
+      <p class="text-xs text-slate-400 mb-1">Средняя зарплата:</p>
+      <p class="text-sm text-emerald-400">
+        {% if avg_min and avg_max %}
+        ${{ "%.0f"|format(avg_min) }} – ${{ "%.0f"|format(avg_max) }}
+        {% elif avg_min %}
+        от ${{ "%.0f"|format(avg_min) }}
+        {% elif avg_max %}
+        до ${{ "%.0f"|format(avg_max) }}
+        {% else %}
+        N/A
+        {% endif %}
+      </p>
+      <p class="text-xs text-slate-500 mt-1">Вакансий: {{ count }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

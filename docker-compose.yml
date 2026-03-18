@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: jobeco-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jobeco}
+      POSTGRES_USER: ${POSTGRES_USER:-jobeco}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobeco}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  admin-bot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: jobeco-admin-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./data/telethon:/data/telethon
+    command: ["python", "-m", "apps.admin_bot"]
+
+  userbot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: jobeco-userbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - ./data/telethon:/data/telethon
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "apps.userbot"]
+
+  admin-web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: jobeco-admin-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TELETHON_SESSION_PATH: /data/telethon/admin-web.session
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./data/telethon:/data/telethon
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "apps.web_admin:app", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  postgres_data:
+
