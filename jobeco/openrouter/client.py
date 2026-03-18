@@ -5,6 +5,7 @@ import os
 import httpx
 
 from jobeco.settings import settings
+from jobeco.runtime_settings import get_runtime_settings
 
 
 async def prevalidate_post(text: str) -> dict:
@@ -18,7 +19,9 @@ async def prevalidate_post(text: str) -> dict:
     - language: str|null (ru/en/other)
   If OPENROUTER_API_KEY is missing -> assume vacancy (do not block pipeline).
   """
-  if not settings.openrouter_api_key:
+  runtime = await get_runtime_settings()
+  api_key = runtime.get("openrouter", {}).get("api_key") or ""
+  if not api_key:
     return {
       "is_vacancy": True,
       "content_type": "vacancy",
@@ -27,13 +30,13 @@ async def prevalidate_post(text: str) -> dict:
       "language": None,
     }
 
-  url = settings.openrouter_base_url.rstrip("/") + "/chat/completions"
+  url = runtime["openrouter"]["base_url"].rstrip("/") + "/chat/completions"
   headers = {
-    "Authorization": f"Bearer {settings.openrouter_api_key}",
+    "Authorization": f"Bearer {api_key}",
     "Content-Type": "application/json",
   }
 
-  system = """You are a strict JSON classifier for Telegram posts.
+  default_system = """You are a strict JSON classifier for Telegram posts.
 Decide if the text is a REAL job vacancy post. Filter out:
 - ads/promotions, channel announcements, course sales
 - informational posts, memes, quotes, community rules
@@ -46,12 +49,16 @@ Return ONLY valid JSON (no markdown) with keys:
   reason: string (short)
   language: "ru" | "en" | "other" | null
 """
+  system = runtime.get("prompts", {}).get("vacancy_prevalidate_system") or default_system
 
   payload = {
-    "model": settings.openrouter_model_classifier,
+    "model": runtime["openrouter"]["model_classifier"],
     "messages": [
       {"role": "system", "content": system},
-      {"role": "user", "content": text[:6000]},
+      {
+        "role": "user",
+        "content": text[: int(runtime.get("limits", {}).get("prevalidate_max_chars", 6000))],
+      },
     ],
     "temperature": 0.0,
   }
@@ -90,12 +97,14 @@ async def embed_text(text: str) -> list[float] | None:
   MVP: embeddings via OpenAI-compatible endpoint (many providers incl. OpenRouter support this style).
   If key is not set, returns None (pipeline will still save record without embedding).
   """
-  if not settings.openrouter_api_key:
+  runtime = await get_runtime_settings()
+  api_key = runtime.get("openrouter", {}).get("api_key") or ""
+  if not api_key:
     return None
 
-  url = settings.openrouter_base_url.rstrip("/") + "/embeddings"
+  url = runtime["openrouter"]["base_url"].rstrip("/") + "/embeddings"
   headers = {
-    "Authorization": f"Bearer {settings.openrouter_api_key}",
+    "Authorization": f"Bearer {api_key}",
     "Content-Type": "application/json",
   }
   payload = {"model": settings.embedding_model, "input": text}
@@ -111,7 +120,9 @@ async def analyze_with_openrouter(text: str) -> dict:
   One-pass analysis returning structured dict.
   If OPENROUTER_API_KEY отсутствует — возвращаем простую заглушку.
   """
-  if not settings.openrouter_api_key:
+  runtime = await get_runtime_settings()
+  api_key = runtime.get("openrouter", {}).get("api_key") or ""
+  if not api_key:
     return {
       "domains": [],
       "risk_label": None,
@@ -138,7 +149,7 @@ async def analyze_with_openrouter(text: str) -> dict:
     }
 
   # System prompt for analyzer (kept inside function to avoid NameError and ensure consistency)
-  system = (
+  default_system = (
     "You are a strict JSON generator. Analyze a Telegram job vacancy post and extract structured data.\n"
     "Return ONLY valid JSON (no markdown, no code blocks).\n"
     "\n"
@@ -178,20 +189,25 @@ async def analyze_with_openrouter(text: str) -> dict:
     "- metadata: object\n"
   )
 
-  url = settings.openrouter_base_url.rstrip("/") + "/chat/completions"
+  system = runtime.get("prompts", {}).get("vacancy_analyzer_system") or default_system
+
+  url = runtime["openrouter"]["base_url"].rstrip("/") + "/chat/completions"
   headers = {
-    "Authorization": f"Bearer {settings.openrouter_api_key}",
+    "Authorization": f"Bearer {api_key}",
     "Content-Type": "application/json",
   }
   payload = {
-    "model": settings.openrouter_model_analyzer,
+    "model": runtime["openrouter"]["model_analyzer"],
     "messages": [
       {"role": "system", "content": system},
-      {"role": "user", "content": text[:12000]},
+      {
+        "role": "user",
+        "content": text[: int(runtime.get("limits", {}).get("analyzer_max_chars", 12000))],
+      },
     ],
     "temperature": 0.2,
     # Keep token budget reasonable to avoid 402 errors on low balances.
-    "max_tokens": 2500,
+    "max_tokens": int(runtime.get("openrouter", {}).get("max_tokens_analyzer", 2500)),
   }
 
   async with httpx.AsyncClient(timeout=60) as client:
@@ -256,11 +272,13 @@ async def categorize_channel(title: str | None, bio: str | None, last_posts: lis
     ]
   ).strip()
 
-  if not settings.openrouter_api_key:
+  runtime = await get_runtime_settings()
+  api_key = runtime.get("openrouter", {}).get("api_key") or ""
+  if not api_key:
     return {"ai_domains": [], "ai_tags": [], "ai_risk_label": None, "admin_contacts": []}
 
-  url = settings.openrouter_base_url.rstrip("/") + "/chat/completions"
-  headers = {"Authorization": f"Bearer {settings.openrouter_api_key}", "Content-Type": "application/json"}
+  url = runtime["openrouter"]["base_url"].rstrip("/") + "/chat/completions"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
   system = """You are a strict JSON generator.
 Goal: infer the CHANNEL'S THEME/ESSENCE, not summarize individual posts.
 Use last posts only as weak signals/examples. Title+bio are primary.
@@ -276,9 +294,13 @@ Rules for ai_tags:
 - no generic noise like: 'jobs', 'vacancies', 'telegram', 'remote', 'hiring'
 - prefer: role focus (e.g. 'backend', 'product'), geo focus ('EU', 'RU', 'Global'), or niche specifics ('defi', 'mlops')
 """
+  system = runtime.get("prompts", {}).get("channel_categorizer_system") or system
   payload = {
-    "model": settings.openrouter_model_classifier,
-    "messages": [{"role": "system", "content": system}, {"role": "user", "content": text[:7000]}],
+    "model": runtime["openrouter"]["model_classifier"],
+    "messages": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": text[: int(runtime.get("limits", {}).get("channel_max_chars", 7000))]},
+    ],
     "temperature": 0.0,
   }
   async with httpx.AsyncClient(timeout=40) as client:

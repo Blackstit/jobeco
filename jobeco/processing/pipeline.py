@@ -10,6 +10,7 @@ from jobeco.db.session import SessionLocal
 from jobeco.db.models import Vacancy
 from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post
 from jobeco.settings import settings
+from jobeco.runtime_settings import get_runtime_settings
 
 log = structlog.get_logger()
 
@@ -42,7 +43,9 @@ async def is_duplicate(embedding: list[float]) -> bool:
       """
     )
     sim = (await s.execute(q2, {"vec": vec})).scalar()
-    return bool(sim is not None and float(sim) >= settings.dedup_threshold)
+    runtime = await get_runtime_settings()
+    threshold = float(runtime.get("parser", {}).get("dedup_threshold", settings.dedup_threshold))
+    return bool(sim is not None and float(sim) >= threshold)
 
 
 async def save_vacancy(payload: dict, embedding: list[float] | None) -> None:

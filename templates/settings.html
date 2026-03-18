@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h2 class="text-2xl font-semibold mb-2">Настройки</h2>
+  <p class="text-sm text-slate-400">Сэндвич-настройки: парсер, OpenRouter, промпты, TG сессии, пользователи.</p>
+</div>
+
+{% if saved %}
+  <div class="mb-4 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800 text-emerald-100 text-sm">
+    Настройки сохранены.
+  </div>
+{% endif %}
+
+{% if tab == 'parser' %}
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+    <div>
+      <div class="text-sm font-semibold mb-1">Парсер</div>
+      <div class="text-xs text-slate-400">Влияет на ingest/pipeline (дубликаты, предвалидация и лимиты).</div>
+    </div>
+
+    <form method="post" action="/settings?tab=parser" class="space-y-4">
+      <div>
+        <label class="text-sm text-slate-200">Dedup threshold (cosine similarity)</label>
+        <input
+          name="dedup_threshold"
+          type="number"
+          step="0.01"
+          min="0"
+          max="1"
+          required
+          value="{{ runtime.parser.dedup_threshold }}"
+          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="text-sm text-slate-200">Prevalidate max chars</label>
+          <input
+            name="prevalidate_max_chars"
+            type="number"
+            required
+            value="{{ runtime.limits.prevalidate_max_chars }}"
+            class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div>
+          <label class="text-sm text-slate-200">Analyzer max chars</label>
+          <input
+            name="analyzer_max_chars"
+            type="number"
+            required
+            value="{{ runtime.limits.analyzer_max_chars }}"
+            class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-200">Channel categorizer max chars</label>
+        <input
+          name="channel_max_chars"
+          type="number"
+          required
+          value="{{ runtime.limits.channel_max_chars }}"
+          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      <div class="pt-2">
+        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+          Сохранить
+        </button>
+      </div>
+    </form>
+  </div>
+{% endif %}
+
+{% if tab == 'openrouter' %}
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+    <div>
+      <div class="text-sm font-semibold mb-1">OpenRouter</div>
+      <div class="text-xs text-slate-400">Модели и лимиты токенов. Ключ хранится в БД (если заполнен).</div>
+    </div>
+
+    <form method="post" action="/settings?tab=openrouter" class="space-y-4">
+      <div>
+        <label class="text-sm text-slate-200">OPENROUTER_API_KEY (оставь пустым — не менять)</label>
+        <input
+          name="api_key"
+          type="password"
+          placeholder="sk-or-v1..."
+          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        />
+        <div class="text-xs text-slate-500 mt-1">
+          Если ключ заполнен — он будет сохранён. Если не заполнен — остаётся текущий.
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="text-sm text-slate-200">Classifier model</label>
+          <input
+            name="model_classifier"
+            type="text"
+            value="{{ runtime.openrouter.model_classifier }}"
+            required
+            class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div>
+          <label class="text-sm text-slate-200">Analyzer model</label>
+          <input
+            name="model_analyzer"
+            type="text"
+            value="{{ runtime.openrouter.model_analyzer }}"
+            required
+            class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-200">Analyzer max_tokens</label>
+        <input
+          name="max_tokens_analyzer"
+          type="number"
+          min="256"
+          step="1"
+          required
+          value="{{ runtime.openrouter.max_tokens_analyzer }}"
+          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      <div class="pt-2">
+        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+          Сохранить
+        </button>
+      </div>
+    </form>
+  </div>
+{% endif %}
+
+{% if tab == 'prompts' %}
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+    <div>
+      <div class="text-sm font-semibold mb-1">Промпты</div>
+      <div class="text-xs text-slate-400">Системные промпты для анализа вакансий, предвалидации и категоризации каналов.</div>
+    </div>
+
+    <form method="post" action="/settings?tab=prompts" class="space-y-4">
+      <div>
+        <label class="text-sm text-slate-200">Vacancy analyzer system prompt</label>
+        <textarea
+          name="vacancy_analyzer_system"
+          rows="12"
+          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        >{{ prompts.vacancy_analyzer_system or '' }}</textarea>
+        <div class="text-xs text-slate-500 mt-1">Ожидается: строгий JSON, поля соответствуют схеме vacancies.</div>
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-200">Vacancy prevalidate classifier system prompt</label>
+        <textarea
+          name="vacancy_prevalidate_system"
+          rows="8"
+          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        >{{ prompts.vacancy_prevalidate_system or '' }}</textarea>
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-200">Channel categorizer system prompt</label>
+        <textarea
+          name="channel_categorizer_system"
+          rows="8"
+          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        >{{ prompts.channel_categorizer_system or '' }}</textarea>
+      </div>
+
+      <div class="pt-2">
+        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+          Сохранить
+        </button>
+      </div>
+    </form>
+  </div>
+{% endif %}
+
+{% if tab == 'sessions' %}
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+    <div>
+      <div class="text-sm font-semibold mb-1">TG сессии</div>
+      <div class="text-xs text-slate-400">Здесь показываем параметры, которые влияют на Telethon авторизацию.</div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="p-4 rounded-lg bg-slate-950 border border-slate-800">
+        <div class="text-xs text-slate-400">TELETHON_SESSION_PATH</div>
+        <div class="text-sm text-slate-200 mt-2">{{ env.telethon_session_path }}</div>
+        <div class="text-xs text-slate-500 mt-2">Файл: `./data/telethon/` (в контейнерах смонтирован).</div>
+      </div>
+      <div class="p-4 rounded-lg bg-slate-950 border border-slate-800">
+        <div class="text-xs text-slate-400">Инструкция</div>
+        <div class="text-sm text-slate-200 mt-2">Авторизация через CLI:</div>
+        <div class="text-xs text-slate-300 mt-2 font-mono break-all">
+docker compose run --rm -it userbot python -m jobeco.tg.login_cli
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if tab == 'users' %}
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+    <div>
+      <div class="text-sm font-semibold mb-1">Пользователи</div>
+      <div class="text-xs text-slate-400">MVP: один админ-пароль для входа в Admin Web.</div>
+    </div>
+
+    <form method="post" action="/settings?tab=users" class="space-y-4">
+      <div>
+        <label class="text-sm text-slate-200">Новый пароль (оставь пустым — не менять)</label>
+        <input
+          name="admin_password"
+          type="password"
+          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        />
+        <div class="text-xs text-slate-500 mt-1">
+          Если не задавать — используется пароль по умолчанию: первые 8 символов `OPENROUTER_API_KEY`.
+        </div>
+      </div>
+
+      <div class="pt-2">
+        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+          Сохранить
+        </button>
+      </div>
+    </form>
+  </div>
+{% endif %}
+{% endblock %}
+

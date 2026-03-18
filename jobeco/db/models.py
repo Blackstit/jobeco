@@ -94,3 +94,12 @@ class Vacancy(Base):
 
   risk_label: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
   domains: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+
+
+class SystemSettings(Base):
+  __tablename__ = "system_settings"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  # Single JSON blob for runtime config (parser/openrouter/prompts/admin UI).
+  data: Mapped[dict] = mapped_column("data", JSONB, nullable=False, server_default="{}")
+  updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

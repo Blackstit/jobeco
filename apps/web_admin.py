@@ -14,11 +14,12 @@ from telethon import TelegramClient
 from telethon.tl.functions.channels import GetFullChannelRequest
 
 from jobeco.db.session import SessionLocal
-from jobeco.db.models import Vacancy, Channel
+from jobeco.db.models import Vacancy, Channel, SystemSettings
 from jobeco.settings import settings
 from jobeco.openrouter.client import categorize_channel
 from jobeco.processing.pipeline import process_text_message
 from jobeco.openrouter.client import analyze_with_openrouter
+from jobeco.runtime_settings import get_runtime_settings, upsert_system_settings, load_system_settings_raw, set_admin_password_hash
 
 
 app = FastAPI(title="Job-Eco Admin")
@@ -57,6 +58,19 @@ async def login_page(request: Request):
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
+  import hashlib
+
+  # 1) DB-based password hash (optional)
+  raw = await load_system_settings_raw()
+  admin_hash = (raw.get("admin") or {}).get("admin_password_hash")
+  if admin_hash:
+    candidate = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    if candidate == admin_hash:
+      request.session["authenticated"] = True
+      return RedirectResponse(url="/", status_code=303)
+    # fall through to fallback below (for easier recovery)
+
+  # 2) Fallback password (legacy behavior)
   if password == ADMIN_PASSWORD:
     request.session["authenticated"] = True
     return RedirectResponse(url="/", status_code=303)
@@ -71,6 +85,97 @@ async def login(request: Request, password: str = Form(...)):
 async def logout(request: Request):
   request.session.clear()
   return RedirectResponse(url="/login", status_code=303)
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(
+  request: Request,
+  _: bool = Depends(require_auth),
+  tab: str = Query("parser"),
+):
+  runtime = await get_runtime_settings()
+  prompts = runtime.get("prompts") or {}
+  saved = request.query_params.get("saved") == "1"
+
+  allowed_tabs = {"parser", "openrouter", "prompts", "sessions", "users"}
+  if tab not in allowed_tabs:
+    tab = "parser"
+
+  return templates.TemplateResponse(
+    "settings.html",
+    {
+      "request": request,
+      "tab": tab,
+      "runtime": runtime,
+      "prompts": prompts,
+      "env": settings,
+      "saved": saved,
+    },
+  )
+
+
+@app.post("/settings", response_class=HTMLResponse)
+async def settings_save(
+  request: Request,
+  _: bool = Depends(require_auth),
+  tab: str = Query("parser"),
+):
+  allowed_tabs = {"parser", "openrouter", "prompts", "sessions", "users"}
+  if tab not in allowed_tabs:
+    tab = "parser"
+
+  form = await request.form()
+  raw = await load_system_settings_raw()
+
+  if tab == "parser":
+    dedup_threshold = form.get("dedup_threshold")
+    prevalidate_max_chars = form.get("prevalidate_max_chars")
+    analyzer_max_chars = form.get("analyzer_max_chars")
+    channel_max_chars = form.get("channel_max_chars")
+    if not all([dedup_threshold, prevalidate_max_chars, analyzer_max_chars, channel_max_chars]):
+      raise HTTPException(status_code=400, detail="Missing parser settings fields")
+    raw.setdefault("parser", {})["dedup_threshold"] = float(dedup_threshold)
+    raw.setdefault("limits", {})["prevalidate_max_chars"] = int(prevalidate_max_chars)
+    raw.setdefault("limits", {})["analyzer_max_chars"] = int(analyzer_max_chars)
+    raw.setdefault("limits", {})["channel_max_chars"] = int(channel_max_chars)
+    await upsert_system_settings(raw)
+
+  elif tab == "openrouter":
+    raw.setdefault("openrouter", {})
+    api_key = (form.get("api_key") or "").strip()
+    model_classifier = form.get("model_classifier")
+    model_analyzer = form.get("model_analyzer")
+    max_tokens_analyzer = form.get("max_tokens_analyzer")
+    if not all([model_classifier, model_analyzer, max_tokens_analyzer]):
+      raise HTTPException(status_code=400, detail="Missing openrouter settings fields")
+    if api_key:
+      raw["openrouter"]["api_key"] = api_key
+    raw["openrouter"]["model_classifier"] = str(model_classifier).strip()
+    raw["openrouter"]["model_analyzer"] = str(model_analyzer).strip()
+    raw["openrouter"]["max_tokens_analyzer"] = int(max_tokens_analyzer)
+    await upsert_system_settings(raw)
+
+  elif tab == "prompts":
+    raw.setdefault("prompts", {})
+    a = (form.get("vacancy_analyzer_system") or "").strip()
+    p = (form.get("vacancy_prevalidate_system") or "").strip()
+    c = (form.get("channel_categorizer_system") or "").strip()
+    if a:
+      raw["prompts"]["vacancy_analyzer_system"] = a
+    if p:
+      raw["prompts"]["vacancy_prevalidate_system"] = p
+    if c:
+      raw["prompts"]["channel_categorizer_system"] = c
+    await upsert_system_settings(raw)
+
+  elif tab == "users":
+    new_pw = (form.get("admin_password") or "").strip()
+    if new_pw:
+      await set_admin_password_hash(new_pw)
+
+  # sessions: read-only for now
+
+  return RedirectResponse(url=f"/settings?tab={tab}&saved=1", status_code=303)
 
 
 @app.get("/", response_class=HTMLResponse)
