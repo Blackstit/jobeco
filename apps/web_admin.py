@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import secrets
 from datetime import datetime
 
 from fastapi import FastAPI, Request, Query, Form, Depends, HTTPException, status
@@ -28,7 +26,9 @@ from jobeco.auth.passwords import hash_password_pbkdf2, verify_password_pbkdf2
 
 
 app = FastAPI(title="Job-Eco Admin")
-app.add_middleware(SessionMiddleware, secret_key=secrets.token_urlsafe(32))
+# Stable secret key is required for sessions to survive restarts.
+_session_secret = settings.session_secret_key or settings.openrouter_api_key or "jobeco_session_dev_secret"
+app.add_middleware(SessionMiddleware, secret_key=_session_secret)
 
 templates = Jinja2Templates(directory="templates")
 
@@ -194,7 +194,7 @@ async def settings_save(
   elif tab == "users":
     email = (form.get("email") or "").strip().lower()
     pw = (form.get("password") or "").strip()
-    is_active_raw = (form.get("is_active") or "true").lower()
+    is_active_raw = (form.get("is_active") or "").lower()
     is_active = is_active_raw in ("1", "true", "yes", "on")
 
     if not email or not pw:

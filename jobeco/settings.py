@@ -25,6 +25,10 @@ class Settings(BaseSettings):
   embedding_dim: int = 1536
   dedup_threshold: float = 0.95
 
+  # Web sessions (cookie signing)
+  # Must be stable across restarts to keep users logged-in.
+  session_secret_key: str = ""
+
   @property
   def admin_id_set(self) -> set[int]:
     vals = []
