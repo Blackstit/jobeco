@@ -38,6 +38,26 @@ class Channel(Base):
   ai_risk_label: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
 
 
+class Company(Base):
+  __tablename__ = "companies"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+  name_lower: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+  website: Mapped[str | None] = mapped_column(Text, nullable=True)
+  linkedin: Mapped[str | None] = mapped_column(Text, nullable=True)
+  logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+  summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+  industry: Mapped[str | None] = mapped_column(String(128), nullable=True)
+  size: Mapped[str | None] = mapped_column(String(32), nullable=True)
+  founded: Mapped[str | None] = mapped_column(String(8), nullable=True)
+  headquarters: Mapped[str | None] = mapped_column(String(128), nullable=True)
+  domains: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+  socials: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+  created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Vacancy(Base):
   __tablename__ = "vacancies"
 
@@ -104,6 +124,7 @@ class Vacancy(Base):
 
   risk_label: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
   domains: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+  company_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("companies.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
 class SystemSettings(Base):

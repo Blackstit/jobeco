@@ -14,9 +14,10 @@ from telethon import TelegramClient
 from telethon.tl.functions.channels import GetFullChannelRequest
 
 from jobeco.db.session import SessionLocal
-from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage, ParserLog
+from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage, ParserLog, Company
 from jobeco.settings import settings
-from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text, score_vacancy_with_openrouter, resolve_company_info
+from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text, score_vacancy_with_openrouter, resolve_company_info, enrich_company_profile
+from jobeco.processing.pipeline import upsert_company, _boost_company_score
 from jobeco.processing.pipeline import process_text_message
 from jobeco.runtime_settings import (
   get_runtime_settings,
@@ -86,7 +87,15 @@ _FORM_URL_RE = _re.compile(
   r'(?:www\.)?jotform\.com/[^\s)\"\'<>]+|'
   r'tally\.so/[^\s)\"\'<>]+|'
   r'airtable\.com/shr[^\s)\"\'<>]+|'
-  r'(?:www\.)?surveymonkey\.com/[^\s)\"\'<>]+'
+  r'(?:www\.)?surveymonkey\.com/[^\s)\"\'<>]+|'
+  r'jobs\.lever\.co/[^\s)\"\'<>]+|'
+  r'boards\.greenhouse\.io/[^\s)\"\'<>]+|'
+  r'apply\.workable\.com/[^\s)\"\'<>]+|'
+  r'[a-z0-9-]+\.breezy\.hr/[^\s)\"\'<>]+|'
+  r'[a-z0-9-]+\.bamboohr\.com/[^\s)\"\'<>]+|'
+  r'jobs\.smartrecruiters\.com/[^\s)\"\'<>]+|'
+  r'jobs\.ashbyhq\.com/[^\s)\"\'<>]+|'
+  r'[a-z0-9-]+\.recruitee\.com/[^\s)\"\'<>]+'
   r')',
   _re.IGNORECASE,
 )
@@ -623,8 +632,10 @@ async def vacancies_page(
           v.created_at,
           v.seniority,
           v.english_level,
-          v.metadata_json
+          v.metadata_json,
+          c.logo_url AS company_logo_url
         FROM vacancies v
+        LEFT JOIN companies c ON c.id = v.company_id
         WHERE {where_sql}
         ORDER BY v.embedding <=> (:vec)::vector ASC
         LIMIT :limit OFFSET :offset
@@ -684,14 +695,24 @@ async def vacancies_page(
 
       total = (await s.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
 
-      vacancies = (
+      rows_orm = (
         await s.execute(
-          query
+          select(Vacancy, Company.logo_url)
+          .select_from(Vacancy)
+          .outerjoin(Company, Company.id == Vacancy.company_id)
+          .where(Vacancy.id.in_(
+            query.with_only_columns(Vacancy.id)
+            .order_by(desc(Vacancy.id))
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+          ))
           .order_by(desc(Vacancy.id))
-          .offset((page - 1) * per_page)
-          .limit(per_page)
         )
-      ).scalars().all()
+      ).all()
+      vacancies = []
+      for vac_obj, logo in rows_orm:
+        vac_obj.company_logo_url = logo
+        vacancies.append(vac_obj)
     
     domain_options_rows = (
       await s.execute(
@@ -1622,7 +1643,6 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
     metadata = getattr(v, "metadata_json", {}) or {}
     scoring = metadata.get("scoring") or {}
 
-    # Backward compat: old format had ai_score_100 / ai_score_points
     if not scoring and metadata.get("ai_score_points"):
       old_score_100 = metadata.get("ai_score_100")
       old_10 = None
@@ -1647,6 +1667,57 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
         "red_flags": [],
         "scoring_results": [],
       }
+
+    # Company data from companies table (preferred) or metadata fallback
+    company_data = None
+    related_vacancies = []
+    comp_id = getattr(v, "company_id", None)
+    if comp_id:
+      comp = (await s.execute(select(Company).where(Company.id == comp_id))).scalar_one_or_none()
+      if comp:
+        company_data = {
+          "id": comp.id,
+          "name": comp.name,
+          "website": comp.website,
+          "linkedin": comp.linkedin,
+          "logo_url": comp.logo_url,
+          "summary": comp.summary,
+          "industry": comp.industry,
+          "size": comp.size,
+          "founded": comp.founded,
+          "headquarters": comp.headquarters,
+          "domains": comp.domains or [],
+          "socials": comp.socials or {},
+        }
+        # Related vacancies from the same company
+        from sqlalchemy import and_
+        rows = (await s.execute(
+          select(Vacancy.id, Vacancy.title, Vacancy.created_at, Vacancy.ai_score_value)
+          .where(and_(Vacancy.company_id == comp_id, Vacancy.id != vacancy_id))
+          .order_by(Vacancy.created_at.desc())
+          .limit(10)
+        )).all()
+        for r in rows:
+          related_vacancies.append({
+            "id": r[0], "title": r[1],
+            "created_at": r[2].isoformat() if r[2] else None,
+            "ai_score_value": r[3],
+          })
+
+    if not company_data:
+      cp = (metadata or {}).get("company_profile")
+      if cp and isinstance(cp, dict):
+        company_data = {
+          "name": v.company_name,
+          "website": cp.get("website") or getattr(v, "company_url", None),
+          "logo_url": cp.get("logo_url"),
+          "summary": cp.get("summary"),
+          "industry": cp.get("industry"),
+          "size": cp.get("size"),
+          "founded": cp.get("founded"),
+          "headquarters": cp.get("headquarters"),
+          "domains": [],
+        }
 
     return {
       "id": v.id,
@@ -1678,6 +1749,8 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
       "english_level": getattr(v, "english_level", None),
       "employment_type": (metadata or {}).get("employment_type"),
       "language_requirements": (metadata or {}).get("language_requirements"),
+      "company": company_data,
+      "related_vacancies": related_vacancies,
     }
 
 
@@ -1739,6 +1812,41 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
     ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
   ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
 
+  company_profile = {}
+  try:
+    company_profile = await enrich_company_profile(
+      company_name=analysis.get("company_name"),
+      company_url=_ci.get("company_url"),
+    )
+  except Exception:
+    pass
+
+  scoring = _boost_company_score(scoring, company_profile, _ci)
+  total_score = scoring.get("total_score")
+  try:
+    ai_score_value_0_10 = int(round(float(total_score)))
+  except Exception:
+    pass
+  ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
+
+  company_id = await upsert_company(
+    company_name=analysis.get("company_name"),
+    company_profile=company_profile,
+    company_url=_ci.get("company_url"),
+    company_linkedin=_ci.get("company_linkedin"),
+  )
+  vacancy_domains = [str(x).strip().lower() for x in (analysis.get("domains") or []) if str(x).strip()]
+  if company_id:
+    try:
+      async with SessionLocal() as s:
+        comp = (await s.execute(select(Company).where(Company.id == company_id))).scalar_one_or_none()
+        if comp and comp.domains:
+          for cd in comp.domains:
+            if cd and cd.lower() not in vacancy_domains:
+              vacancy_domains.append(cd.lower())
+    except Exception:
+      pass
+
   async with SessionLocal() as s:
     old = (await s.execute(select(Vacancy).where(Vacancy.id == vacancy_id))).scalar_one_or_none()
 
@@ -1753,6 +1861,7 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
       "company_linkedin_verified": _ci.get("company_linkedin_verified", False),
       "employment_type": analysis.get("employment_type"),
       "language_requirements": analysis.get("language_requirements"),
+      "company_profile": company_profile if company_profile else None,
     }
     await s.execute(
       update(Vacancy)
@@ -1769,7 +1878,7 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
         summary_en=analysis.get("summary_en"),
         summary_ru=analysis.get("summary_ru"),
         metadata_json=new_meta,
-        domains=[str(x).strip().lower() for x in (analysis.get("domains") or []) if str(x).strip()],
+        domains=vacancy_domains,
         risk_label=analysis.get("risk_label"),
         recruiter=analysis.get("recruiter"),
         contacts=_enrich_contacts_with_forms(analysis.get("contacts") or [], text_raw),
@@ -1782,6 +1891,7 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
         english_level=(analysis.get("english_level") or "").strip().upper() or None,
         standardized_title=analysis.get("standardized_title"),
         language=analysis.get("language"),
+        company_id=company_id,
       )
     )
     await s.commit()

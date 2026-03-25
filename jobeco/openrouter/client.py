@@ -10,6 +10,7 @@ import structlog
 
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
+from jobeco.openrouter._enrich_company import enrich_company_profile  # noqa: F401
 
 _log = structlog.get_logger()
 

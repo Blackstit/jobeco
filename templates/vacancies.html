@@ -131,7 +131,15 @@
            class="bg-slate-900 border border-slate-800 rounded-lg p-4 hover:bg-slate-800/40 transition cursor-pointer"
            onclick="openVacancyPane({{ v.id }})">
         <div class="flex items-start justify-between gap-4">
-          <div class="min-w-0">
+          {% if v is mapping %}
+            {% set _logo = v.get('company_logo_url', '') %}
+          {% else %}
+            {% set _logo = v.company_logo_url|default('') %}
+          {% endif %}
+          {% if _logo %}
+            <img src="{{ _logo }}" alt="" class="w-8 h-8 rounded bg-slate-800 object-contain flex-none mt-0.5" onerror="this.style.display='none'"/>
+          {% endif %}
+          <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 flex-wrap">
               <div class="font-medium text-sm truncate">{{ v.title or "Untitled" }}</div>
               <span class="text-xs text-slate-500">#{{ v.id }}</span>
@@ -207,15 +215,17 @@
 
   <!-- Details pane -->
   <div id="vacPane" class="hidden w-1/2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden overflow-x-hidden h-full flex flex-col min-h-0">
-    <div class="p-4 border-b border-slate-800 flex items-start justify-between gap-3 bg-slate-950 flex-none">
-      <div class="min-w-0">
+    <div class="p-4 border-b border-slate-800 flex items-start gap-3 bg-slate-950 flex-none">
+      <img id="pLogo" src="" alt="" class="hidden w-11 h-11 rounded-lg bg-slate-800 object-contain flex-none mt-0.5" onerror="this.classList.add('hidden')"/>
+      <div class="min-w-0 flex-1">
         <div class="text-lg font-semibold" id="pTitle">—</div>
         <div class="text-sm text-slate-400 mt-1" id="pCompany"></div>
+        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500 mt-1 empty:hidden" id="pCompanyMeta"></div>
         <div class="mt-2 flex flex-wrap gap-2" id="pBadges"></div>
         <div class="mt-1.5 flex flex-wrap gap-2" id="pLangs"></div>
         <div class="mt-2 text-xs text-slate-500" id="pMeta"></div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-none">
         <a id="pSource" target="_blank" rel="noreferrer" class="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded transition hidden">
           <span class="text-lg leading-none" aria-hidden>↗</span>
           <span class="sr-only">Source</span>
@@ -254,8 +264,12 @@
           <div id="pScoringCriteria" class="mt-3 space-y-3"></div>
         </details>
       </div>
-      <div id="secDesc" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-        <div class="text-sm font-semibold mb-2">About the Company</div>
+      <div id="secCompanyProfile" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
+        <div class="text-sm font-semibold mb-2">Company Profile</div>
+        <div class="text-xs text-slate-300 leading-relaxed" id="pCompanyProfileSummary"></div>
+      </div>
+      <div id="secDesc" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
+        <div class="text-sm font-semibold mb-2">Description</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pDesc"></div>
       </div>
       <div id="secResp" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
@@ -273,6 +287,10 @@
       <div id="secContacts" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
         <div class="text-sm font-semibold mb-2">Contacts</div>
         <div class="space-y-2 text-sm" id="pContacts"></div>
+      </div>
+      <div id="secRelated" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
+        <div class="text-sm font-semibold mb-2">Other vacancies from this company</div>
+        <div class="space-y-1" id="pRelated"></div>
       </div>
       <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
         <div class="text-sm font-semibold mb-2">Original text</div>
@@ -488,51 +506,66 @@ async function openVacancyPane(id) {
 
   document.getElementById("pTitle").textContent = v.title || "—";
 
-  // Company name + verified links
+  // Company data (from companies table or metadata fallback)
+  const comp = v.company || null;
+
+  // Logo
+  const logoEl = document.getElementById("pLogo");
+  const logoUrl = comp ? comp.logo_url : (v.company_profile || {}).logo_url;
+  if (logoUrl) {
+    logoEl.src = logoUrl;
+    logoEl.classList.remove("hidden");
+  } else {
+    logoEl.classList.add("hidden");
+    logoEl.src = "";
+  }
+
+  // Company name + links
   const pCompanyEl = document.getElementById("pCompany");
   pCompanyEl.innerHTML = "";
   if (v.company_name) {
     const nameSpan = document.createElement("span");
+    nameSpan.className = "font-medium";
     nameSpan.textContent = v.company_name;
     pCompanyEl.appendChild(nameSpan);
   }
-  if (v.company_url) {
-    const sep = v.company_name ? " · " : "";
-    const linkWrap = document.createElement("span");
-    linkWrap.textContent = sep;
+  // Collect company links — only from enrichment (companies table), not from vacancy contacts
+  const companyLinks = [];
+  const compWebsite = comp && comp.website ? comp.website : null;
+  if (compWebsite) companyLinks.push({label: "Website", url: compWebsite});
+  const compLinkedin = comp && comp.linkedin ? comp.linkedin : null;
+  if (compLinkedin) companyLinks.push({label: "LinkedIn", url: compLinkedin});
+  // Social links from company enrichment
+  const socials = (comp && comp.socials) || {};
+  if (socials.twitter) companyLinks.push({label: "X/Twitter", url: socials.twitter, icon: "𝕏"});
+  if (socials.facebook) companyLinks.push({label: "Facebook", url: socials.facebook, icon: "f"});
+  if (socials.instagram) companyLinks.push({label: "Instagram", url: socials.instagram, icon: "📷"});
+  if (socials.telegram) companyLinks.push({label: "Telegram", url: socials.telegram, icon: "✈"});
+  if (socials.github) companyLinks.push({label: "GitHub", url: socials.github, icon: "⌨"});
+  if (socials.youtube) companyLinks.push({label: "YouTube", url: socials.youtube, icon: "▶"});
+  companyLinks.forEach(link => {
+    const sep = document.createTextNode(" · ");
+    pCompanyEl.appendChild(sep);
     const a = document.createElement("a");
-    a.href = v.company_url;
+    a.href = link.url;
     a.target = "_blank";
     a.rel = "noreferrer";
     a.className = "underline hover:text-white";
-    a.textContent = "Website";
-    linkWrap.appendChild(a);
-    if (v.company_url_verified) {
-      const badge = document.createElement("span");
-      badge.className = "ml-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300";
-      badge.textContent = "verified";
-      linkWrap.appendChild(badge);
-    }
-    pCompanyEl.appendChild(linkWrap);
-  }
-  if (v.company_linkedin) {
-    const sep2 = (v.company_name || v.company_url) ? " · " : "";
-    const liWrap = document.createElement("span");
-    liWrap.textContent = sep2;
-    const a2 = document.createElement("a");
-    a2.href = v.company_linkedin;
-    a2.target = "_blank";
-    a2.rel = "noreferrer";
-    a2.className = "underline hover:text-white";
-    a2.textContent = "LinkedIn";
-    liWrap.appendChild(a2);
-    if (v.company_linkedin_verified) {
-      const badge2 = document.createElement("span");
-      badge2.className = "ml-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300";
-      badge2.textContent = "verified";
-      liWrap.appendChild(badge2);
-    }
-    pCompanyEl.appendChild(liWrap);
+    a.textContent = link.label;
+    pCompanyEl.appendChild(a);
+  });
+
+  // Company meta in header (industry, size, founded, HQ)
+  const cmEl = document.getElementById("pCompanyMeta");
+  cmEl.innerHTML = "";
+  const cmSrc = comp || {};
+  const cmParts = [];
+  if (cmSrc.industry) cmParts.push(escapeHtml(cmSrc.industry));
+  if (cmSrc.size) cmParts.push(escapeHtml(cmSrc.size) + " employees");
+  if (cmSrc.founded) cmParts.push("Est. " + escapeHtml(cmSrc.founded));
+  if (cmSrc.headquarters) cmParts.push(escapeHtml(cmSrc.headquarters));
+  if (cmParts.length) {
+    cmEl.innerHTML = cmParts.join(' <span class="text-slate-700">·</span> ');
   }
 
   const badges = document.getElementById("pBadges");
@@ -688,7 +721,28 @@ async function openVacancyPane(id) {
   };
   showIf("secSummary", v.summary_en);
   // secScoring is controlled by the scoring block above.
-  showIf("secDesc", v.description);
+
+  // Company Profile summary
+  const secCp = document.getElementById("secCompanyProfile");
+  const cpSummary = document.getElementById("pCompanyProfileSummary");
+  const compSummary = comp ? comp.summary : null;
+  if (compSummary) {
+    cpSummary.textContent = compSummary;
+    secCp.classList.remove("hidden");
+  } else {
+    secCp.classList.add("hidden");
+  }
+
+  // Description block — only show if there's actual vacancy description text
+  const descEl = document.getElementById("pDesc");
+  const secDescEl = document.getElementById("secDesc");
+  if (v.description && v.description.trim()) {
+    descEl.textContent = v.description;
+    secDescEl.classList.remove("hidden");
+  } else {
+    descEl.textContent = "";
+    secDescEl.classList.add("hidden");
+  }
   showIf("secResp", v.responsibilities);
   showIf("secCond", v.conditions);
   showIf("secReq", v.requirements);
@@ -700,7 +754,7 @@ async function openVacancyPane(id) {
     const lower = (x || "").toLowerCase();
     let label = "Contact";
     let href = null;
-    const formDomains = ["forms.gle/","docs.google.com/forms","typeform.com","jotform.com","tally.so","airtable.com/shr","surveymonkey.com","notion.so"];
+    const formDomains = ["forms.gle/","docs.google.com/forms","typeform.com","jotform.com","tally.so","airtable.com/shr","surveymonkey.com","notion.so","jobs.lever.co","lever.co/","greenhouse.io","workable.com","breezy.hr","bamboohr.com","smartrecruiters.com","ashbyhq.com","recruitee.com","join.com/","apply.workable.com"];
     if (lower.includes("linkedin.com")) { label = "LinkedIn"; href = x; }
     else if (lower.includes("t.me/")) { label = "Telegram"; href = x; }
     else if (formDomains.some(fd => lower.includes(fd))) { label = "Application Form"; href = x; }
@@ -734,6 +788,34 @@ async function openVacancyPane(id) {
   if (secContacts) {
     if ((v.contacts || []).length) secContacts.classList.remove("hidden");
     else secContacts.classList.add("hidden");
+  }
+
+  // Related vacancies from the same company
+  const secRelated = document.getElementById("secRelated");
+  const pRelated = document.getElementById("pRelated");
+  pRelated.innerHTML = "";
+  if (v.related_vacancies && v.related_vacancies.length) {
+    v.related_vacancies.forEach(rv => {
+      const row = document.createElement("a");
+      row.href = "#";
+      row.className = "block px-3 py-2 rounded bg-slate-800/50 hover:bg-slate-800 transition text-sm flex items-center justify-between gap-2";
+      row.onclick = (e) => { e.preventDefault(); openVacancyPane(rv.id); };
+      const left = document.createElement("span");
+      left.className = "truncate text-slate-200";
+      left.textContent = rv.title || "Untitled";
+      row.appendChild(left);
+      const right = document.createElement("span");
+      right.className = "text-[11px] text-slate-500 flex-none";
+      const parts = [];
+      if (rv.ai_score_value != null) parts.push(rv.ai_score_value + "/10");
+      if (rv.created_at) parts.push(timeAgo(new Date(rv.created_at)));
+      right.textContent = parts.join(" · ");
+      row.appendChild(right);
+      pRelated.appendChild(row);
+    });
+    secRelated.classList.remove("hidden");
+  } else {
+    secRelated.classList.add("hidden");
   }
 
   const src = document.getElementById("pSource");
