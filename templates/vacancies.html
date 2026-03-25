@@ -308,6 +308,13 @@ function sentimentClasses(sentiment) {
   return "bg-slate-800 text-slate-200 border-slate-700";
 }
 
+function formatScore10(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  // Show one decimal only when needed (e.g. 7.5), otherwise show integer (e.g. 7).
+  return Number.isInteger(x) ? String(Math.trunc(x)) : x.toFixed(1);
+}
+
 function toggleVacMenu(id) {
   const el = document.getElementById(`vac-menu-${id}`);
   el.classList.toggle('hidden');
@@ -419,9 +426,10 @@ async function openVacancyPane(id) {
   const scorePoints = document.getElementById("pScorePoints");
   if (scorePoints) scorePoints.innerHTML = "";
   const score100 = v.ai_score_100;
+  const score10 = (score100 !== null && score100 !== undefined) ? (Number(score100) / 10.0) : null;
   const points = Array.isArray(v.ai_score_points) ? v.ai_score_points : [];
   if (scoreBadge) {
-    scoreBadge.textContent = (score100 !== null && score100 !== undefined) ? `Score ${score100}/100` : "Score —";
+    scoreBadge.textContent = (score10 !== null && score10 !== undefined) ? `Score ${formatScore10(score10)}/10` : "Score —";
   }
   if (points.length && scorePoints) {
     points.slice(0, 5).forEach((p) => {
