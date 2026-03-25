@@ -312,13 +312,13 @@ async def score_vacancy_with_openrouter(text: str, analysis: dict | None = None)
     "POST_TEXT:\n"
     + text[: int(runtime.get("limits", {}).get("analyzer_max_chars", 12000))]
     + "\n\nEXTRACTED_FIELDS (may contain nulls):\n"
-    + str(extracted)
+    + __import__("json").dumps(extracted, ensure_ascii=False)
   )
 
   payload = {
     "model": runtime["openrouter"]["model_analyzer"],
     "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_content}],
-    "temperature": 0.2,
+    "temperature": 0.0,
     "max_tokens": int(runtime.get("openrouter", {}).get("max_tokens_analyzer", 1500)),
   }
 
@@ -328,9 +328,16 @@ async def score_vacancy_with_openrouter(text: str, analysis: dict | None = None)
     content = r.json()["choices"][0]["message"]["content"]
 
   try:
-    import json
+    import json, re
 
-    data = json.loads(content)
+    raw = (content or "").strip()
+
+    # 1) Remove markdown code fences if any.
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\s*```$", "", raw)
+
+    # 2) Try full parse.
+    data = json.loads(raw)
     if not isinstance(data, dict):
       raise ValueError("scorer_returned_non_dict")
     points = data.get("points") or []
@@ -361,12 +368,50 @@ async def score_vacancy_with_openrouter(text: str, analysis: dict | None = None)
     score = max(0, min(100, score))
     return {"score": score, "points": norm_points[:3]}
   except Exception:
+    # Last resort: extract the first JSON object substring.
+    try:
+      import json, re
+
+      raw2 = (content or "").strip()
+      start = raw2.find("{")
+      end = raw2.rfind("}")
+      if start != -1 and end != -1 and end > start:
+        data2 = json.loads(raw2[start : end + 1])
+        if isinstance(data2, dict):
+          points2 = data2.get("points") or []
+          norm_points2 = []
+          for p in points2[:3]:
+            if not isinstance(p, dict):
+              continue
+            sent = str(p.get("sentiment") or "").lower().strip()
+            if sent not in {"positive", "neutral", "negative"}:
+              sent = "neutral"
+            norm_points2.append(
+              {
+                "sentiment": sent,
+                "text": str(p.get("text") or "").strip(),
+                "evidence": str(p.get("evidence") or "").strip() or "Not mentioned in the text",
+              }
+            )
+          while len(norm_points2) < 3:
+            norm_points2.append(
+              {"sentiment": "neutral", "text": "No scoring data available.", "evidence": "Not mentioned in the text"}
+            )
+          score2 = data2.get("score")
+          try:
+            score2_int = int(score2)
+          except Exception:
+            score2_int = 50
+          score2_int = max(0, min(100, score2_int))
+          return {"score": score2_int, "points": norm_points2[:3]}
+    except Exception:
+      pass
     return {
       "score": 50,
       "points": [
-        {"sentiment": "neutral", "text": "Scoring failed, defaulted to neutral.", "evidence": "Model parse failed"},
-        {"sentiment": "neutral", "text": "Provide stable OpenRouter responses to enable scoring.", "evidence": "Parse failure"},
-        {"sentiment": "neutral", "text": "Use extraction fields to verify presence/absence.", "evidence": "Extraction driven"},
+        {"sentiment": "neutral", "text": "Scoring failed, defaulted to neutral.", "evidence": "Model output not parseable as JSON"},
+        {"sentiment": "neutral", "text": "Use the re-analyze button to try again.", "evidence": "JSON parse failure"},
+        {"sentiment": "neutral", "text": "Scoring is based on extraction fields and post text.", "evidence": "Extraction driven"},
       ],
     }
 

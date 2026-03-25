@@ -80,11 +80,11 @@
               {% if v.ai_score_value is not none %}
                 {% set sc = v.ai_score_value %}
                 {% if sc <= 3 %}
-                  <span class="px-2 py-0.5 text-xs bg-red-900/30 text-red-300 border border-red-700/50 rounded">Score {{ sc }}/10</span>
+                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-red-900/30 text-red-300 border border-red-700/50 rounded">Score {{ sc }}/10</span>
                 {% elif sc <= 7 %}
-                  <span class="px-2 py-0.5 text-xs bg-blue-900/30 text-blue-200 border border-blue-700/40 rounded">Score {{ sc }}/10</span>
+                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-blue-900/30 text-blue-200 border border-blue-700/40 rounded">Score {{ sc }}/10</span>
                 {% else %}
-                  <span class="px-2 py-0.5 text-xs bg-green-900/30 text-green-200 border border-green-700/40 rounded">Score {{ sc }}/10</span>
+                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-green-900/30 text-green-200 border border-green-700/40 rounded">Score {{ sc }}/10</span>
                 {% endif %}
               {% endif %}
               {% if v.domains %}
@@ -332,6 +332,30 @@ function closeVacancyPane() {
   document.body.classList.remove("overflow-hidden");
 }
 
+function setScoreBadgeInCard(vacancyId, sc) {
+  const el = document.getElementById(`scoreBadge-${vacancyId}`);
+  if (!el) return;
+  if (sc === null || sc === undefined) {
+    el.classList.add("hidden");
+    return;
+  }
+  const n = Number(sc);
+  if (Number.isNaN(n)) return;
+  el.textContent = `Score ${n}/10`;
+  el.classList.remove("bg-red-900/30","text-red-300","bg-blue-900/30","text-blue-200","bg-green-900/30","text-green-200");
+  if (n <= 3) {
+    el.classList.add("bg-red-900/30","text-red-300","border-red-700/50");
+    el.classList.remove("border-blue-700/40","border-green-700/40");
+  } else if (n <= 7) {
+    el.classList.add("bg-blue-900/30","text-blue-200","border-blue-700/40");
+    el.classList.remove("border-red-700/50","border-green-700/40");
+  } else {
+    el.classList.add("bg-green-900/30","text-green-200","border-green-700/40");
+    el.classList.remove("border-red-700/50","border-blue-700/40");
+  }
+  el.classList.remove("hidden");
+}
+
 async function deleteVacancy(id) {
   if (!confirm("Delete vacancy?")) return;
   const res = await fetch(`/api/vacancies/${id}/delete`, { method: "POST" });
@@ -386,6 +410,10 @@ async function openVacancyPane(id) {
   document.getElementById("pMeta").textContent = meta.join(" · ");
 
   document.getElementById("pSummary").textContent = v.summary_en || "";
+
+  // Keep list badge score in sync after opening (if list is visible).
+  setScoreBadgeInCard(id, v.ai_score_value);
+
   const scoreSection = document.getElementById("secScoring");
   const scoreBadge = document.getElementById("pScoreBadge");
   const scorePoints = document.getElementById("pScorePoints");
@@ -526,6 +554,9 @@ async function reanalyzeVacancy(id) {
           // summary
           const sumEl = c.querySelector(".mt-2.text-sm.text-slate-200");
           if (sumEl) sumEl.textContent = v.summary_en || "";
+
+          // score badge
+          setScoreBadgeInCard(id, v.ai_score_value);
         }
       }
     } catch {}
