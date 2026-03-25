@@ -157,10 +157,14 @@ async def analyze_with_openrouter(text: str) -> dict:
     "- A vacancy can belong to MULTIPLE domains (e.g. ['ai','web3']).\n"
     "- ALL textual output fields MUST be in ENGLISH (even if input is RU). Do NOT output Russian.\n"
     "- summary_en MUST be short and useful for a listing card (max 300 chars).\n"
-    "- description/responsibilities/requirements/conditions MUST be well-formatted Markdown text:\n"
-    "  start with a short 1–2 sentence paragraph, then include bullet lists using '- '.\n"
-    "  Target: 5–10 bullets for responsibilities, 6–12 bullets for requirements, 4–8 bullets for conditions, 4–8 bullets for description highlights.\n"
-    "  Do NOT write everything as one solid paragraph.\n"
+    "- description/responsibilities/requirements/conditions MUST be well-formatted Markdown text.\n"
+    "  Output rules (anti-invention):\n"
+    "  1) Use ONLY information that is explicitly present in the provided post text.\n"
+    "  2) Do NOT invent missing responsibilities/requirements/conditions.\n"
+    "  3) Paraphrase is allowed, but it must stay faithful to the source text.\n"
+    "  4) If a list field is not supported by the text, return it as null.\n"
+    "  5) If you are unsure whether a bullet is supported, omit it.\n"
+    "  6) Prefer fewer, more accurate bullets over long fabricated lists.\n"
     "- contacts MUST be direct hiring contacts (HR/recruiter/manager). EXCLUDE channel footer links, \"subscribe\" links,\n"
     "  and generic channel usernames. If in doubt, omit.\n"
     "\n"
@@ -184,7 +188,6 @@ async def analyze_with_openrouter(text: str) -> dict:
     "- requirements: string|null (English, Markdown with bullets)\n"
     "- conditions: string|null (English, Markdown with bullets)\n"
     "- language: 'ru'|'en'|'other'|null\n"
-    "- ai_score_value: integer 0-10\n"
     "- summary_ru: string|null (optional; prefer null)\n"
     "- metadata: object\n"
   )
@@ -232,7 +235,6 @@ async def analyze_with_openrouter(text: str) -> dict:
     return {
       "domains": [],
       "risk_label": None,
-      "ai_score_value": 5,
       "company_name": None,
       "title": None,
       "standardized_title": None,
@@ -252,6 +254,120 @@ async def analyze_with_openrouter(text: str) -> dict:
       "conditions": None,
       "language": None,
       "metadata": {"raw": content},
+    }
+
+
+async def score_vacancy_with_openrouter(text: str, analysis: dict | None = None) -> dict:
+  """
+  Separate LLM step: score vacancy quality + 3 evidence-backed points (sentiment).
+
+  Returns:
+  {
+    "score": int 0..100,
+    "points": [{"sentiment": "positive|neutral|negative", "text": "...", "evidence": "..."}]  // length=3
+  }
+  """
+  runtime = await get_runtime_settings()
+  api_key = runtime.get("openrouter", {}).get("api_key") or ""
+  if not api_key:
+    return {
+      "score": 50,
+      "points": [
+        {"sentiment": "neutral", "text": "Score is unavailable (OPENROUTER_API_KEY not set).", "evidence": "Not available"},
+        {"sentiment": "neutral", "text": "Vacancy extraction still runs as a best-effort stub.", "evidence": "Stub mode"},
+        {"sentiment": "neutral", "text": "Provide OPENROUTER_API_KEY to enable accurate scoring.", "evidence": "Missing API key"},
+      ],
+    }
+
+  default_system = (
+    "You are a strict JSON generator.\n"
+    "You will score a Telegram job vacancy for usefulness/clarity for applicants.\n"
+    "\n"
+    "Rules:\n"
+    "- Use ONLY information supported by the provided post text and extracted fields.\n"
+    "- Do not invent salary, requirements, or contacts.\n"
+    "- Points must be evidence-backed. If something is missing, mention the absence as evidence.\n"
+    "- Output ONLY valid JSON (no markdown).\n"
+    "\n"
+    "Return JSON with keys:\n"
+    "- score: integer from 0 to 100\n"
+    "- points: array of exactly 3 objects\n"
+    "  Each point object must have:\n"
+    "  - sentiment: 'positive' | 'neutral' | 'negative'\n"
+    "  - text: short English sentence (1 line)\n"
+    "  - evidence: a short snippet or 'Not mentioned in the text'\n"
+    "\n"
+    "Scoring guidance (not strict math):\n"
+    "- Higher score if: clear role/title, concrete responsibilities/requirements, salary present, direct contacts.\n"
+    "- Lower score if: responsibilities are vague/broad, requirements are missing, salary not provided, contacts absent.\n"
+  )
+
+  system = runtime.get("prompts", {}).get("vacancy_scorer_system") or default_system
+  url = runtime["openrouter"]["base_url"].rstrip("/") + "/chat/completions"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+  # Provide both raw text and the extraction to reduce hallucinations.
+  extracted = analysis or {}
+  user_content = (
+    "POST_TEXT:\n"
+    + text[: int(runtime.get("limits", {}).get("analyzer_max_chars", 12000))]
+    + "\n\nEXTRACTED_FIELDS (may contain nulls):\n"
+    + str(extracted)
+  )
+
+  payload = {
+    "model": runtime["openrouter"]["model_analyzer"],
+    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_content}],
+    "temperature": 0.2,
+    "max_tokens": int(runtime.get("openrouter", {}).get("max_tokens_analyzer", 1500)),
+  }
+
+  async with httpx.AsyncClient(timeout=60) as client:
+    r = await client.post(url, headers=headers, json=payload)
+    r.raise_for_status()
+    content = r.json()["choices"][0]["message"]["content"]
+
+  try:
+    import json
+
+    data = json.loads(content)
+    if not isinstance(data, dict):
+      raise ValueError("scorer_returned_non_dict")
+    points = data.get("points") or []
+    # Normalize sentiment values.
+    norm_points = []
+    for p in points[:3]:
+      if not isinstance(p, dict):
+        continue
+      sent = str(p.get("sentiment") or "").lower().strip()
+      if sent not in {"positive", "neutral", "negative"}:
+        sent = "neutral"
+      norm_points.append(
+        {
+          "sentiment": sent,
+          "text": str(p.get("text") or "").strip(),
+          "evidence": str(p.get("evidence") or "").strip() or "Not mentioned in the text",
+        }
+      )
+    while len(norm_points) < 3:
+      norm_points.append(
+        {"sentiment": "neutral", "text": "No scoring data available.", "evidence": "Not mentioned in the text"}
+      )
+    score = data.get("score")
+    try:
+      score = int(score)
+    except Exception:
+      score = 50
+    score = max(0, min(100, score))
+    return {"score": score, "points": norm_points[:3]}
+  except Exception:
+    return {
+      "score": 50,
+      "points": [
+        {"sentiment": "neutral", "text": "Scoring failed, defaulted to neutral.", "evidence": "Model parse failed"},
+        {"sentiment": "neutral", "text": "Provide stable OpenRouter responses to enable scoring.", "evidence": "Parse failure"},
+        {"sentiment": "neutral", "text": "Use extraction fields to verify presence/absence.", "evidence": "Extraction driven"},
+      ],
     }
 
 

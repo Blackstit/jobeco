@@ -8,7 +8,7 @@ from telethon import events
 
 from jobeco.db.session import SessionLocal
 from jobeco.db.models import Vacancy, ParserLog
-from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post
+from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post, score_vacancy_with_openrouter
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
 
@@ -214,6 +214,29 @@ async def process_message(event: events.NewMessage.Event) -> None:
 
   analysis = await analyze_with_openrouter(text_raw)
 
+  # Separate LLM step for scoring + 3 points.
+  try:
+    scoring = await score_vacancy_with_openrouter(text_raw, analysis)
+  except Exception:
+    scoring = {"score": None, "points": []}
+
+  score_100 = scoring.get("score")
+  try:
+    score_100_int = int(score_100) if score_100 is not None else None
+  except Exception:
+    score_100_int = None
+
+  if score_100_int is None:
+    # Fallback to whatever analyzer returned (if any).
+    try:
+      ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
+    except Exception:
+      ai_score_value_0_10 = 5
+  else:
+    ai_score_value_0_10 = int(round(score_100_int / 10.0))
+
+  ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
+
   payload = {
     "tg_message_id": msg.id,
     "tg_channel_id": getattr(event.chat, "id", None),
@@ -226,11 +249,16 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "salary_max_usd": analysis.get("salary_max_usd"),
     "stack": analysis.get("stack", []),
     "category": analysis.get("category"),  # kept for backward compat
-    "ai_score_value": analysis.get("ai_score_value"),
+    "ai_score_value": ai_score_value_0_10,
     "summary_ru": analysis.get("summary_ru"),
     "summary_en": analysis.get("summary_en"),
     "raw_text": text_raw,
-    "metadata": analysis.get("metadata", {}),
+    # Merge scoring into metadata (kept for future UI).
+    "metadata": {
+      **(analysis.get("metadata", {}) or {}),
+      "ai_score_100": score_100_int,
+      "ai_score_points": scoring.get("points") or [],
+    },
     "domains": [str(x).lower() for x in (analysis.get("domains") or []) if str(x).strip()],
     "risk_label": analysis.get("risk_label"),
     "recruiter": analysis.get("recruiter"),
@@ -306,6 +334,30 @@ async def process_text_message(
     return False
 
   analysis = await analyze_with_openrouter(text_raw)
+
+  # Separate LLM step for scoring + 3 points.
+  try:
+    scoring = await score_vacancy_with_openrouter(text_raw, analysis)
+  except Exception:
+    scoring = {"score": None, "points": []}
+
+  score_100 = scoring.get("score")
+  try:
+    score_100_int = int(score_100) if score_100 is not None else None
+  except Exception:
+    score_100_int = None
+
+  if score_100_int is None:
+    # Fallback to whatever analyzer returned (if any).
+    try:
+      ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
+    except Exception:
+      ai_score_value_0_10 = 5
+  else:
+    ai_score_value_0_10 = int(round(score_100_int / 10.0))
+
+  ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
+
   payload = {
     "tg_message_id": tg_message_id,
     "tg_channel_id": tg_channel_id,
@@ -318,11 +370,16 @@ async def process_text_message(
     "salary_max_usd": analysis.get("salary_max_usd"),
     "stack": analysis.get("stack", []),
     "category": analysis.get("category"),
-    "ai_score_value": analysis.get("ai_score_value"),
+    "ai_score_value": ai_score_value_0_10,
     "summary_ru": analysis.get("summary_ru"),
     "summary_en": analysis.get("summary_en"),
     "raw_text": text_raw,
-    "metadata": analysis.get("metadata", {}),
+    # Merge scoring into metadata (kept for future UI).
+    "metadata": {
+      **(analysis.get("metadata", {}) or {}),
+      "ai_score_100": score_100_int,
+      "ai_score_points": scoring.get("points") or [],
+    },
     "domains": [str(x).lower() for x in (analysis.get("domains") or []) if str(x).strip()],
     "risk_label": analysis.get("risk_label"),
     "recruiter": analysis.get("recruiter"),
