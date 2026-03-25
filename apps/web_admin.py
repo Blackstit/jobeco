@@ -101,6 +101,16 @@ _FORM_URL_RE = _re.compile(
 )
 
 
+def _safe_int(val) -> int | None:
+  if val is None:
+    return None
+  try:
+    s = str(val).strip()
+    return int(s) if s else None
+  except Exception:
+    return None
+
+
 def _enrich_contacts_with_forms(contacts: list[str], raw_text: str | None) -> list[str]:
   """Append application-form URLs found in raw_text that the LLM missed."""
   if not raw_text:
@@ -1268,11 +1278,20 @@ async def api_public_vacancies(
   request: Request,
   page: int = Query(1, ge=1),
   per_page: int = Query(50, ge=1, le=200),
-  include_blocks: bool = Query(True),
-  include_raw_text: bool = Query(True),
+  # Query-level filters (override key-level config if provided)
+  search: str | None = Query(None),
+  domains: list[str] = Query([]),
+  location_type: str | None = Query(None),
+  seniority: str | None = Query(None),
+  employment_type: str | None = Query(None),
+  salary_min_usd: str | None = Query(None),
+  salary_max_usd: str | None = Query(None),
+  score_min: str | None = Query(None),
+  score_max: str | None = Query(None),
+  risk_label: str | None = Query(None),
+  company_name: str | None = Query(None),
 ):
-  api_key_token = request.headers.get("X-API-Key") or ""
-  api_key_token = api_key_token.strip()
+  api_key_token = (request.headers.get("X-API-Key") or "").strip()
   if not api_key_token:
     raise HTTPException(status_code=401, detail="Missing X-API-Key header")
 
@@ -1284,7 +1303,6 @@ async def api_public_vacancies(
         select(ApiKey).where(
           ApiKey.api_key_hash == token_hash,
           ApiKey.is_active == True,  # noqa: E712
-          # NULL expires_at means "infinite".
           or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
         )
       )
@@ -1292,73 +1310,105 @@ async def api_public_vacancies(
     if not api_key:
       raise HTTPException(status_code=401, detail="Invalid API key")
 
-    # Rate limit + log (200 as a "successful attempt").
     await _enforce_api_key_limits_and_log(
-      s=s,
-      api_key=api_key,
-      endpoint="/api/public/vacancies",
-      status_code=200,
+      s=s, api_key=api_key, endpoint="/api/public/vacancies", status_code=200,
     )
 
     cfg = api_key.config or {}
-    filters = cfg.get("filters") or {}
+    key_filters = cfg.get("filters") or {}
+    out_lang = (cfg.get("output") or {}).get("language") or "en"
 
     query = select(Vacancy)
 
-    domains = filters.get("domains") or []
-    domains = [str(d).strip().lower() for d in domains if str(d).strip()]
-    if domains:
-      domain_conds = [Vacancy.domains.contains([d]) for d in domains]
+    # Domains: query param > key config
+    q_domains = [str(d).strip().lower() for d in domains if str(d).strip()]
+    if not q_domains:
+      q_domains = [str(d).strip().lower() for d in (key_filters.get("domains") or []) if str(d).strip()]
+    if q_domains:
+      domain_conds = [Vacancy.domains.contains([d]) for d in q_domains]
       query = query.where(or_(*domain_conds))
 
-    role = filters.get("role")
-    if role:
-      query = query.where(Vacancy.role.ilike(f"%{str(role).strip()}%"))
+    q_location = (location_type or "").strip().lower() or (key_filters.get("location_type") or "").strip().lower() or None
+    if q_location:
+      query = query.where(Vacancy.location_type == q_location)
 
-    recruiter = filters.get("recruiter")
-    if recruiter:
-      query = query.where(Vacancy.recruiter.ilike(f"%{str(recruiter).strip()}%"))
+    q_risk = (risk_label or "").strip() or (key_filters.get("risk_label") or "").strip() or None
+    if q_risk:
+      if q_risk == "not-high-risk":
+        query = query.where(or_(Vacancy.risk_label.is_(None), Vacancy.risk_label != "high-risk"))
+      else:
+        query = query.where(Vacancy.risk_label == q_risk)
 
-    company_domain = filters.get("company_domain")
-    if company_domain:
-      query = query.where(Vacancy.company_domain == str(company_domain).strip().lower())
+    q_seniority = (seniority or "").strip().lower() or None
+    if q_seniority:
+      query = query.where(func.lower(Vacancy.seniority) == q_seniority)
 
-    location_type = filters.get("location_type")
-    if location_type:
-      query = query.where(Vacancy.location_type == str(location_type).strip().lower())
+    q_employment = (employment_type or "").strip().lower() or None
+    if q_employment:
+      query = query.where(Vacancy.metadata_json["employment_type"].as_string() == q_employment)
 
-    risk_label = filters.get("risk_label")
-    if risk_label:
-      query = query.where(Vacancy.risk_label == str(risk_label).strip())
+    if company_name and company_name.strip():
+      query = query.where(Vacancy.company_name.ilike(f"%{company_name.strip()}%"))
 
-    salary_min_usd = filters.get("salary_min_usd")
-    salary_max_usd = filters.get("salary_max_usd")
-    if salary_min_usd is not None:
-      try:
-        mi = int(salary_min_usd)
-        query = query.where(Vacancy.salary_max_usd.isnot(None)).where(Vacancy.salary_max_usd >= mi)
-      except Exception:
-        pass
-    if salary_max_usd is not None:
-      try:
-        ma = int(salary_max_usd)
-        query = query.where(Vacancy.salary_min_usd.isnot(None)).where(Vacancy.salary_min_usd <= ma)
-      except Exception:
-        pass
+    _sal_min = _safe_int(salary_min_usd) if salary_min_usd else _safe_int(key_filters.get("salary_min_usd"))
+    _sal_max = _safe_int(salary_max_usd) if salary_max_usd else _safe_int(key_filters.get("salary_max_usd"))
+    if _sal_min is not None:
+      query = query.where(Vacancy.salary_max_usd.isnot(None)).where(Vacancy.salary_max_usd >= _sal_min)
+    if _sal_max is not None:
+      query = query.where(Vacancy.salary_min_usd.isnot(None)).where(Vacancy.salary_min_usd <= _sal_max)
+
+    _sc_min = _safe_int(score_min)
+    _sc_max = _safe_int(score_max)
+    if _sc_min is not None:
+      query = query.where(Vacancy.ai_score_value >= _sc_min)
+    if _sc_max is not None:
+      query = query.where(Vacancy.ai_score_value <= _sc_max)
+
+    if search and search.strip():
+      query = query.where(or_(
+        Vacancy.title.ilike(f"%{search.strip()}%"),
+        Vacancy.company_name.ilike(f"%{search.strip()}%"),
+        Vacancy.raw_text.ilike(f"%{search.strip()}%"),
+      ))
+
+    # Key-level role/recruiter filters
+    role_f = key_filters.get("role")
+    if role_f:
+      query = query.where(Vacancy.role.ilike(f"%{str(role_f).strip()}%"))
+    recruiter_f = key_filters.get("recruiter")
+    if recruiter_f:
+      query = query.where(Vacancy.recruiter.ilike(f"%{str(recruiter_f).strip()}%"))
 
     total = (await s.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
-    rows = (
-      await s.execute(
-        query.order_by(desc(Vacancy.id)).offset((page - 1) * per_page).limit(per_page)
-      )
-    ).scalars().all()
 
-    out_lang = (cfg.get("output") or {}).get("language") or "en"
+    rows_orm = (
+      await s.execute(
+        select(Vacancy, Company.logo_url, Company.website.label("company_website_enriched"),
+               Company.industry, Company.size.label("company_size_enriched"),
+               Company.founded, Company.headquarters, Company.summary.label("company_summary"),
+               Company.socials.label("company_socials"), Company.domains.label("company_domains"))
+        .select_from(Vacancy)
+        .outerjoin(Company, Company.id == Vacancy.company_id)
+        .where(Vacancy.id.in_(
+          query.with_only_columns(Vacancy.id)
+          .order_by(desc(Vacancy.id))
+          .offset((page - 1) * per_page)
+          .limit(per_page)
+        ))
+        .order_by(desc(Vacancy.id))
+      )
+    ).all()
 
     items = []
-    for v in rows:
+    for row in rows_orm:
+      v = row[0]
+      logo_url = row[1]
+      v_meta = getattr(v, "metadata_json", {}) or {}
+      scoring = v_meta.get("scoring") or {}
+
       summary = v.summary_en if out_lang == "en" else (v.summary_ru or v.summary_en)
       contacts_dict = _contacts_list_to_dict(getattr(v, "contacts", None))
+
       derived_source_url = None
       try:
         tg_user = (getattr(v, "tg_channel_username", None) or "").lstrip("@")
@@ -1366,7 +1416,38 @@ async def api_public_vacancies(
         if tg_user and tg_msg_id:
           derived_source_url = f"https://t.me/{tg_user}/{tg_msg_id}"
       except Exception:
-        derived_source_url = None
+        pass
+
+      company_data = None
+      if v.company_id and row[2]:  # company_website_enriched exists
+        company_data = {
+          "name": v.company_name,
+          "website": row[2],
+          "logo_url": logo_url,
+          "industry": row[3],
+          "size": row[4],
+          "founded": row[5],
+          "headquarters": row[6],
+          "summary": row[7],
+          "socials": row[8] or {},
+          "domains": row[9] or [],
+        }
+      elif not company_data:
+        cp = v_meta.get("company_profile")
+        if cp and isinstance(cp, dict) and cp.get("summary"):
+          company_data = {
+            "name": v.company_name,
+            "website": cp.get("website"),
+            "logo_url": cp.get("logo_url") or logo_url,
+            "industry": cp.get("industry"),
+            "size": cp.get("size"),
+            "founded": cp.get("founded"),
+            "headquarters": cp.get("headquarters"),
+            "summary": cp.get("summary"),
+            "socials": {},
+            "domains": [],
+          }
+
       item = {
         "id": v.id,
         "title": v.title,
@@ -1374,36 +1455,33 @@ async def api_public_vacancies(
         "role": v.role,
         "domains": v.domains or [],
         "risk_label": v.risk_label,
-        "ai_score_value": v.ai_score_value,
         "location_type": v.location_type,
         "salary_min_usd": v.salary_min_usd,
         "salary_max_usd": v.salary_max_usd,
+        "seniority": getattr(v, "seniority", None),
+        "english_level": getattr(v, "english_level", None),
+        "employment_type": v_meta.get("employment_type"),
+        "language_requirements": v_meta.get("language_requirements"),
         "recruiter": v.recruiter,
         "summary": summary,
-        # Skills extracted by LLM (Vacancy.stack is an ARRAY(Text) in DB).
-        # Expose as `skills` for client contract, keep `stack` as backward-compatible alias.
         "skills": v.stack or [],
         "stack": v.stack or [],
         "contacts": contacts_dict,
         "source_url": v.source_url or derived_source_url,
         "created_at": v.created_at.isoformat() if v.created_at else None,
+        "scoring": {
+          "total_score": scoring.get("total_score"),
+          "overall_summary": scoring.get("overall_summary"),
+          "red_flags": scoring.get("red_flags") or [],
+          "scoring_results": scoring.get("scoring_results") or [],
+        } if scoring else None,
+        "company": company_data,
+        "description": v.description,
+        "responsibilities": v.responsibilities,
+        "requirements": v.requirements,
+        "conditions": v.conditions,
+        "raw_text": v.raw_text,
       }
-      # Requirement: always include vacancy blocks and raw text.
-      # We keep query params for backward compatibility, but ignore their values.
-      v_meta = getattr(v, "metadata_json", {}) or {}
-      item.update(
-        {
-          "description": v.description,
-          "responsibilities": v.responsibilities,
-          "requirements": v.requirements,
-          "conditions": v.conditions,
-          "raw_text": v.raw_text,
-          "company_url": getattr(v, "company_url", None),
-          "company_linkedin": v_meta.get("company_linkedin"),
-          "company_url_verified": v_meta.get("company_url_verified", False),
-          "company_linkedin_verified": v_meta.get("company_linkedin_verified", False),
-        }
-      )
       items.append(item)
 
   return {"page": page, "per_page": per_page, "total": total, "items": items}
@@ -1415,13 +1493,17 @@ async def api_public_vacancies_semantic_search(
   q: str = Query(..., min_length=1),
   page: int = Query(1, ge=1),
   per_page: int = Query(20, ge=1, le=200),
+  domains: list[str] = Query([]),
+  location_type: str | None = Query(None),
+  seniority: str | None = Query(None),
+  employment_type: str | None = Query(None),
+  salary_min_usd: str | None = Query(None),
+  salary_max_usd: str | None = Query(None),
+  score_min: str | None = Query(None),
+  score_max: str | None = Query(None),
+  risk_label: str | None = Query(None),
 ):
-  """
-  Semantic (vector) search over vacancy embeddings (pgvector).
-
-  Ordering: by cosine distance ascending (i.e. closest embedding first).
-  Result items keep the same structure as `/api/public/vacancies`, plus `semantic_similarity`.
-  """
+  """Semantic search with the same rich response as /api/public/vacancies."""
   api_key_token = (request.headers.get("X-API-Key") or "").strip()
   if not api_key_token:
     raise HTTPException(status_code=401, detail="Missing X-API-Key header")
@@ -1442,106 +1524,97 @@ async def api_public_vacancies_semantic_search(
     if not api_key:
       raise HTTPException(status_code=401, detail="Invalid API key")
 
-    # Rate limit + log (200 as a "successful attempt").
     await _enforce_api_key_limits_and_log(
-      s=s,
-      api_key=api_key,
-      endpoint="/api/public/vacancies/semantic-search",
-      status_code=200,
+      s=s, api_key=api_key, endpoint="/api/public/vacancies/semantic-search", status_code=200,
     )
 
     embedding = await embed_text(q)
     if not embedding:
-      raise HTTPException(
-        status_code=503,
-        detail="Embeddings are not available. Configure OPENROUTER_API_KEY for embedding generation.",
-      )
+      raise HTTPException(status_code=503, detail="Embeddings not available")
 
     vec = "[" + ",".join(f"{x:.6f}" for x in embedding) + "]"
 
     cfg = api_key.config or {}
-    filters = cfg.get("filters") or {}
+    key_filters = cfg.get("filters") or {}
     out_lang = (cfg.get("output") or {}).get("language") or "en"
 
-    # Parse filters (same keys as /api/keys).
-    domains = filters.get("domains") or []
-    domains = [str(d).strip().lower() for d in domains if str(d).strip()]
-    role = filters.get("role")
-    recruiter = filters.get("recruiter")
-    company_domain = filters.get("company_domain")
-    location_type = filters.get("location_type")
-    risk_label = filters.get("risk_label")
-    salary_min_usd = filters.get("salary_min_usd")
-    salary_max_usd = filters.get("salary_max_usd")
+    q_domains = [str(d).strip().lower() for d in domains if str(d).strip()]
+    if not q_domains:
+      q_domains = [str(d).strip().lower() for d in (key_filters.get("domains") or []) if str(d).strip()]
 
     where = ["v.embedding IS NOT NULL"]
     params: dict = {"vec": vec, "limit": per_page, "offset": (page - 1) * per_page}
 
-    if domains:
-      # Build pg array literal: {"a","b"}
-      domains_arr = "{" + ",".join(f'"{d}"' for d in domains) + "}"
+    if q_domains:
+      domains_arr = "{" + ",".join(f'"{d}"' for d in q_domains) + "}"
       where.append("v.domains && (:domains_arr)::text[]")
       params["domains_arr"] = domains_arr
 
-    if role:
-      where.append("v.role ILIKE '%' || :role || '%'")
-      params["role"] = str(role).strip()
-    if recruiter:
-      where.append("v.recruiter ILIKE '%' || :recruiter || '%'")
-      params["recruiter"] = str(recruiter).strip()
-    if company_domain:
-      where.append("v.company_domain = :company_domain")
-      params["company_domain"] = str(company_domain).strip().lower()
-    if location_type:
+    q_location = (location_type or "").strip().lower() or (key_filters.get("location_type") or "").strip().lower() or None
+    if q_location:
       where.append("v.location_type = :location_type")
-      params["location_type"] = str(location_type).strip().lower()
-    if risk_label:
-      where.append("v.risk_label = :risk_label")
-      params["risk_label"] = str(risk_label).strip()
-    if salary_min_usd is not None:
-      try:
-        params["salary_min_usd"] = int(salary_min_usd)
-        where.append("v.salary_max_usd IS NOT NULL AND v.salary_max_usd >= :salary_min_usd")
-      except Exception:
-        pass
-    if salary_max_usd is not None:
-      try:
-        params["salary_max_usd"] = int(salary_max_usd)
-        where.append("v.salary_min_usd IS NOT NULL AND v.salary_min_usd <= :salary_max_usd")
-      except Exception:
-        pass
+      params["location_type"] = q_location
+
+    q_risk = (risk_label or "").strip() or (key_filters.get("risk_label") or "").strip() or None
+    if q_risk:
+      if q_risk == "not-high-risk":
+        where.append("(v.risk_label IS NULL OR v.risk_label != 'high-risk')")
+      else:
+        where.append("v.risk_label = :risk_label")
+        params["risk_label"] = q_risk
+
+    q_sen = (seniority or "").strip().lower() or None
+    if q_sen:
+      where.append("lower(v.seniority) = :seniority")
+      params["seniority"] = q_sen
+
+    q_emp = (employment_type or "").strip().lower() or None
+    if q_emp:
+      where.append("v.metadata_json->>'employment_type' = :employment_type")
+      params["employment_type"] = q_emp
+
+    _sal_min = _safe_int(salary_min_usd) if salary_min_usd else _safe_int(key_filters.get("salary_min_usd"))
+    _sal_max = _safe_int(salary_max_usd) if salary_max_usd else _safe_int(key_filters.get("salary_max_usd"))
+    if _sal_min is not None:
+      where.append("v.salary_max_usd IS NOT NULL AND v.salary_max_usd >= :salary_min_usd")
+      params["salary_min_usd"] = _sal_min
+    if _sal_max is not None:
+      where.append("v.salary_min_usd IS NOT NULL AND v.salary_min_usd <= :salary_max_usd")
+      params["salary_max_usd"] = _sal_max
+
+    _sc_min = _safe_int(score_min)
+    _sc_max = _safe_int(score_max)
+    if _sc_min is not None:
+      where.append("v.ai_score_value >= :score_min")
+      params["score_min"] = _sc_min
+    if _sc_max is not None:
+      where.append("v.ai_score_value <= :score_max")
+      params["score_max"] = _sc_max
+
+    role_f = key_filters.get("role")
+    if role_f:
+      where.append("v.role ILIKE '%' || :role || '%'")
+      params["role"] = str(role_f).strip()
 
     where_sql = " AND ".join(where) if where else "TRUE"
 
     sql_count = f"SELECT count(*) FROM vacancies v WHERE {where_sql}"
     sql_select = f"""
       SELECT
-        v.id,
-        v.title,
-        v.company_name,
-        v.role,
-        v.domains,
-        v.risk_label,
-        v.ai_score_value,
-        v.location_type,
-        v.salary_min_usd,
-        v.salary_max_usd,
-        v.recruiter,
-        v.summary_en,
-        v.summary_ru,
-        v.contacts,
-        v.source_url,
-        v.created_at,
-        v.description,
-        v.responsibilities,
-        v.requirements,
-        v.conditions,
-        v.raw_text,
-        v.stack,
-        v.tg_channel_username,
-        v.tg_message_id,
+        v.id, v.title, v.company_name, v.role, v.domains, v.risk_label,
+        v.ai_score_value, v.location_type, v.salary_min_usd, v.salary_max_usd,
+        v.recruiter, v.summary_en, v.summary_ru, v.contacts, v.source_url,
+        v.created_at, v.description, v.responsibilities, v.requirements,
+        v.conditions, v.raw_text, v.stack, v.tg_channel_username, v.tg_message_id,
+        v.seniority, v.english_level, v.metadata_json, v.company_id,
+        c.logo_url AS company_logo_url, c.website AS company_website,
+        c.industry AS company_industry, c.size AS company_size,
+        c.founded AS company_founded, c.headquarters AS company_hq,
+        c.summary AS company_summary, c.socials AS company_socials,
+        c.domains AS company_domains,
         (1 - (v.embedding <=> (:vec)::vector)) AS semantic_similarity
       FROM vacancies v
+      LEFT JOIN companies c ON c.id = v.company_id
       WHERE {where_sql}
       ORDER BY v.embedding <=> (:vec)::vector ASC
       LIMIT :limit OFFSET :offset
@@ -1552,11 +1625,10 @@ async def api_public_vacancies_semantic_search(
 
     items: list[dict] = []
     for row in rows:
-      summary = row.get("summary_en")
-      if out_lang != "en":
-        summary = row.get("summary_ru") or row.get("summary_en")
-
+      summary = row.get("summary_en") if out_lang == "en" else (row.get("summary_ru") or row.get("summary_en"))
       contacts_dict = _contacts_list_to_dict(row.get("contacts"))
+      v_meta = row.get("metadata_json") or {}
+      scoring = v_meta.get("scoring") or {}
 
       derived_source_url = None
       try:
@@ -1565,35 +1637,73 @@ async def api_public_vacancies_semantic_search(
         if tg_user and tg_msg_id:
           derived_source_url = f"https://t.me/{tg_user}/{tg_msg_id}"
       except Exception:
-        derived_source_url = None
+        pass
 
-      items.append(
-        {
-          "id": row.get("id"),
-          "title": row.get("title"),
-          "company_name": row.get("company_name"),
-          "role": row.get("role"),
-          "domains": row.get("domains") or [],
-          "risk_label": row.get("risk_label"),
-          "ai_score_value": row.get("ai_score_value"),
-          "location_type": row.get("location_type"),
-          "salary_min_usd": row.get("salary_min_usd"),
-          "salary_max_usd": row.get("salary_max_usd"),
-          "recruiter": row.get("recruiter"),
-          "summary": summary,
-          "skills": row.get("stack") or [],
-          "stack": row.get("stack") or [],
-          "contacts": contacts_dict,
-          "source_url": row.get("source_url") or derived_source_url,
-          "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
-          "description": row.get("description"),
-          "responsibilities": row.get("responsibilities"),
-          "requirements": row.get("requirements"),
-          "conditions": row.get("conditions"),
-          "raw_text": row.get("raw_text"),
-          "semantic_similarity": float(row["semantic_similarity"]) if row.get("semantic_similarity") is not None else None,
+      company_data = None
+      if row.get("company_website"):
+        company_data = {
+          "name": row.get("company_name"),
+          "website": row.get("company_website"),
+          "logo_url": row.get("company_logo_url"),
+          "industry": row.get("company_industry"),
+          "size": row.get("company_size"),
+          "founded": row.get("company_founded"),
+          "headquarters": row.get("company_hq"),
+          "summary": row.get("company_summary"),
+          "socials": row.get("company_socials") or {},
+          "domains": row.get("company_domains") or [],
         }
-      )
+      elif not company_data:
+        cp = v_meta.get("company_profile")
+        if cp and isinstance(cp, dict) and cp.get("summary"):
+          company_data = {
+            "name": row.get("company_name"),
+            "website": cp.get("website"),
+            "logo_url": cp.get("logo_url"),
+            "industry": cp.get("industry"),
+            "size": cp.get("size"),
+            "founded": cp.get("founded"),
+            "headquarters": cp.get("headquarters"),
+            "summary": cp.get("summary"),
+            "socials": {},
+            "domains": [],
+          }
+
+      items.append({
+        "id": row.get("id"),
+        "title": row.get("title"),
+        "company_name": row.get("company_name"),
+        "role": row.get("role"),
+        "domains": row.get("domains") or [],
+        "risk_label": row.get("risk_label"),
+        "location_type": row.get("location_type"),
+        "salary_min_usd": row.get("salary_min_usd"),
+        "salary_max_usd": row.get("salary_max_usd"),
+        "seniority": row.get("seniority"),
+        "english_level": row.get("english_level"),
+        "employment_type": v_meta.get("employment_type"),
+        "language_requirements": v_meta.get("language_requirements"),
+        "recruiter": row.get("recruiter"),
+        "summary": summary,
+        "skills": row.get("stack") or [],
+        "stack": row.get("stack") or [],
+        "contacts": contacts_dict,
+        "source_url": row.get("source_url") or derived_source_url,
+        "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+        "scoring": {
+          "total_score": scoring.get("total_score"),
+          "overall_summary": scoring.get("overall_summary"),
+          "red_flags": scoring.get("red_flags") or [],
+          "scoring_results": scoring.get("scoring_results") or [],
+        } if scoring else None,
+        "company": company_data,
+        "description": row.get("description"),
+        "responsibilities": row.get("responsibilities"),
+        "requirements": row.get("requirements"),
+        "conditions": row.get("conditions"),
+        "raw_text": row.get("raw_text"),
+        "semantic_similarity": float(row["semantic_similarity"]) if row.get("semantic_similarity") is not None else None,
+      })
 
   return {"page": page, "per_page": per_page, "total": total, "items": items, "q": q}
 

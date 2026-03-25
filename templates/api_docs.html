@@ -2,36 +2,23 @@
 
 {% block content %}
 <div class="mb-6">
-  <h2 class="text-2xl font-semibold mb-2">Документация Public API</h2>
+  <h2 class="text-2xl font-semibold mb-2">Public API Documentation</h2>
   <p class="text-sm text-slate-400">
-    Как получить токен, настроить ключ и вызывать endpoint вакансий: <span class="font-mono">GET /api/public/vacancies</span> (и <span class="font-mono">/api/public/vacancies/semantic-search</span>)
+    Endpoints: <span class="font-mono">GET /api/public/vacancies</span> and <span class="font-mono">GET /api/public/vacancies/semantic-search</span>
   </p>
 </div>
 
 <div class="space-y-4">
   <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-    <div class="text-sm font-semibold mb-2">Что делает Public API</div>
-    <div class="text-xs text-slate-300">
-      JobEco анализирует вакансии из Telegram (LLM + embeddings + дедуп) и хранит структуру в БД.
-      <br/>
-      Public API отдаёт готовые записи наружу по секретному ключу.
-    </div>
-  </div>
-
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-    <div class="text-sm font-semibold mb-2">1) Как получить токен</div>
+    <div class="text-sm font-semibold mb-2">Authentication</div>
     <div class="text-xs text-slate-300 space-y-2">
       <div>
-        Открой раздел ключей:
-        <a href="/api/keys" class="text-blue-400 hover:underline">/api/keys</a>.
-      </div>
-      <div>
-        Нажми <span class="font-semibold">Create</span>, задай фильтры/лимиты и создай ключ.
-        Секретный токен показывается <span class="font-semibold">один раз</span> — сохрани его.
+        Create an API key at <a href="/api/keys" class="text-blue-400 hover:underline">/api/keys</a>.
+        The secret token is shown <span class="font-semibold">once</span> — save it.
       </div>
       <div class="text-slate-400">
-        В запросах токен передаётся в заголовке:
-        <div class="mt-2 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg font-mono break-all inline-block">
+        Pass in header:
+        <div class="mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg font-mono inline-block">
           X-API-Key: &lt;token&gt;
         </div>
       </div>
@@ -39,101 +26,109 @@
   </div>
 
   <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-    <div class="text-sm font-semibold mb-2">2) Настройка ключа (фильтры и лимиты)</div>
+    <div class="text-sm font-semibold mb-2">GET /api/public/vacancies</div>
+    <div class="text-xs text-slate-400 mb-3">Paginated list of vacancies with full data.</div>
     <div class="text-xs text-slate-300">
-      Фильтры применяются на уровне ключа и работают для всех запросов с этим токеном.
-      <div class="mt-3 space-y-1">
-        <div><span class="text-slate-400">domains</span> — OR по доменам (web3/ai/igaming/tech/gaming/traffic)</div>
-        <div><span class="text-slate-400">role</span> — подстрока через <span class="font-mono">ILIKE</span></div>
-        <div><span class="text-slate-400">recruiter</span> — подстрока через <span class="font-mono">ILIKE</span></div>
-        <div><span class="text-slate-400">company_domain</span> — точное совпадение</div>
-        <div><span class="text-slate-400">location_type</span> — remote/hybrid/office</div>
-        <div><span class="text-slate-400">risk_label</span> — high-risk</div>
-        <div><span class="text-slate-400">salary_min_usd</span>, <span class="text-slate-400">salary_max_usd</span></div>
-      </div>
-      <div class="mt-3 text-slate-400">
-        Лимиты: <span class="font-mono">requests_per_minute</span> и <span class="font-mono">daily_quota</span>.
-        При превышении возвращается <span class="font-mono">HTTP 429</span>.
-      </div>
-    </div>
-  </div>
-
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-    <div class="text-sm font-semibold mb-2">3) Публичный endpoint</div>
-    <div class="text-xs text-slate-400 mb-2">URL:</div>
-    <div class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 font-mono break-all">
-      GET /api/public/vacancies
-    </div>
-
-    <div class="text-xs text-slate-400 mt-3 mb-2">Query-параметры:</div>
-    <div class="text-xs text-slate-300 space-y-1">
-      <div><span class="text-slate-400">page</span> — номер страницы (default: 1)</div>
-      <div><span class="text-slate-400">per_page</span> — размер страницы (default: 50, max: 200)</div>
-      <div>
-        <span class="text-slate-400">include_blocks</span> / <span class="text-slate-400">include_raw_text</span>:
-        сейчас игнорируются, потому что blocks и <span class="font-mono">raw_text</span> возвращаются всегда.
+      <div class="font-semibold text-slate-200 mb-2">Query parameters:</div>
+      <div class="space-y-1">
+        <div><span class="font-mono text-slate-400">page</span> — page number (default: 1)</div>
+        <div><span class="font-mono text-slate-400">per_page</span> — page size (default: 50, max: 200)</div>
+        <div><span class="font-mono text-slate-400">search</span> — text search in title, company, raw_text</div>
+        <div><span class="font-mono text-slate-400">domains</span> — filter by domains, repeatable (e.g. <span class="font-mono">domains=web3&domains=ai</span>)</div>
+        <div><span class="font-mono text-slate-400">location_type</span> — remote / hybrid / office</div>
+        <div><span class="font-mono text-slate-400">seniority</span> — trainee / junior / middle / senior / lead / head / c-level</div>
+        <div><span class="font-mono text-slate-400">employment_type</span> — full-time / part-time / project / freelance / internship</div>
+        <div><span class="font-mono text-slate-400">salary_min_usd</span>, <span class="font-mono text-slate-400">salary_max_usd</span> — salary range filter (USD)</div>
+        <div><span class="font-mono text-slate-400">score_min</span>, <span class="font-mono text-slate-400">score_max</span> — AI quality score filter (0-10)</div>
+        <div><span class="font-mono text-slate-400">risk_label</span> — "high-risk" or "not-high-risk"</div>
+        <div><span class="font-mono text-slate-400">company_name</span> — search by company name (substring)</div>
       </div>
     </div>
   </div>
 
   <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-    <div class="text-sm font-semibold mb-2">3.1) Публичный vector/semantic endpoint</div>
-    <div class="text-xs text-slate-400 mb-2">URL:</div>
-    <div class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 font-mono break-all">
-      GET /api/public/vacancies/semantic-search
-    </div>
-
-    <div class="text-xs text-slate-400 mt-3 mb-2">Query-параметры:</div>
-    <div class="text-xs text-slate-300 space-y-1">
-      <div><span class="text-slate-400">q</span> — строка запроса для embedding</div>
-      <div><span class="text-slate-400">page</span> — номер страницы (default: 1)</div>
-      <div><span class="text-slate-400">per_page</span> — размер страницы (default: 20, max: 200)</div>
-    </div>
-
-    <div class="text-xs text-slate-400 mt-3">
-      Выдача сортируется по близости embedding (cosine distance).
-      Фильтры по ключу применяются так же, как и для <span class="font-mono">/api/public/vacancies</span>.
+    <div class="text-sm font-semibold mb-2">GET /api/public/vacancies/semantic-search</div>
+    <div class="text-xs text-slate-400 mb-3">Vector similarity search. Same filters + response as above.</div>
+    <div class="text-xs text-slate-300">
+      <div class="font-semibold text-slate-200 mb-2">Additional parameters:</div>
+      <div class="space-y-1">
+        <div><span class="font-mono text-slate-400">q</span> — search query (required). Results sorted by embedding similarity.</div>
+      </div>
+      <div class="mt-2 text-slate-400">All filters from <span class="font-mono">/api/public/vacancies</span> also work here. Response includes <span class="font-mono">semantic_similarity</span> field (0.0–1.0).</div>
     </div>
   </div>
 
   <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-    <div class="text-sm font-semibold mb-2">4) Пример запроса</div>
-    <pre class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-x-auto">curl -s \\
-  -H "Accept: application/json" \\
-  -H "X-API-Key: YOUR_TOKEN" \\
-  "http://YOUR_HOST/api/public/vacancies?page=1&per_page=20"</pre>
+    <div class="text-sm font-semibold mb-2">Example request</div>
+    <pre class="text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-x-auto">curl -s \
+  -H "Accept: application/json" \
+  -H "X-API-Key: YOUR_TOKEN" \
+  "https://YOUR_HOST/api/public/vacancies?page=1&per_page=10&domains=web3&seniority=senior&score_min=5"</pre>
   </div>
 
   <div class="bg-emerald-950/70 border border-emerald-800 rounded-xl p-4">
-    <div class="text-sm font-semibold mb-2">5) Формат ответа</div>
-    <div class="text-xs text-slate-200 space-y-3">
-      <div>
-        Ответ всегда вида: <span class="font-mono">{ page, per_page, total, items[] }</span>.
+    <div class="text-sm font-semibold mb-2">Response format</div>
+    <div class="text-xs text-slate-200 mb-3">
+      <span class="font-mono">{"page": 1, "per_page": 10, "total": 42, "items": [...]}</span>
+    </div>
+    <div class="text-xs text-slate-300 space-y-1">
+      <div class="font-semibold text-slate-200 mb-1">Each item contains:</div>
+      <div><span class="font-mono text-slate-400">id</span>, <span class="font-mono text-slate-400">title</span>, <span class="font-mono text-slate-400">company_name</span>, <span class="font-mono text-slate-400">role</span></div>
+      <div><span class="font-mono text-slate-400">domains</span> — array of domain tags (web3, ai, igaming, etc.)</div>
+      <div><span class="font-mono text-slate-400">seniority</span> — trainee/junior/middle/senior/lead/head/c-level</div>
+      <div><span class="font-mono text-slate-400">employment_type</span> — full-time/part-time/project/freelance/internship</div>
+      <div><span class="font-mono text-slate-400">english_level</span>, <span class="font-mono text-slate-400">language_requirements</span> — e.g. {"english": "B2", "russian": "C1"}</div>
+      <div><span class="font-mono text-slate-400">location_type</span>, <span class="font-mono text-slate-400">salary_min_usd</span>, <span class="font-mono text-slate-400">salary_max_usd</span></div>
+      <div><span class="font-mono text-slate-400">risk_label</span> — null or "high-risk"</div>
+      <div><span class="font-mono text-slate-400">summary</span>, <span class="font-mono text-slate-400">skills</span> (alias: <span class="font-mono text-slate-400">stack</span>)</div>
+      <div><span class="font-mono text-slate-400">contacts</span> — typed object, e.g. {"Telegram": "@user", "Application Form": "https://..."}</div>
+      <div><span class="font-mono text-slate-400">source_url</span>, <span class="font-mono text-slate-400">created_at</span></div>
+      <div class="mt-2"><span class="font-mono text-slate-400">scoring</span> — AI quality assessment:</div>
+      <pre class="mt-1 text-[11px] bg-slate-950 border border-slate-800 rounded p-2 overflow-x-auto">{
+  "total_score": 7.7,
+  "overall_summary": "Well-defined vacancy with clear compensation...",
+  "red_flags": [],
+  "scoring_results": [
+    {"criterion": "Tasks & KPI clarity", "key": "tasks_and_kpi", "score": 8, "weight": 0.3, "summary": "..."},
+    {"criterion": "Compensation clarity", "key": "compensation_clarity", "score": 9, "weight": 0.25, "summary": "..."},
+    {"criterion": "Stack & processes", "key": "tech_stack_and_ops", "score": 6, "weight": 0.2, "summary": "..."},
+    {"criterion": "Requirement logic", "key": "requirement_logic", "score": 7, "weight": 0.15, "summary": "..."},
+    {"criterion": "Company profile", "key": "company_profile", "score": 8, "weight": 0.1, "summary": "..."}
+  ]
+}</pre>
+      <div class="mt-2"><span class="font-mono text-slate-400">company</span> — enriched company profile (from Perplexity):</div>
+      <pre class="mt-1 text-[11px] bg-slate-950 border border-slate-800 rounded p-2 overflow-x-auto">{
+  "name": "Maple Finance",
+  "website": "https://maple.finance",
+  "logo_url": "https://t2.gstatic.com/faviconV2?...",
+  "industry": "DeFi",
+  "size": "50-200",
+  "founded": "2019",
+  "headquarters": "Melbourne, Australia",
+  "summary": "Onchain asset manager providing institutional-grade lending...",
+  "socials": {"twitter": "https://twitter.com/maboroshi", "linkedin": "..."},
+  "domains": ["web3", "fintech"]
+}</pre>
+      <div class="mt-2">Vacancy blocks: <span class="font-mono text-slate-400">description</span>, <span class="font-mono text-slate-400">responsibilities</span>, <span class="font-mono text-slate-400">requirements</span>, <span class="font-mono text-slate-400">conditions</span>, <span class="font-mono text-slate-400">raw_text</span></div>
+      <div class="mt-1"><span class="font-mono text-slate-400">semantic_similarity</span> — only for semantic-search (0.0–1.0)</div>
+    </div>
+  </div>
+
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div class="text-sm font-semibold mb-2">Key-level filters</div>
+    <div class="text-xs text-slate-300">
+      Filters can also be set at the API key level (in config). Query parameters override key-level config when provided.
+      <div class="mt-2 space-y-1">
+        <div><span class="font-mono text-slate-400">domains</span>, <span class="font-mono text-slate-400">location_type</span>, <span class="font-mono text-slate-400">risk_label</span></div>
+        <div><span class="font-mono text-slate-400">salary_min_usd</span>, <span class="font-mono text-slate-400">salary_max_usd</span></div>
+        <div><span class="font-mono text-slate-400">role</span>, <span class="font-mono text-slate-400">recruiter</span> — substring match (ILIKE)</div>
       </div>
-      <div>
-        Внутри <span class="font-mono">items</span> для каждого элемента есть:
-      </div>
-      <div class="space-y-1">
-        <div><span class="font-mono">id</span>, <span class="font-mono">title</span>, <span class="font-mono">company_name</span></div>
-        <div><span class="font-mono">role</span>, <span class="font-mono">domains</span>, <span class="font-mono">risk_label</span></div>
-        <div><span class="font-mono">summary</span> (summary_en), <span class="font-mono">skills</span> (alias: <span class="font-mono">stack</span>)</div>
-        <div><span class="font-mono">contacts</span> — объект типов/значений (например: {"Telegram":"@user"})</div>
-        <div><span class="font-mono">source_url</span> — ссылка на оригинальный пост (best-effort)</div>
-        <div>
-          Блоки вакансии:
-          <span class="font-mono">description</span>,
-          <span class="font-mono">responsibilities</span>,
-          <span class="font-mono">requirements</span>,
-          <span class="font-mono">conditions</span>,
-          <span class="font-mono">raw_text</span>
-        </div>
-        <div>
-          <span class="font-mono">semantic_similarity</span> — только для <span class="font-mono">semantic-search</span>
-        </div>
+      <div class="mt-2 text-slate-400">
+        Rate limits: <span class="font-mono">requests_per_minute</span> and <span class="font-mono">daily_quota</span>.
+        Returns <span class="font-mono">HTTP 429</span> when exceeded.
       </div>
     </div>
   </div>
 </div>
 
 {% endblock %}
-
