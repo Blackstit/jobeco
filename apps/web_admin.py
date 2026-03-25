@@ -16,7 +16,7 @@ from telethon.tl.functions.channels import GetFullChannelRequest
 from jobeco.db.session import SessionLocal
 from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage, ParserLog
 from jobeco.settings import settings
-from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text, score_vacancy_with_openrouter
+from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text, score_vacancy_with_openrouter, resolve_company_info
 from jobeco.processing.pipeline import process_text_message
 from jobeco.runtime_settings import (
   get_runtime_settings,
@@ -76,6 +76,35 @@ def _parse_csv_list(value: str | None) -> list[str]:
   return out
 
 
+import re as _re
+
+_FORM_URL_RE = _re.compile(
+  r'https?://(?:'
+  r'forms\.gle/[A-Za-z0-9]+|'
+  r'docs\.google\.com/forms/[^\s)\"\'<>]+|'
+  r'[a-z0-9-]+\.typeform\.com/[^\s)\"\'<>]+|'
+  r'(?:www\.)?jotform\.com/[^\s)\"\'<>]+|'
+  r'tally\.so/[^\s)\"\'<>]+|'
+  r'airtable\.com/shr[^\s)\"\'<>]+|'
+  r'(?:www\.)?surveymonkey\.com/[^\s)\"\'<>]+'
+  r')',
+  _re.IGNORECASE,
+)
+
+
+def _enrich_contacts_with_forms(contacts: list[str], raw_text: str | None) -> list[str]:
+  """Append application-form URLs found in raw_text that the LLM missed."""
+  if not raw_text:
+    return contacts
+  existing_lower = {c.lower() for c in contacts}
+  for m in _FORM_URL_RE.finditer(raw_text):
+    url = m.group(0)
+    if url.lower() not in existing_lower:
+      contacts.append(url)
+      existing_lower.add(url.lower())
+  return contacts
+
+
 def _contacts_list_to_dict(contacts: list[str] | None) -> dict[str, str]:
   """
   Convert stored contacts (list[str] from LLM) into a typed dict for API consumers.
@@ -94,6 +123,9 @@ def _contacts_list_to_dict(contacts: list[str] | None) -> dict[str, str]:
     label = "Other"
     val = c
 
+    form_domains = ("forms.gle/", "docs.google.com/forms", "typeform.com", "jotform.com",
+                     "tally.so", "airtable.com/shr", "surveymonkey.com", "notion.so")
+
     if lc.startswith("mailto:"):
       label = "Email"
       val = c[7:].strip()
@@ -104,7 +136,9 @@ def _contacts_list_to_dict(contacts: list[str] | None) -> dict[str, str]:
       label = "Telegram"
       val = c
     elif lc.startswith("http://") or lc.startswith("https://"):
-      if "linkedin.com" in lc:
+      if any(fd in lc for fd in form_domains):
+        label = "Application Form"
+      elif "linkedin.com" in lc:
         label = "LinkedIn"
       elif "t.me/" in lc:
         label = "Telegram"
@@ -412,13 +446,22 @@ async def dashboard(request: Request, _: bool = Depends(require_auth)):
     total_vacancies = (await s.execute(select(func.count(Vacancy.id)))).scalar() or 0
     total_channels = (await s.execute(select(func.count(Channel.id)))).scalar() or 0
     
-    # Статистика по категориям
-    category_stats = (
+    # Статистика по доменам (domains[] из vacancies)
+    domain_stats_rows = (
       await s.execute(
-        select(Vacancy.category, func.count(Vacancy.id).label("count"))
-        .group_by(Vacancy.category)
+        text(
+          """
+          SELECT lower(btrim(d)) as category, count(*) as count
+          FROM vacancies v
+          CROSS JOIN LATERAL unnest(v.domains) as d
+          WHERE d IS NOT NULL AND btrim(d) <> ''
+          GROUP BY 1
+          ORDER BY count DESC
+          """
+        )
       )
     ).all()
+    domain_stats = [(r.category, r.count) for r in domain_stats_rows]
     
     # Последние 20 вакансий (упрощённые карточки)
     last_vacancies = (
@@ -436,7 +479,7 @@ async def dashboard(request: Request, _: bool = Depends(require_auth)):
       "now": datetime.utcnow(),
       "total_vacancies": total_vacancies,
       "total_channels": total_channels,
-      "category_stats": category_stats,
+      "category_stats": domain_stats,
       "last_vacancies": last_vacancies,
     },
   )
@@ -448,14 +491,38 @@ async def vacancies_page(
   _: bool = Depends(require_auth),
   page: int = Query(1, ge=1),
   per_page: int = Query(50, ge=1, le=200),
-  category: str | None = Query(None),
+  category: str | None = Query(None),  # backward compat (mapped to domain)
   channel: str | None = Query(None),
   search: str | None = Query(None),
   search_mode: str = Query("text", pattern="^(text|semantic)$"),
+  domains: list[str] = Query([]),
+  location_type: str | None = Query(None),
+  # NOTE: must accept empty string values coming from HTML forms.
+  # FastAPI parses query params before our code runs, so using `str` avoids int_parsing errors.
+  salary_min_usd: str | None = Query(None),
+  salary_max_usd: str | None = Query(None),
+  risk_label: str | None = Query(None),
 ):
   async with SessionLocal() as s:
     vacancies: list[object]
     total: int
+
+    domains_selected = [str(d).strip().lower() for d in domains if str(d).strip()]
+    if not domains_selected and category:
+      domains_selected = [str(category).strip().lower()]
+
+    salary_min_usd_val: int | None = None
+    salary_max_usd_val: int | None = None
+    try:
+      if salary_min_usd is not None and str(salary_min_usd).strip() != "":
+        salary_min_usd_val = int(str(salary_min_usd).strip())
+    except Exception:
+      salary_min_usd_val = None
+    try:
+      if salary_max_usd is not None and str(salary_max_usd).strip() != "":
+        salary_max_usd_val = int(str(salary_max_usd).strip())
+    except Exception:
+      salary_max_usd_val = None
 
     if search_mode == "semantic" and search and search.strip():
       embedding = await embed_text(search)
@@ -467,9 +534,31 @@ async def vacancies_page(
 
       where = ["v.embedding IS NOT NULL"]
       params: dict = {"vec": vec, "limit": per_page, "offset": offset}
-      if category:
-        where.append("v.category = :category")
-        params["category"] = category
+
+      if domains_selected:
+        domains_arr = "{" + ",".join(f'"{d}"' for d in domains_selected) + "}"
+        where.append("v.domains && (:domains_arr)::text[]")
+        params["domains_arr"] = domains_arr
+
+      if location_type:
+        where.append("v.location_type = :location_type")
+        params["location_type"] = str(location_type).strip().lower()
+
+      if risk_label:
+        rl = str(risk_label).strip()
+        if rl == "not-high-risk":
+          where.append("(v.risk_label IS NULL OR v.risk_label != 'high-risk')")
+        else:
+          where.append("v.risk_label = :risk_label")
+          params["risk_label"] = rl
+
+      if salary_min_usd_val is not None:
+        where.append("v.salary_max_usd IS NOT NULL AND v.salary_max_usd >= :salary_min_usd")
+        params["salary_min_usd"] = salary_min_usd_val
+      if salary_max_usd_val is not None:
+        where.append("v.salary_min_usd IS NOT NULL AND v.salary_min_usd <= :salary_max_usd")
+        params["salary_max_usd"] = salary_max_usd_val
+
       if channel:
         where.append("v.tg_channel_username = :channel")
         params["channel"] = channel
@@ -505,8 +594,33 @@ async def vacancies_page(
     else:
       query = select(Vacancy)
 
-      if category:
-        query = query.where(Vacancy.category == category)
+      if domains_selected:
+        domain_conds = [Vacancy.domains.contains([d]) for d in domains_selected]
+        query = query.where(or_(*domain_conds))
+
+      if location_type:
+        query = query.where(Vacancy.location_type == str(location_type).strip().lower())
+
+      if risk_label:
+        rl = str(risk_label).strip()
+        if rl == "not-high-risk":
+          query = query.where(or_(Vacancy.risk_label.is_(None), Vacancy.risk_label != "high-risk"))
+        else:
+          query = query.where(Vacancy.risk_label == rl)
+
+      if salary_min_usd_val is not None:
+        try:
+          mi = int(salary_min_usd_val)
+          query = query.where(Vacancy.salary_max_usd.isnot(None)).where(Vacancy.salary_max_usd >= mi)
+        except Exception:
+          pass
+      if salary_max_usd_val is not None:
+        try:
+          ma = int(salary_max_usd_val)
+          query = query.where(Vacancy.salary_min_usd.isnot(None)).where(Vacancy.salary_min_usd <= ma)
+        except Exception:
+          pass
+
       if channel:
         query = query.where(Vacancy.tg_channel_username == channel)
       if search and search.strip():
@@ -528,13 +642,27 @@ async def vacancies_page(
         )
       ).scalars().all()
     
-    categories = (
+    domain_options_rows = (
       await s.execute(
-        select(Vacancy.category, func.count(Vacancy.id).label("count"))
-        .group_by(Vacancy.category)
-        .order_by(desc("count"))
+        text(
+          """
+          SELECT lower(btrim(d)) as domain, count(*) as count
+          FROM vacancies v
+          CROSS JOIN LATERAL unnest(v.domains) as d
+          WHERE d IS NOT NULL AND btrim(d) <> ''
+          GROUP BY 1
+          ORDER BY count DESC
+          """
+        )
       )
     ).all()
+    domain_options = [(r.domain, r.count) for r in domain_options_rows]
+    # UI: show stable domain set even if some domains have 0 vacancies.
+    known_domains = ["web3", "ai", "igaming", "tech", "gaming", "traffic"]
+    existing_map = {d: int(c) for d, c in domain_options}
+    domain_options = [(d, existing_map.get(d, 0)) for d in known_domains]
+
+    # Channel options (for filter bar)
     
     channels = (
       await s.execute(
@@ -554,11 +682,15 @@ async def vacancies_page(
       "page": page,
       "per_page": per_page,
       "total_pages": (total + per_page - 1) // per_page if total > 0 else 1,
-      "category": category,
+      "domains_selected": domains_selected,
+      "location_type": location_type,
+      "salary_min_usd": salary_min_usd_val,
+      "salary_max_usd": salary_max_usd_val,
+      "risk_label": risk_label,
       "channel": channel,
       "search": search,
       "search_mode": search_mode,
-      "categories": categories,
+      "domain_options": domain_options,
       "channels": channels,
     },
   )
@@ -1182,6 +1314,7 @@ async def api_public_vacancies(
       }
       # Requirement: always include vacancy blocks and raw text.
       # We keep query params for backward compatibility, but ignore their values.
+      v_meta = getattr(v, "metadata_json", {}) or {}
       item.update(
         {
           "description": v.description,
@@ -1189,6 +1322,10 @@ async def api_public_vacancies(
           "requirements": v.requirements,
           "conditions": v.conditions,
           "raw_text": v.raw_text,
+          "company_url": getattr(v, "company_url", None),
+          "company_linkedin": v_meta.get("company_linkedin"),
+          "company_url_verified": v_meta.get("company_url_verified", False),
+          "company_linkedin_verified": v_meta.get("company_linkedin_verified", False),
         }
       )
       items.append(item)
@@ -1422,6 +1559,10 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
       "created_at": v.created_at.isoformat() if v.created_at else None,
       "ai_score_100": ai_score_100,
       "ai_score_points": ai_score_points,
+      "company_url": getattr(v, "company_url", None),
+      "company_linkedin": (metadata or {}).get("company_linkedin"),
+      "company_url_verified": (metadata or {}).get("company_url_verified", False),
+      "company_linkedin_verified": (metadata or {}).get("company_linkedin_verified", False),
     }
 
 
@@ -1449,6 +1590,15 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
 
   try:
     analysis = await analyze_with_openrouter(text_raw)
+    # Resolve company first so heuristic scoring can factor in verified URLs.
+    _ci = await resolve_company_info(
+      company_name=analysis.get("company_name"),
+      raw_text=text_raw,
+      llm_website=analysis.get("company_website"),
+      llm_linkedin=analysis.get("company_linkedin"),
+    )
+    analysis["_company_url_verified"] = _ci.get("company_url_verified", False)
+    analysis["_company_linkedin_verified"] = _ci.get("company_linkedin_verified", False)
     scoring = await score_vacancy_with_openrouter(text_raw, analysis)
   except httpx.HTTPStatusError as e:
     # Most common case: OpenRouter billing/limit errors (e.g. 402 Payment Required)
@@ -1483,6 +1633,7 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
 
   async with SessionLocal() as s:
     old = (await s.execute(select(Vacancy).where(Vacancy.id == vacancy_id))).scalar_one_or_none()
+
     old_meta = getattr(old, "metadata_json", {}) if old else {}
     old_meta = old_meta or {}
     new_meta = {
@@ -1490,12 +1641,16 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
       **(analysis.get("metadata", {}) or {}),
       "ai_score_100": score_100_int,
       "ai_score_points": scoring.get("points") or [],
+      "company_linkedin": _ci.get("company_linkedin"),
+      "company_url_verified": _ci.get("company_url_verified", False),
+      "company_linkedin_verified": _ci.get("company_linkedin_verified", False),
     }
     await s.execute(
       update(Vacancy)
       .where(Vacancy.id == vacancy_id)
       .values(
         company_name=analysis.get("company_name"),
+        company_url=_ci.get("company_url"),
         title=analysis.get("title"),
         location_type=analysis.get("location_type"),
         salary_min_usd=analysis.get("salary_min_usd"),
@@ -1508,7 +1663,7 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
         domains=[str(x).strip().lower() for x in (analysis.get("domains") or []) if str(x).strip()],
         risk_label=analysis.get("risk_label"),
         recruiter=analysis.get("recruiter"),
-        contacts=analysis.get("contacts") or [],
+        contacts=_enrich_contacts_with_forms(analysis.get("contacts") or [], text_raw),
         description=analysis.get("description"),
         responsibilities=analysis.get("responsibilities"),
         requirements=analysis.get("requirements"),
@@ -1864,13 +2019,21 @@ async def get_last_post(channel_id: int, _: bool = Depends(require_auth)):
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics_page(request: Request, _: bool = Depends(require_auth)):
   async with SessionLocal() as s:
-    category_stats = (
+    category_stats_rows = (
       await s.execute(
-        select(Vacancy.category, func.count(Vacancy.id).label("count"))
-        .group_by(Vacancy.category)
-        .order_by(desc("count"))
+        text(
+          """
+          SELECT lower(btrim(d)) as category, count(*) as count
+          FROM vacancies v
+          CROSS JOIN LATERAL unnest(v.domains) as d
+          WHERE d IS NOT NULL AND btrim(d) <> ''
+          GROUP BY 1
+          ORDER BY count DESC
+          """
+        )
       )
     ).all()
+    category_stats = [(r.category, r.count) for r in category_stats_rows]
     
     channel_stats = (
       await s.execute(
@@ -1898,23 +2061,26 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
       )
     ).all()
     
-    salary_stats = (
+    salary_stats_rows = (
       await s.execute(
-        select(
-          Vacancy.category,
-          func.avg(Vacancy.salary_min_usd).label("avg_min"),
-          func.avg(Vacancy.salary_max_usd).label("avg_max"),
-          func.count(Vacancy.id).label("count")
+        text(
+          """
+          SELECT
+            lower(btrim(d)) as category,
+            AVG(v.salary_min_usd) as avg_min,
+            AVG(v.salary_max_usd) as avg_max,
+            COUNT(v.id) as count
+          FROM vacancies v
+          CROSS JOIN LATERAL unnest(v.domains) as d
+          WHERE d IS NOT NULL AND btrim(d) <> ''
+          WHERE v.salary_min_usd IS NOT NULL OR v.salary_max_usd IS NOT NULL
+          GROUP BY 1
+          ORDER BY count DESC
+          """
         )
-        .where(
-          or_(
-            Vacancy.salary_min_usd.isnot(None),
-            Vacancy.salary_max_usd.isnot(None)
-          )
-        )
-        .group_by(Vacancy.category)
       )
     ).all()
+    salary_stats = [(r.category, r.avg_min, r.avg_max, r.count) for r in salary_stats_rows]
 
   return templates.TemplateResponse(
     "analytics.html",

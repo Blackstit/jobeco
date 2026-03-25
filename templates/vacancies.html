@@ -7,52 +7,111 @@
 </div>
 
 <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
-  <form method="get" action="/vacancies" class="flex flex-col md:flex-row gap-3">
-    <input
-      type="text"
-      name="search"
-      value="{{ search or '' }}"
-      placeholder="Поиск..."
-      class="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-    />
-    <select
-      name="search_mode"
-      class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-    >
-      <option value="text" {% if search_mode == 'text' %}selected{% endif %}>Текст</option>
-      <option value="semantic" {% if search_mode == 'semantic' %}selected{% endif %}>Семантика</option>
-    </select>
-    <select
-      name="category"
-      class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-    >
-      <option value="">Все категории</option>
-      {% for cat, count in categories %}
-      <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }} ({{ count }})</option>
-      {% endfor %}
-    </select>
-    <select
-      name="channel"
-      class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-    >
-      <option value="">Все каналы</option>
-      {% for ch, count in channels %}
-      <option value="{{ ch }}" {% if channel == ch %}selected{% endif %}>{{ ch }} ({{ count }})</option>
-      {% endfor %}
-    </select>
-    <button
-      type="submit"
-      class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition"
-    >
-      Поиск
-    </button>
-    {% if search or category or channel %}
-    <a
-      href="/vacancies"
-      class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-center transition"
-    >
-      Сбросить
-    </a>
+  <form method="get" action="/vacancies" class="space-y-4">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+      <input
+        type="text"
+        name="search"
+        value="{{ search or '' }}"
+        placeholder="Поиск..."
+        class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+      />
+      <select
+        name="search_mode"
+        class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+      >
+        <option value="text" {% if search_mode == 'text' %}selected{% endif %}>Текст</option>
+        <option value="semantic" {% if search_mode == 'semantic' %}selected{% endif %}>Семантика</option>
+      </select>
+      <select
+        name="channel"
+        class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+      >
+        <option value="">Все каналы</option>
+        {% for ch, count in channels %}
+        <option value="{{ ch }}" {% if channel == ch %}selected{% endif %}>{{ ch }} ({{ count }})</option>
+        {% endfor %}
+      </select>
+      <button
+        type="submit"
+        class="w-full px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition"
+      >
+        Поиск
+      </button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
+      <div class="lg:col-span-2">
+        <div class="text-xs text-slate-400 mb-1">ДОмены (domains)</div>
+        <div class="flex flex-wrap gap-2">
+          {% for dom, count in domain_options %}
+            {% set is_sel = dom in domains_selected %}
+            <label
+              class="px-3 py-1 text-xs rounded-lg border cursor-pointer transition select-none
+                {% if is_sel %}
+                  bg-blue-900/30 text-blue-200 border-blue-700/40
+                {% else %}
+                  bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700
+                {% endif %}
+              "
+            >
+              <input type="checkbox" name="domains" value="{{ dom }}" class="hidden" {% if is_sel %}checked{% endif %} />
+              {{ dom }} <span class="text-slate-500">({{ count }})</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <select
+        name="location_type"
+        class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+      >
+        <option value="">Локация: любая</option>
+        <option value="remote" {% if location_type == 'remote' %}selected{% endif %}>Remote</option>
+        <option value="hybrid" {% if location_type == 'hybrid' %}selected{% endif %}>Hybrid</option>
+        <option value="office" {% if location_type == 'office' %}selected{% endif %}>On-site</option>
+      </select>
+
+      <div class="w-full">
+        <div class="text-xs text-slate-400 mb-1">Зарплата (USD)</div>
+        <div class="flex gap-2">
+          <input
+            type="number"
+            name="salary_min_usd"
+            value="{{ salary_min_usd if salary_min_usd is not none else '' }}"
+            placeholder="Min"
+            class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          />
+          <input
+            type="number"
+            name="salary_max_usd"
+            value="{{ salary_max_usd if salary_max_usd is not none else '' }}"
+            placeholder="Max"
+            class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      <label class="flex items-center gap-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm">
+        <input
+          type="checkbox"
+          name="risk_label"
+          value="high-risk"
+          {% if risk_label == 'high-risk' %}checked{% endif %}
+        />
+        Только `high-risk`
+      </label>
+    </div>
+
+    {% if search or channel or (domains_selected and domains_selected|length > 0) or location_type or salary_min_usd is not none or salary_max_usd is not none or risk_label or search_mode == 'semantic' %}
+      <div class="flex justify-end">
+        <a
+          href="/vacancies"
+          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-center transition"
+        >
+          Сбросить
+        </a>
+      </div>
     {% endif %}
   </form>
   
@@ -64,9 +123,9 @@
   </div>
 </div>
 
-<div id="vacRoot" class="flex gap-4 overflow-hidden">
+<div id="vacRoot" class="flex gap-4">
   <!-- List -->
-  <div id="vacList" class="w-full transition-all overflow-y-auto h-[80vh] pr-1">
+  <div id="vacList" class="w-full transition-all overflow-y-auto h-full pr-1">
     <div class="space-y-3">
       {% for v in vacancies %}
       <div id="vac-card-{{ v.id }}"
@@ -133,7 +192,7 @@
   </div>
 
   <!-- Details pane -->
-  <div id="vacPane" class="hidden w-1/2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden h-[80vh] flex flex-col">
+  <div id="vacPane" class="hidden w-1/2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden overflow-x-hidden h-full flex flex-col min-h-0">
     <div class="p-4 border-b border-slate-800 flex items-start justify-between gap-3 bg-slate-950 flex-none">
       <div class="min-w-0">
         <div class="text-lg font-semibold" id="pTitle">—</div>
@@ -149,7 +208,7 @@
         <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="closeVacancyPane()">Close</button>
       </div>
     </div>
-    <div class="p-4 overflow-y-auto space-y-4 flex-1 pb-10">
+    <div class="p-4 space-y-4 flex-1 min-h-0 pr-1 overflow-y-auto">
       <div id="secSummary" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
         <div class="text-sm font-semibold mb-2">AI summary</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pSummary"></div>
@@ -162,7 +221,7 @@
         <div id="pScorePoints" class="space-y-2"></div>
       </div>
       <div id="secDesc" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-        <div class="text-sm font-semibold mb-2">Description</div>
+        <div class="text-sm font-semibold mb-2">About the Company</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pDesc"></div>
       </div>
       <div id="secResp" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
@@ -173,6 +232,10 @@
         <div class="text-sm font-semibold mb-2">Requirements</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pReq"></div>
       </div>
+      <div id="secCond" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <div class="text-sm font-semibold mb-2">What They Offer</div>
+        <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pCond"></div>
+      </div>
       <div id="secContacts" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
         <div class="text-sm font-semibold mb-2">Contacts</div>
         <div class="space-y-2 text-sm" id="pContacts"></div>
@@ -181,7 +244,8 @@
         <div class="text-sm font-semibold mb-2">Original text</div>
         <details class="text-sm text-slate-200">
           <summary class="cursor-pointer select-none text-slate-400">Show</summary>
-          <div class="mt-2 whitespace-pre-wrap max-h-[40vh] overflow-y-auto pr-1" id="pRaw"></div>
+          <!-- Let the parent details pane handle scrolling (no nested max-height). -->
+          <div class="mt-2 whitespace-pre-wrap break-words pr-1" id="pRaw"></div>
         </details>
       </div>
     </div>
@@ -192,7 +256,7 @@
 <div class="mt-6 flex justify-center gap-2">
   {% if page > 1 %}
   <a
-    href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if category %}&category={{ category }}{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}"
+    href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% for dom in domains_selected %}&domains={{ dom }}{% endfor %}{% if location_type %}&location_type={{ location_type }}{% endif %}{% if salary_min_usd is not none %}&salary_min_usd={{ salary_min_usd }}{% endif %}{% if salary_max_usd is not none %}&salary_max_usd={{ salary_max_usd }}{% endif %}{% if risk_label %}&risk_label={{ risk_label }}{% endif %}"
     class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
   >
     ← Назад
@@ -203,7 +267,7 @@
   </span>
   {% if page < total_pages %}
   <a
-    href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if category %}&category={{ category }}{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}"
+    href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% for dom in domains_selected %}&domains={{ dom }}{% endfor %}{% if location_type %}&location_type={{ location_type }}{% endif %}{% if salary_min_usd is not none %}&salary_min_usd={{ salary_min_usd }}{% endif %}{% if salary_max_usd is not none %}&salary_max_usd={{ salary_max_usd }}{% endif %}{% if risk_label %}&risk_label={{ risk_label }}{% endif %}"
     class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
   >
     Вперёд →
@@ -386,7 +450,53 @@ async function openVacancyPane(id) {
   document.body.classList.add("overflow-hidden");
 
   document.getElementById("pTitle").textContent = v.title || "—";
-  document.getElementById("pCompany").textContent = v.company_name || "";
+
+  // Company name + verified links
+  const pCompanyEl = document.getElementById("pCompany");
+  pCompanyEl.innerHTML = "";
+  if (v.company_name) {
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = v.company_name;
+    pCompanyEl.appendChild(nameSpan);
+  }
+  if (v.company_url) {
+    const sep = v.company_name ? " · " : "";
+    const linkWrap = document.createElement("span");
+    linkWrap.textContent = sep;
+    const a = document.createElement("a");
+    a.href = v.company_url;
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.className = "underline hover:text-white";
+    a.textContent = "Website";
+    linkWrap.appendChild(a);
+    if (v.company_url_verified) {
+      const badge = document.createElement("span");
+      badge.className = "ml-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300";
+      badge.textContent = "verified";
+      linkWrap.appendChild(badge);
+    }
+    pCompanyEl.appendChild(linkWrap);
+  }
+  if (v.company_linkedin) {
+    const sep2 = (v.company_name || v.company_url) ? " · " : "";
+    const liWrap = document.createElement("span");
+    liWrap.textContent = sep2;
+    const a2 = document.createElement("a");
+    a2.href = v.company_linkedin;
+    a2.target = "_blank";
+    a2.rel = "noreferrer";
+    a2.className = "underline hover:text-white";
+    a2.textContent = "LinkedIn";
+    liWrap.appendChild(a2);
+    if (v.company_linkedin_verified) {
+      const badge2 = document.createElement("span");
+      badge2.className = "ml-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300";
+      badge2.textContent = "verified";
+      liWrap.appendChild(badge2);
+    }
+    pCompanyEl.appendChild(liWrap);
+  }
 
   const badges = document.getElementById("pBadges");
   badges.innerHTML = "";
@@ -452,6 +562,7 @@ async function openVacancyPane(id) {
   document.getElementById("pDesc").innerHTML = renderBulletText(v.description || "");
   document.getElementById("pResp").innerHTML = renderBulletText(v.responsibilities || "");
   document.getElementById("pReq").innerHTML = renderBulletText(v.requirements || "");
+  document.getElementById("pCond").innerHTML = renderBulletText(v.conditions || "");
   document.getElementById("pRaw").textContent = v.raw_text || "";
 
   // show/hide sections if empty
@@ -465,6 +576,7 @@ async function openVacancyPane(id) {
   // secScoring is controlled by ai_score_points above.
   showIf("secDesc", v.description);
   showIf("secResp", v.responsibilities);
+  showIf("secCond", v.conditions);
   showIf("secReq", v.requirements);
 
   const c = document.getElementById("pContacts");
@@ -474,10 +586,16 @@ async function openVacancyPane(id) {
     const lower = (x || "").toLowerCase();
     let label = "Contact";
     let href = null;
+    const formDomains = ["forms.gle/","docs.google.com/forms","typeform.com","jotform.com","tally.so","airtable.com/shr","surveymonkey.com","notion.so"];
     if (lower.includes("linkedin.com")) { label = "LinkedIn"; href = x; }
+    else if (formDomains.some(fd => lower.includes(fd))) { label = "Application Form"; href = x; }
     else if (lower.startsWith("http")) { label = "Website"; href = x; }
     else if (lower.startsWith("mailto:")) { label = "Email"; href = x; }
-    else if (lower.includes("@") && !lower.includes(" ")) { label = "Telegram"; }
+    else if (lower.includes("@") && !lower.includes(" ")) {
+      label = "Telegram";
+      const tgUser = x.replace(/^@/, "");
+      href = "https://t.me/" + tgUser;
+    }
     row.innerHTML = `<span class="text-slate-400">${label}:</span> `;
     if (href) {
       const a = document.createElement("a");
@@ -592,5 +710,29 @@ async function reanalyzeVacancy(id) {
       }
     }
   } catch {}
+</script>
+<script>
+  // Auto-apply filters when clicking chips/checkboxes.
+  // (The form is server-rendered, so we just submit and reload.)
+  try {
+    const form = document.querySelector('form[action="/vacancies"]');
+    if (form) {
+      form.querySelectorAll('input[name="domains"], input[name="risk_label"]').forEach((el) => {
+        el.addEventListener("change", () => {
+          form.submit();
+        });
+      });
+    }
+  } catch (e) {}
+</script>
+<script>
+  function resizeVacRoot() {
+    const el = document.getElementById("vacRoot");
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    el.style.height = (window.innerHeight - top - 16) + "px";
+  }
+  resizeVacRoot();
+  window.addEventListener("resize", resizeVacRoot);
 </script>
 {% endblock %}

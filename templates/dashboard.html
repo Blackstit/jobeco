@@ -17,7 +17,7 @@
     <p class="text-2xl font-semibold">{{ total_channels }}</p>
   </div>
   <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-    <p class="text-xs text-slate-400 mb-1">Категорий</p>
+    <p class="text-xs text-slate-400 mb-1">Доменов</p>
     <p class="text-2xl font-semibold">{{ category_stats|length }}</p>
   </div>
   <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
@@ -26,10 +26,10 @@
   </div>
 </div>
 
-<!-- Category Stats -->
+<!-- Domain Stats -->
 {% if category_stats %}
 <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
-  <h3 class="text-sm font-semibold mb-3">Статистика по категориям</h3>
+  <h3 class="text-sm font-semibold mb-3">Статистика по доменам</h3>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
     {% for cat, count in category_stats %}
     <div class="text-sm">
@@ -65,8 +65,15 @@
             {% if v.tg_channel_username %}
             <span>@{{ v.tg_channel_username }}</span>
             {% endif %}
-            {% if v.category %}
-            <span class="px-2 py-0.5 bg-slate-800 rounded text-slate-300">{{ v.category }}</span>
+            {% if v.domains and v.domains|length > 0 %}
+            <div class="flex flex-wrap gap-1">
+              {% for dom in v.domains[:3] %}
+              <span class="px-2 py-0.5 bg-slate-800 rounded text-slate-300 text-xs">{{ dom }}</span>
+              {% endfor %}
+              {% if v.domains|length > 3 %}
+              <span class="text-slate-500 text-xs">+{{ v.domains|length - 3 }}</span>
+              {% endif %}
+            </div>
             {% endif %}
             {% if v.stack %}
             <div class="flex flex-wrap gap-1">

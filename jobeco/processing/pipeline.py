@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 import structlog
@@ -8,11 +9,37 @@ from telethon import events
 
 from jobeco.db.session import SessionLocal
 from jobeco.db.models import Vacancy, ParserLog
-from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post, score_vacancy_with_openrouter
+from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post, score_vacancy_with_openrouter, resolve_company_info
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
 
 log = structlog.get_logger()
+
+_FORM_URL_RE = re.compile(
+  r'https?://(?:'
+  r'forms\.gle/[A-Za-z0-9]+|'
+  r'docs\.google\.com/forms/[^\s)\"\'<>]+|'
+  r'[a-z0-9-]+\.typeform\.com/[^\s)\"\'<>]+|'
+  r'(?:www\.)?jotform\.com/[^\s)\"\'<>]+|'
+  r'tally\.so/[^\s)\"\'<>]+|'
+  r'airtable\.com/shr[^\s)\"\'<>]+|'
+  r'(?:www\.)?surveymonkey\.com/[^\s)\"\'<>]+'
+  r')',
+  re.IGNORECASE,
+)
+
+
+def _enrich_contacts_with_forms(contacts: list[str], raw_text: str | None) -> list[str]:
+  """Append application-form URLs found in raw_text that the LLM missed."""
+  if not raw_text:
+    return contacts
+  existing_lower = {c.lower() for c in contacts}
+  for m in _FORM_URL_RE.finditer(raw_text):
+    url = m.group(0)
+    if url.lower() not in existing_lower:
+      contacts.append(url)
+      existing_lower.add(url.lower())
+  return contacts
 
 
 async def persist_parser_log(
@@ -214,6 +241,16 @@ async def process_message(event: events.NewMessage.Event) -> None:
 
   analysis = await analyze_with_openrouter(text_raw)
 
+  # Enrich with verified company web presence (before scoring so heuristic can use it).
+  company_info = await resolve_company_info(
+    company_name=analysis.get("company_name"),
+    raw_text=text_raw,
+    llm_website=analysis.get("company_website"),
+    llm_linkedin=analysis.get("company_linkedin"),
+  )
+  analysis["_company_url_verified"] = company_info.get("company_url_verified", False)
+  analysis["_company_linkedin_verified"] = company_info.get("company_linkedin_verified", False)
+
   # Separate LLM step for scoring + 3 points.
   try:
     scoring = await score_vacancy_with_openrouter(text_raw, analysis)
@@ -227,7 +264,6 @@ async def process_message(event: events.NewMessage.Event) -> None:
     score_100_int = None
 
   if score_100_int is None:
-    # Fallback to whatever analyzer returned (if any).
     try:
       ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
     except Exception:
@@ -243,6 +279,7 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "tg_channel_username": getattr(event.chat, "username", None),
     "source_url": source_url,
     "company_name": analysis.get("company_name"),
+    "company_url": company_info.get("company_url"),
     "title": analysis.get("title"),
     "location_type": analysis.get("location_type"),
     "salary_min_usd": analysis.get("salary_min_usd"),
@@ -253,16 +290,19 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "summary_ru": analysis.get("summary_ru"),
     "summary_en": analysis.get("summary_en"),
     "raw_text": text_raw,
-    # Merge scoring into metadata (kept for future UI).
+    # Merge scoring + company enrichment into metadata.
     "metadata": {
       **(analysis.get("metadata", {}) or {}),
       "ai_score_100": score_100_int,
       "ai_score_points": scoring.get("points") or [],
+      "company_linkedin": company_info.get("company_linkedin"),
+      "company_url_verified": company_info.get("company_url_verified", False),
+      "company_linkedin_verified": company_info.get("company_linkedin_verified", False),
     },
     "domains": [str(x).lower() for x in (analysis.get("domains") or []) if str(x).strip()],
     "risk_label": analysis.get("risk_label"),
     "recruiter": analysis.get("recruiter"),
-    "contacts": analysis.get("contacts") or [],
+    "contacts": _enrich_contacts_with_forms(analysis.get("contacts") or [], text_raw),
     "description": analysis.get("description"),
     "responsibilities": analysis.get("responsibilities"),
     "requirements": analysis.get("requirements"),
@@ -335,6 +375,16 @@ async def process_text_message(
 
   analysis = await analyze_with_openrouter(text_raw)
 
+  # Enrich with verified company web presence (before scoring so heuristic can use it).
+  company_info = await resolve_company_info(
+    company_name=analysis.get("company_name"),
+    raw_text=text_raw,
+    llm_website=analysis.get("company_website"),
+    llm_linkedin=analysis.get("company_linkedin"),
+  )
+  analysis["_company_url_verified"] = company_info.get("company_url_verified", False)
+  analysis["_company_linkedin_verified"] = company_info.get("company_linkedin_verified", False)
+
   # Separate LLM step for scoring + 3 points.
   try:
     scoring = await score_vacancy_with_openrouter(text_raw, analysis)
@@ -348,7 +398,6 @@ async def process_text_message(
     score_100_int = None
 
   if score_100_int is None:
-    # Fallback to whatever analyzer returned (if any).
     try:
       ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
     except Exception:
@@ -364,6 +413,7 @@ async def process_text_message(
     "tg_channel_username": tg_channel_username,
     "source_url": source_url,
     "company_name": analysis.get("company_name"),
+    "company_url": company_info.get("company_url"),
     "title": analysis.get("title"),
     "location_type": analysis.get("location_type"),
     "salary_min_usd": analysis.get("salary_min_usd"),
@@ -374,16 +424,19 @@ async def process_text_message(
     "summary_ru": analysis.get("summary_ru"),
     "summary_en": analysis.get("summary_en"),
     "raw_text": text_raw,
-    # Merge scoring into metadata (kept for future UI).
+    # Merge scoring + company enrichment into metadata.
     "metadata": {
       **(analysis.get("metadata", {}) or {}),
       "ai_score_100": score_100_int,
       "ai_score_points": scoring.get("points") or [],
+      "company_linkedin": company_info.get("company_linkedin"),
+      "company_url_verified": company_info.get("company_url_verified", False),
+      "company_linkedin_verified": company_info.get("company_linkedin_verified", False),
     },
     "domains": [str(x).lower() for x in (analysis.get("domains") or []) if str(x).strip()],
     "risk_label": analysis.get("risk_label"),
     "recruiter": analysis.get("recruiter"),
-    "contacts": analysis.get("contacts") or [],
+    "contacts": _enrich_contacts_with_forms(analysis.get("contacts") or [], text_raw),
     "description": analysis.get("description"),
     "responsibilities": analysis.get("responsibilities"),
     "requirements": analysis.get("requirements"),

@@ -8,7 +8,7 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
   <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-    <h3 class="text-sm font-semibold mb-4">Статистика по категориям</h3>
+    <h3 class="text-sm font-semibold mb-4">Статистика по доменам</h3>
     <div class="space-y-3">
       {% for cat, count in category_stats %}
       <div class="flex items-center justify-between">
@@ -45,7 +45,7 @@
 </div>
 
 <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-  <h3 class="text-sm font-semibold mb-4">Средняя зарплата по категориям</h3>
+  <h3 class="text-sm font-semibold mb-4">Средняя зарплата по доменам</h3>
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
     {% for cat, avg_min, avg_max, count in salary_stats %}
     <div class="p-3 bg-slate-800/50 rounded-lg border border-slate-800">
