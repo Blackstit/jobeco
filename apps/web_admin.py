@@ -16,7 +16,7 @@ from telethon.tl.functions.channels import GetFullChannelRequest
 from jobeco.db.session import SessionLocal
 from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage, ParserLog
 from jobeco.settings import settings
-from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text
+from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text, score_vacancy_with_openrouter
 from jobeco.processing.pipeline import process_text_message
 from jobeco.runtime_settings import (
   get_runtime_settings,
@@ -1391,6 +1391,14 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
     v = (await s.execute(select(Vacancy).where(Vacancy.id == vacancy_id))).scalar_one_or_none()
     if not v:
       raise HTTPException(status_code=404, detail="Vacancy not found")
+    metadata = getattr(v, "metadata_json", {}) or {}
+    ai_score_100 = metadata.get("ai_score_100")
+    ai_score_points = metadata.get("ai_score_points") or []
+    if ai_score_100 is None and getattr(v, "ai_score_value", None) is not None:
+      try:
+        ai_score_100 = int(v.ai_score_value) * 10
+      except Exception:
+        ai_score_100 = None
     return {
       "id": v.id,
       "title": v.title,
@@ -1412,6 +1420,8 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
       "raw_text": v.raw_text,
       "source_url": v.source_url,
       "created_at": v.created_at.isoformat() if v.created_at else None,
+      "ai_score_100": ai_score_100,
+      "ai_score_points": ai_score_points,
     }
 
 
@@ -1439,6 +1449,7 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
 
   try:
     analysis = await analyze_with_openrouter(text_raw)
+    scoring = await score_vacancy_with_openrouter(text_raw, analysis)
   except httpx.HTTPStatusError as e:
     # Most common case: OpenRouter billing/limit errors (e.g. 402 Payment Required)
     upstream_status = int(getattr(e.response, "status_code", 502) or 502)
@@ -1456,7 +1467,30 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
     status_code = upstream_status if upstream_status in (400, 401, 402, 403, 429) else 502
     raise HTTPException(status_code=status_code, detail=msg)
 
+  score_100 = scoring.get("score")
+  try:
+    score_100_int = int(score_100) if score_100 is not None else None
+  except Exception:
+    score_100_int = None
+  if score_100_int is None:
+    try:
+      ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
+    except Exception:
+      ai_score_value_0_10 = 5
+  else:
+    ai_score_value_0_10 = int(round(score_100_int / 10.0))
+  ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
+
   async with SessionLocal() as s:
+    old = (await s.execute(select(Vacancy).where(Vacancy.id == vacancy_id))).scalar_one_or_none()
+    old_meta = getattr(old, "metadata_json", {}) if old else {}
+    old_meta = old_meta or {}
+    new_meta = {
+      **old_meta,
+      **(analysis.get("metadata", {}) or {}),
+      "ai_score_100": score_100_int,
+      "ai_score_points": scoring.get("points") or [],
+    }
     await s.execute(
       update(Vacancy)
       .where(Vacancy.id == vacancy_id)
@@ -1467,9 +1501,10 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
         salary_min_usd=analysis.get("salary_min_usd"),
         salary_max_usd=analysis.get("salary_max_usd"),
         stack=analysis.get("stack") or [],
-        ai_score_value=analysis.get("ai_score_value"),
+        ai_score_value=ai_score_value_0_10,
         summary_en=analysis.get("summary_en"),
         summary_ru=analysis.get("summary_ru"),
+        metadata=new_meta,
         domains=[str(x).strip().lower() for x in (analysis.get("domains") or []) if str(x).strip()],
         risk_label=analysis.get("risk_label"),
         recruiter=analysis.get("recruiter"),

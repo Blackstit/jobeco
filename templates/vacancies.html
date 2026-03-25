@@ -154,6 +154,13 @@
         <div class="text-sm font-semibold mb-2">AI summary</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pSummary"></div>
       </div>
+      <div id="secScoring" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <div class="text-sm font-semibold">AI scoring</div>
+          <div id="pScoreBadge" class="px-2 py-1 text-xs rounded border border-slate-700 bg-slate-800 text-slate-200">—</div>
+        </div>
+        <div id="pScorePoints" class="space-y-2"></div>
+      </div>
       <div id="secDesc" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
         <div class="text-sm font-semibold mb-2">Description</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pDesc"></div>
@@ -294,6 +301,13 @@ function renderBulletText(text) {
   return blocks.join("");
 }
 
+function sentimentClasses(sentiment) {
+  const s = (sentiment || "").toLowerCase();
+  if (s === "positive") return "bg-emerald-950/50 text-emerald-200 border-emerald-800/60";
+  if (s === "negative") return "bg-red-950/50 text-red-200 border-red-800/60";
+  return "bg-slate-800 text-slate-200 border-slate-700";
+}
+
 function toggleVacMenu(id) {
   const el = document.getElementById(`vac-menu-${id}`);
   el.classList.toggle('hidden');
@@ -372,6 +386,33 @@ async function openVacancyPane(id) {
   document.getElementById("pMeta").textContent = meta.join(" · ");
 
   document.getElementById("pSummary").textContent = v.summary_en || "";
+  const scoreSection = document.getElementById("secScoring");
+  const scoreBadge = document.getElementById("pScoreBadge");
+  const scorePoints = document.getElementById("pScorePoints");
+  if (scorePoints) scorePoints.innerHTML = "";
+  const score100 = v.ai_score_100;
+  const points = Array.isArray(v.ai_score_points) ? v.ai_score_points : [];
+  if (scoreBadge) {
+    scoreBadge.textContent = (score100 !== null && score100 !== undefined) ? `Score ${score100}/100` : "Score —";
+  }
+  if (points.length && scorePoints) {
+    points.slice(0, 5).forEach((p) => {
+      const sentiment = (p && p.sentiment) || "neutral";
+      const text = (p && p.text) || "";
+      const ev = (p && p.evidence) || "";
+      const row = document.createElement("div");
+      row.className = `rounded-lg border px-3 py-2 text-sm ${sentimentClasses(sentiment)}`;
+      row.innerHTML = `
+        <div class="font-medium">${escapeHtml(text)}</div>
+        ${ev ? `<div class="text-xs opacity-80 mt-1">Evidence: ${escapeHtml(ev)}</div>` : ""}
+      `;
+      scorePoints.appendChild(row);
+    });
+    if (scoreSection) scoreSection.classList.remove("hidden");
+  } else if (scoreSection) {
+    scoreSection.classList.add("hidden");
+  }
+
   document.getElementById("pDesc").innerHTML = renderBulletText(v.description || "");
   document.getElementById("pResp").innerHTML = renderBulletText(v.responsibilities || "");
   document.getElementById("pReq").innerHTML = renderBulletText(v.requirements || "");
@@ -385,6 +426,7 @@ async function openVacancyPane(id) {
     else el.classList.add("hidden");
   };
   showIf("secSummary", v.summary_en);
+  // secScoring is controlled by ai_score_points above.
   showIf("secDesc", v.description);
   showIf("secResp", v.responsibilities);
   showIf("secReq", v.requirements);
