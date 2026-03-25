@@ -1,127 +1,126 @@
 {% extends "base.html" %}
 
-{% block content %}
-<div class="mb-6">
-  <h2 class="text-2xl font-semibold mb-2">Вакансии</h2>
-  <p class="text-sm text-slate-400">Поиск и фильтрация вакансий</p>
-</div>
+{% set _has_filters = search or channel or (domains_selected and domains_selected|length > 0) or location_type or salary_min_usd is not none or salary_max_usd is not none or risk_label or seniority or employment_type or score_min is not none or score_max is not none %}
+{% set _adv_count = ((domains_selected|length if domains_selected else 0) + (1 if channel else 0) + (1 if salary_min_usd is not none or salary_max_usd is not none else 0) + (1 if risk_label else 0) + (1 if seniority else 0) + (1 if employment_type else 0) + (1 if score_min is not none or score_max is not none else 0)) %}
 
-<div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
-  <form method="get" action="/vacancies" class="space-y-4">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+{% block content %}
+<form method="get" action="/vacancies" id="filterForm">
+  <!-- Compact search bar -->
+  <div class="flex items-center gap-2 mb-3">
+    <div class="relative flex-1 max-w-md" id="searchWrap">
       <input
-        type="text"
-        name="search"
-        value="{{ search or '' }}"
-        placeholder="Поиск..."
-        class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+        type="text" name="search" id="searchInput" value="{{ search or '' }}" placeholder="Search vacancies..."
+        autocomplete="off"
+        class="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-sm focus:outline-none focus:border-blue-500 placeholder-slate-500"
       />
-      <select
-        name="search_mode"
-        class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-      >
-        <option value="text" {% if search_mode == 'text' %}selected{% endif %}>Текст</option>
-        <option value="semantic" {% if search_mode == 'semantic' %}selected{% endif %}>Семантика</option>
-      </select>
-      <select
-        name="channel"
-        class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-      >
-        <option value="">Все каналы</option>
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <!-- Live suggest dropdown -->
+      <div id="suggestBox" class="hidden absolute left-0 right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-30 overflow-hidden max-h-80"></div>
+    </div>
+
+    <!-- Location quick pills -->
+    {% for loc_val, loc_label in [('', 'All'), ('remote', 'Remote'), ('hybrid', 'Hybrid'), ('office', 'On-site')] %}
+    <button type="button" onclick="setLocation('{{ loc_val }}')"
+      class="hidden md:inline-flex px-3 py-1.5 text-xs rounded-md border transition
+        {% if location_type == loc_val %}bg-blue-600 border-blue-500 text-white{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200{% endif %}"
+    >{{ loc_label }}</button>
+    {% endfor %}
+    <input type="hidden" name="location_type" id="hLocType" value="{{ location_type or '' }}" />
+
+    <!-- Advanced toggle -->
+    <button type="button" onclick="toggleAdvanced()" id="advToggle"
+      class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border transition
+        {% if _adv_count > 0 %}bg-blue-900/30 border-blue-700/40 text-blue-200{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800{% endif %}"
+    >
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+      Filters{% if _adv_count > 0 %} <span class="px-1.5 py-0.5 text-[10px] bg-blue-600 rounded-full leading-none">{{ _adv_count }}</span>{% endif %}
+    </button>
+
+    <button type="submit" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-md text-xs font-medium transition">Search</button>
+
+    {% if _has_filters %}
+    <a href="/vacancies" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition" title="Clear all filters">&times; Clear</a>
+    {% endif %}
+
+    <span class="text-xs text-slate-500 ml-auto">{{ total }} found{% if total_pages > 1 %} · p.{{ page }}/{{ total_pages }}{% endif %}</span>
+  </div>
+
+  <!-- Advanced filters panel (collapsed by default unless active) -->
+  <div id="advPanel" class="{% if _adv_count == 0 %}hidden{% endif %} bg-slate-900/60 border border-slate-800 rounded-lg p-3 mb-3 space-y-3">
+    <!-- Row 1: Domains -->
+    <div>
+      <div class="text-[11px] text-slate-500 uppercase tracking-wider mb-1.5">Domains</div>
+      <div class="flex flex-wrap gap-1.5">
+        {% for dom, count in domain_options %}
+          {% set is_sel = dom in domains_selected %}
+          <label class="px-2.5 py-1 text-[11px] rounded-md border cursor-pointer transition select-none
+            {% if is_sel %}bg-blue-900/40 text-blue-200 border-blue-700/40{% else %}bg-slate-800/60 text-slate-300 border-slate-700/50 hover:bg-slate-800{% endif %}"
+          >
+            <input type="checkbox" name="domains" value="{{ dom }}" class="hidden" {% if is_sel %}checked{% endif %} />
+            {{ dom }} <span class="text-slate-500">{{ count }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Row 2: Salary + Channel + Mode + Risk -->
+    <div class="flex flex-wrap gap-3 items-end">
+      <div class="flex items-center gap-1.5">
+        <span class="text-[11px] text-slate-500">Salary $</span>
+        <input type="number" name="salary_min_usd" value="{{ salary_min_usd if salary_min_usd is not none else '' }}" placeholder="min"
+          class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500" />
+        <span class="text-slate-600">–</span>
+        <input type="number" name="salary_max_usd" value="{{ salary_max_usd if salary_max_usd is not none else '' }}" placeholder="max"
+          class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500" />
+      </div>
+
+      <select name="channel" class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500">
+        <option value="">All channels</option>
         {% for ch, count in channels %}
         <option value="{{ ch }}" {% if channel == ch %}selected{% endif %}>{{ ch }} ({{ count }})</option>
         {% endfor %}
       </select>
-      <button
-        type="submit"
-        class="w-full px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition"
-      >
-        Поиск
-      </button>
-    </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
-      <div class="lg:col-span-2">
-        <div class="text-xs text-slate-400 mb-1">ДОмены (domains)</div>
-        <div class="flex flex-wrap gap-2">
-          {% for dom, count in domain_options %}
-            {% set is_sel = dom in domains_selected %}
-            <label
-              class="px-3 py-1 text-xs rounded-lg border cursor-pointer transition select-none
-                {% if is_sel %}
-                  bg-blue-900/30 text-blue-200 border-blue-700/40
-                {% else %}
-                  bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700
-                {% endif %}
-              "
-            >
-              <input type="checkbox" name="domains" value="{{ dom }}" class="hidden" {% if is_sel %}checked{% endif %} />
-              {{ dom }} <span class="text-slate-500">({{ count }})</span>
-            </label>
-          {% endfor %}
-        </div>
-      </div>
-
-      <select
-        name="location_type"
-        class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-      >
-        <option value="">Локация: любая</option>
-        <option value="remote" {% if location_type == 'remote' %}selected{% endif %}>Remote</option>
-        <option value="hybrid" {% if location_type == 'hybrid' %}selected{% endif %}>Hybrid</option>
-        <option value="office" {% if location_type == 'office' %}selected{% endif %}>On-site</option>
-      </select>
-
-      <div class="w-full">
-        <div class="text-xs text-slate-400 mb-1">Зарплата (USD)</div>
-        <div class="flex gap-2">
-          <input
-            type="number"
-            name="salary_min_usd"
-            value="{{ salary_min_usd if salary_min_usd is not none else '' }}"
-            placeholder="Min"
-            class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-          />
-          <input
-            type="number"
-            name="salary_max_usd"
-            value="{{ salary_max_usd if salary_max_usd is not none else '' }}"
-            placeholder="Max"
-            class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-          />
-        </div>
-      </div>
-
-      <label class="flex items-center gap-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm">
-        <input
-          type="checkbox"
-          name="risk_label"
-          value="high-risk"
-          {% if risk_label == 'high-risk' %}checked{% endif %}
-        />
-        Только `high-risk`
+      <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
+        <input type="checkbox" name="risk_label" value="high-risk" {% if risk_label == 'high-risk' %}checked{% endif %}
+          class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-red-500 focus:ring-0" />
+        <span>High-risk only</span>
       </label>
     </div>
 
-    {% if search or channel or (domains_selected and domains_selected|length > 0) or location_type or salary_min_usd is not none or salary_max_usd is not none or risk_label or search_mode == 'semantic' %}
-      <div class="flex justify-end">
-        <a
-          href="/vacancies"
-          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-center transition"
-        >
-          Сбросить
-        </a>
+    <!-- Row 3: Seniority + Employment Type + Score range -->
+    <div class="flex flex-wrap gap-3 items-end">
+      <div>
+        <span class="text-[11px] text-slate-500">Grade</span>
+        <select name="seniority" class="ml-1 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500">
+          <option value="">Any</option>
+          {% for g in ['trainee','junior','middle','senior','lead','head','c-level'] %}
+          <option value="{{ g }}" {% if seniority == g %}selected{% endif %}>{{ g|capitalize }}</option>
+          {% endfor %}
+        </select>
       </div>
-    {% endif %}
-  </form>
-  
-  <div class="text-xs text-slate-400 mt-3">
-    Найдено: {{ total }} вакансий
-    {% if total_pages > 1 %}
-    · Страница {{ page }} из {{ total_pages }}
-    {% endif %}
+
+      <div>
+        <span class="text-[11px] text-slate-500">Employment</span>
+        <select name="employment_type" class="ml-1 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500">
+          <option value="">Any</option>
+          {% for et in ['full-time','part-time','project','freelance','internship'] %}
+          <option value="{{ et }}" {% if employment_type == et %}selected{% endif %}>{{ et|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flex items-center gap-1.5">
+        <span class="text-[11px] text-slate-500">Score</span>
+        <input type="number" name="score_min" min="0" max="10" value="{{ score_min if score_min is not none else '' }}" placeholder="min"
+          class="w-14 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500" />
+        <span class="text-slate-600">–</span>
+        <input type="number" name="score_max" min="0" max="10" value="{{ score_max if score_max is not none else '' }}" placeholder="max"
+          class="w-14 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500" />
+      </div>
+    </div>
   </div>
-</div>
+</form>
 
 <div id="vacRoot" class="flex gap-4">
   <!-- List -->
@@ -136,15 +135,29 @@
             <div class="flex items-center gap-2 flex-wrap">
               <div class="font-medium text-sm truncate">{{ v.title or "Untitled" }}</div>
               <span class="text-xs text-slate-500">#{{ v.id }}</span>
-              {% if v.ai_score_value is not none %}
-                {% set sc = v.ai_score_value %}
-                {% if sc <= 3 %}
-                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-red-900/30 text-red-300 border border-red-700/50 rounded">Score {{ sc }}/10</span>
-                {% elif sc <= 7 %}
-                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-blue-900/30 text-blue-200 border border-blue-700/40 rounded">Score {{ sc }}/10</span>
+              {% set _meta = v.metadata_json|default({}) or {} %}
+              {% set _scobj = _meta.get('scoring', {}) if _meta is mapping else {} %}
+              {% set _ts = _scobj.get('total_score') if _scobj is mapping else none %}
+              {% if _ts is not none %}
+                {% set sc = _ts|float %}
+              {% elif v.ai_score_value is not none %}
+                {% set sc = v.ai_score_value|float %}
+              {% else %}
+                {% set sc = none %}
+              {% endif %}
+              {% if sc is not none %}
+                {% set sc_display = "%.1f"|format(sc) if sc != (sc|int|float) else "%d"|format(sc|int) %}
+                {% if sc|float <= 3 %}
+                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-red-900/30 text-red-300 border border-red-700/50 rounded">Score {{ sc_display }}/10</span>
+                {% elif sc|float <= 7 %}
+                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-blue-900/30 text-blue-200 border border-blue-700/40 rounded">Score {{ sc_display }}/10</span>
                 {% else %}
-                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-green-900/30 text-green-200 border border-green-700/40 rounded">Score {{ sc }}/10</span>
+                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-green-900/30 text-green-200 border border-green-700/40 rounded">Score {{ sc_display }}/10</span>
                 {% endif %}
+              {% endif %}
+              {% set _sen = v.seniority|default('') %}
+              {% if _sen %}
+                <span class="px-2 py-0.5 text-xs bg-violet-900/30 rounded text-violet-200 border border-violet-700/40">{{ _sen }}</span>
               {% endif %}
               {% if v.domains %}
                 {% for d in v.domains %}
@@ -160,6 +173,7 @@
               {% if v.tg_channel_username %} · @{{ v.tg_channel_username }}{% endif %}
               {% if v.location_type %} · {{ v.location_type }}{% endif %}
               {% if v.salary_min_usd or v.salary_max_usd %} · {{ v.salary_min_usd or "?" }}–{{ v.salary_max_usd or "?" }} USD{% endif %}
+              {% if v.created_at %} · <span class="timeago" datetime="{{ v.created_at }}"></span>{% endif %}
             </div>
             <div class="mt-2 text-sm text-slate-200">
               {{ (v.summary_en or '') }}
@@ -198,6 +212,7 @@
         <div class="text-lg font-semibold" id="pTitle">—</div>
         <div class="text-sm text-slate-400 mt-1" id="pCompany"></div>
         <div class="mt-2 flex flex-wrap gap-2" id="pBadges"></div>
+        <div class="mt-1.5 flex flex-wrap gap-2" id="pLangs"></div>
         <div class="mt-2 text-xs text-slate-500" id="pMeta"></div>
       </div>
       <div class="flex items-center gap-2">
@@ -214,11 +229,30 @@
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pSummary"></div>
       </div>
       <div id="secScoring" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
-        <div class="flex items-center justify-between gap-3 mb-3">
-          <div class="text-sm font-semibold">AI scoring</div>
-          <div id="pScoreBadge" class="px-2 py-1 text-xs rounded border border-slate-700 bg-slate-800 text-slate-200">—</div>
+        <!-- Header: circle + summary -->
+        <div class="flex items-start gap-4">
+          <div class="flex-none relative" style="width:80px;height:80px">
+            <svg id="scoreRing" width="80" height="80" viewBox="0 0 80 80" class="transform -rotate-90 absolute inset-0">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="#1e293b" stroke-width="7"/>
+              <circle id="scoreArc" cx="40" cy="40" r="34" fill="none" stroke="#3b82f6" stroke-width="7"
+                stroke-dasharray="213.6" stroke-dashoffset="213.6" stroke-linecap="round"
+                class="transition-all duration-700 ease-out"/>
+            </svg>
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span id="scoreCenterVal" class="text-lg font-bold text-white"></span>
+            </div>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-semibold mb-1">AI Scoring</div>
+            <div id="pOverallSummary" class="text-xs text-slate-300 leading-relaxed"></div>
+            <div id="pRedFlags" class="mt-2 flex flex-wrap gap-1.5 hidden"></div>
+          </div>
         </div>
-        <div id="pScorePoints" class="space-y-2"></div>
+        <!-- Expandable criteria -->
+        <details id="scoringDetails" class="mt-3">
+          <summary class="cursor-pointer text-xs text-slate-400 hover:text-slate-200 select-none">Show criteria breakdown</summary>
+          <div id="pScoringCriteria" class="mt-3 space-y-3"></div>
+        </details>
       </div>
       <div id="secDesc" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
         <div class="text-sm font-semibold mb-2">About the Company</div>
@@ -252,26 +286,15 @@
   </div>
 </div>
 
+{% set _qs %}{% if search %}&search={{ search }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% for dom in domains_selected %}&domains={{ dom }}{% endfor %}{% if location_type %}&location_type={{ location_type }}{% endif %}{% if salary_min_usd is not none %}&salary_min_usd={{ salary_min_usd }}{% endif %}{% if salary_max_usd is not none %}&salary_max_usd={{ salary_max_usd }}{% endif %}{% if risk_label %}&risk_label={{ risk_label }}{% endif %}{% if seniority %}&seniority={{ seniority }}{% endif %}{% if employment_type %}&employment_type={{ employment_type }}{% endif %}{% if score_min is not none %}&score_min={{ score_min }}{% endif %}{% if score_max is not none %}&score_max={{ score_max }}{% endif %}{% endset %}
 {% if total_pages > 1 %}
-<div class="mt-6 flex justify-center gap-2">
+<div class="mt-4 flex justify-center items-center gap-1">
   {% if page > 1 %}
-  <a
-    href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% for dom in domains_selected %}&domains={{ dom }}{% endfor %}{% if location_type %}&location_type={{ location_type }}{% endif %}{% if salary_min_usd is not none %}&salary_min_usd={{ salary_min_usd }}{% endif %}{% if salary_max_usd is not none %}&salary_max_usd={{ salary_max_usd }}{% endif %}{% if risk_label %}&risk_label={{ risk_label }}{% endif %}"
-    class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
-  >
-    ← Назад
-  </a>
+  <a href="?page={{ page - 1 }}{{ _qs }}" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-xs transition">← Prev</a>
   {% endif %}
-  <span class="px-4 py-2 text-slate-400 text-sm">
-    Страница {{ page }} из {{ total_pages }}
-  </span>
+  <span class="px-3 py-1 text-xs text-slate-500">{{ page }} / {{ total_pages }}</span>
   {% if page < total_pages %}
-  <a
-    href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% for dom in domains_selected %}&domains={{ dom }}{% endfor %}{% if location_type %}&location_type={{ location_type }}{% endif %}{% if salary_min_usd is not none %}&salary_min_usd={{ salary_min_usd }}{% endif %}{% if salary_max_usd is not none %}&salary_max_usd={{ salary_max_usd }}{% endif %}{% if risk_label %}&risk_label={{ risk_label }}{% endif %}"
-    class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
-  >
-    Вперёд →
-  </a>
+  <a href="?page={{ page + 1 }}{{ _qs }}" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-xs transition">Next →</a>
   {% endif %}
 </div>
 {% endif %}
@@ -365,18 +388,32 @@ function renderBulletText(text) {
   return blocks.join("");
 }
 
-function sentimentClasses(sentiment) {
-  const s = (sentiment || "").toLowerCase();
-  if (s === "positive") return "bg-emerald-950/50 text-emerald-200 border-emerald-800/60";
-  if (s === "negative") return "bg-red-950/50 text-red-200 border-red-800/60";
-  return "bg-slate-800 text-slate-200 border-slate-700";
-}
-
 function formatScore10(n) {
   const x = Number(n);
   if (!Number.isFinite(x)) return "—";
-  // Show one decimal only when needed (e.g. 7.5), otherwise show integer (e.g. 7).
   return Number.isInteger(x) ? String(Math.trunc(x)) : x.toFixed(1);
+}
+
+function barColor(score) {
+  if (score <= 3) return "#ef4444";
+  if (score <= 5) return "#f59e0b";
+  if (score <= 7) return "#3b82f6";
+  return "#22c55e";
+}
+
+function buildSegmentBar(score) {
+  const segments = [];
+  for (let i = 1; i <= 10; i++) {
+    const active = i <= score;
+    let color;
+    if (i <= 3) color = "#ef4444";
+    else if (i <= 5) color = "#f59e0b";
+    else if (i <= 7) color = "#3b82f6";
+    else color = "#22c55e";
+    const bg = active ? color : "#1e293b";
+    segments.push(`<div style="flex:1;height:6px;border-radius:2px;background:${bg}" class="transition-all duration-300"></div>`);
+  }
+  return segments.join("");
 }
 
 function toggleVacMenu(id) {
@@ -403,16 +440,16 @@ function closeVacancyPane() {
   document.body.classList.remove("overflow-hidden");
 }
 
-function setScoreBadgeInCard(vacancyId, sc) {
+function setScoreBadgeInCard(vacancyId, sc, totalScore) {
   const el = document.getElementById(`scoreBadge-${vacancyId}`);
   if (!el) return;
-  if (sc === null || sc === undefined) {
+  const val = (totalScore !== null && totalScore !== undefined) ? Number(totalScore) : (sc !== null && sc !== undefined ? Number(sc) : null);
+  if (val === null || Number.isNaN(val)) {
     el.classList.add("hidden");
     return;
   }
-  const n = Number(sc);
-  if (Number.isNaN(n)) return;
-  el.textContent = `Score ${n}/10`;
+  const n = val;
+  el.textContent = `Score ${formatScore10(n)}/10`;
   el.classList.remove("bg-red-900/30","text-red-300","bg-blue-900/30","text-blue-200","bg-green-900/30","text-green-200");
   if (n <= 3) {
     el.classList.add("bg-red-900/30","text-red-300","border-red-700/50");
@@ -500,6 +537,18 @@ async function openVacancyPane(id) {
 
   const badges = document.getElementById("pBadges");
   badges.innerHTML = "";
+  if (v.seniority) {
+    const sb = document.createElement("span");
+    sb.className = "px-2 py-0.5 text-xs bg-violet-900/30 rounded text-violet-200 border border-violet-700/40";
+    sb.textContent = v.seniority;
+    badges.appendChild(sb);
+  }
+  if (v.employment_type) {
+    const eb = document.createElement("span");
+    eb.className = "px-2 py-0.5 text-xs bg-amber-900/30 rounded text-amber-200 border border-amber-700/40";
+    eb.textContent = v.employment_type;
+    badges.appendChild(eb);
+  }
   (v.domains || []).forEach((d) => {
     const s = document.createElement("span");
     s.className = "px-2 py-0.5 text-xs bg-slate-800 rounded text-slate-200 border border-slate-700";
@@ -519,43 +568,108 @@ async function openVacancyPane(id) {
     badges.appendChild(s);
   });
 
+  // Language requirements
+  const pLangs = document.getElementById("pLangs");
+  pLangs.innerHTML = "";
+  const langReqs = v.language_requirements;
+  if (langReqs && typeof langReqs === "object" && Object.keys(langReqs).length) {
+    Object.entries(langReqs).forEach(([lang, level]) => {
+      const tag = document.createElement("span");
+      tag.className = "px-2 py-0.5 text-xs bg-cyan-900/30 rounded text-cyan-200 border border-cyan-700/40";
+      tag.textContent = `${lang.charAt(0).toUpperCase() + lang.slice(1)}: ${(level || "").toUpperCase()}`;
+      pLangs.appendChild(tag);
+    });
+  } else if (v.english_level) {
+    const tag = document.createElement("span");
+    tag.className = "px-2 py-0.5 text-xs bg-cyan-900/30 rounded text-cyan-200 border border-cyan-700/40";
+    tag.textContent = `English: ${v.english_level}`;
+    pLangs.appendChild(tag);
+  }
+
   const meta = [];
-  if (v.ai_score_value !== null && v.ai_score_value !== undefined) meta.push(`Score: ${v.ai_score_value}/10`);
+  const _ts = (v.scoring || {}).total_score;
+  if (_ts !== null && _ts !== undefined) meta.push(`Score: ${formatScore10(Number(_ts))}/10`);
   if (v.location_type) meta.push(`Location: ${v.location_type}`);
   if (v.salary_min_usd || v.salary_max_usd) meta.push(`Salary: ${v.salary_min_usd || "?"}–${v.salary_max_usd || "?"} USD`);
   if (v.recruiter) meta.push(`Recruiter: ${v.recruiter}`);
+  if (v.created_at) {
+    try {
+      const d = new Date(v.created_at);
+      meta.push(`Published: ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`);
+    } catch {}
+  }
   document.getElementById("pMeta").textContent = meta.join(" · ");
 
   document.getElementById("pSummary").textContent = v.summary_en || "";
 
-  // Keep list badge score in sync after opening (if list is visible).
-  setScoreBadgeInCard(id, v.ai_score_value);
+  setScoreBadgeInCard(id, v.ai_score_value, (v.scoring || {}).total_score);
 
+  // --- New scoring UI ---
   const scoreSection = document.getElementById("secScoring");
-  const scoreBadge = document.getElementById("pScoreBadge");
-  const scorePoints = document.getElementById("pScorePoints");
-  if (scorePoints) scorePoints.innerHTML = "";
-  const score100 = v.ai_score_100;
-  const score10 = (score100 !== null && score100 !== undefined) ? (Number(score100) / 10.0) : null;
-  const points = Array.isArray(v.ai_score_points) ? v.ai_score_points : [];
-  if (scoreBadge) {
-    scoreBadge.textContent = (score10 !== null && score10 !== undefined) ? `Score ${formatScore10(score10)}/10` : "Score —";
-  }
-  if (points.length && scorePoints) {
-    points.slice(0, 5).forEach((p) => {
-      const sentiment = (p && p.sentiment) || "neutral";
-      const text = (p && p.text) || "";
-      const ev = (p && p.evidence) || "";
-      const row = document.createElement("div");
-      row.className = `rounded-lg border px-3 py-2 text-sm ${sentimentClasses(sentiment)}`;
-      row.innerHTML = `
-        <div class="font-medium">${escapeHtml(text)}</div>
-        ${ev ? `<div class="text-xs opacity-80 mt-1">Evidence: ${escapeHtml(ev)}</div>` : ""}
-      `;
-      scorePoints.appendChild(row);
+  const scoring = v.scoring || {};
+  const totalScore = scoring.total_score;
+  const scoringResults = Array.isArray(scoring.scoring_results) ? scoring.scoring_results : [];
+  const overallSummary = scoring.overall_summary || "";
+  const redFlags = Array.isArray(scoring.red_flags) ? scoring.red_flags : [];
+
+  if (totalScore !== null && totalScore !== undefined) {
+    scoreSection.classList.remove("hidden");
+
+    // Circle progress
+    const arc = document.getElementById("scoreArc");
+    const centerVal = document.getElementById("scoreCenterVal");
+    const circumference = 2 * Math.PI * 34; // ~213.6
+    const pct = Math.min(1, Math.max(0, Number(totalScore) / 10));
+    arc.style.strokeDasharray = circumference;
+    arc.style.strokeDashoffset = circumference; // start from 0
+    const scoreColor = pct <= 0.3 ? "#ef4444" : pct <= 0.6 ? "#f59e0b" : "#22c55e";
+    arc.style.stroke = scoreColor;
+    requestAnimationFrame(() => {
+      arc.style.strokeDashoffset = circumference * (1 - pct);
     });
-    if (scoreSection) scoreSection.classList.remove("hidden");
-  } else if (scoreSection) {
+    centerVal.textContent = formatScore10(Number(totalScore));
+    centerVal.style.color = scoreColor;
+
+    // Overall summary
+    const summaryEl = document.getElementById("pOverallSummary");
+    summaryEl.textContent = overallSummary;
+
+    // Red flags
+    const flagsEl = document.getElementById("pRedFlags");
+    flagsEl.innerHTML = "";
+    if (redFlags.length) {
+      flagsEl.classList.remove("hidden");
+      redFlags.forEach(f => {
+        const tag = document.createElement("span");
+        tag.className = "px-2 py-0.5 text-[11px] bg-red-900/40 text-red-300 border border-red-700/50 rounded";
+        tag.textContent = f;
+        flagsEl.appendChild(tag);
+      });
+    } else {
+      flagsEl.classList.add("hidden");
+    }
+
+    // Criteria breakdown
+    const criteriaEl = document.getElementById("pScoringCriteria");
+    criteriaEl.innerHTML = "";
+    scoringResults.forEach(cr => {
+      const sc = Math.min(10, Math.max(0, Number(cr.score) || 0));
+      const row = document.createElement("div");
+      row.innerHTML = `
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-medium text-slate-200">${escapeHtml(cr.criterion || cr.key)}</span>
+          <span class="text-xs font-bold" style="color:${barColor(sc)}">${sc}/10</span>
+        </div>
+        <div class="flex gap-[3px] mb-1">${buildSegmentBar(sc)}</div>
+        <div class="text-[11px] text-slate-400 leading-snug">${escapeHtml(cr.summary || "")}</div>
+      `;
+      criteriaEl.appendChild(row);
+    });
+
+    // Collapse details by default
+    const det = document.getElementById("scoringDetails");
+    if (det) det.removeAttribute("open");
+  } else {
     scoreSection.classList.add("hidden");
   }
 
@@ -573,7 +687,7 @@ async function openVacancyPane(id) {
     else el.classList.add("hidden");
   };
   showIf("secSummary", v.summary_en);
-  // secScoring is controlled by ai_score_points above.
+  // secScoring is controlled by the scoring block above.
   showIf("secDesc", v.description);
   showIf("secResp", v.responsibilities);
   showIf("secCond", v.conditions);
@@ -588,13 +702,17 @@ async function openVacancyPane(id) {
     let href = null;
     const formDomains = ["forms.gle/","docs.google.com/forms","typeform.com","jotform.com","tally.so","airtable.com/shr","surveymonkey.com","notion.so"];
     if (lower.includes("linkedin.com")) { label = "LinkedIn"; href = x; }
+    else if (lower.includes("t.me/")) { label = "Telegram"; href = x; }
     else if (formDomains.some(fd => lower.includes(fd))) { label = "Application Form"; href = x; }
     else if (lower.startsWith("http")) { label = "Website"; href = x; }
-    else if (lower.startsWith("mailto:")) { label = "Email"; href = x; }
-    else if (lower.includes("@") && !lower.includes(" ")) {
+    else if (lower.startsWith("mailto:")) { label = "Email"; href = x.replace(/^mailto:/i, ""); }
+    else if (x.startsWith("@")) {
       label = "Telegram";
-      const tgUser = x.replace(/^@/, "");
-      href = "https://t.me/" + tgUser;
+      href = "https://t.me/" + x.slice(1);
+    }
+    else if (lower.includes("@") && lower.includes(".") && !lower.includes(" ")) {
+      label = "Email";
+      href = "mailto:" + x;
     }
     row.innerHTML = `<span class="text-slate-400">${label}:</span> `;
     if (href) {
@@ -682,7 +800,7 @@ async function reanalyzeVacancy(id) {
           if (sumEl) sumEl.textContent = v.summary_en || "";
 
           // score badge
-          setScoreBadgeInCard(id, v.ai_score_value);
+          setScoreBadgeInCard(id, v.ai_score_value, (v.scoring || {}).total_score);
         }
       }
     } catch {}
@@ -712,18 +830,25 @@ async function reanalyzeVacancy(id) {
   } catch {}
 </script>
 <script>
-  // Auto-apply filters when clicking chips/checkboxes.
-  // (The form is server-rendered, so we just submit and reload.)
-  try {
-    const form = document.querySelector('form[action="/vacancies"]');
-    if (form) {
-      form.querySelectorAll('input[name="domains"], input[name="risk_label"]').forEach((el) => {
-        el.addEventListener("change", () => {
-          form.submit();
-        });
-      });
-    }
-  } catch (e) {}
+function setLocation(val) {
+  document.getElementById("hLocType").value = val;
+  document.getElementById("filterForm").submit();
+}
+
+function toggleAdvanced() {
+  const p = document.getElementById("advPanel");
+  p.classList.toggle("hidden");
+}
+
+// Auto-submit on chip/checkbox change
+try {
+  const form = document.getElementById("filterForm");
+  if (form) {
+    form.querySelectorAll('input[name="domains"], input[name="risk_label"]').forEach((el) => {
+      el.addEventListener("change", () => form.submit());
+    });
+  }
+} catch (e) {}
 </script>
 <script>
   function resizeVacRoot() {
@@ -734,5 +859,110 @@ async function reanalyzeVacancy(id) {
   }
   resizeVacRoot();
   window.addEventListener("resize", resizeVacRoot);
+</script>
+<script>
+// --- Relative time ("timeago") ---
+function timeAgo(date) {
+  const now = new Date();
+  const diff = Math.floor((now - date) / 1000);
+  if (diff < 60) return "just now";
+  if (diff < 3600) { const m = Math.floor(diff / 60); return `${m}m ago`; }
+  if (diff < 86400) { const h = Math.floor(diff / 3600); return `${h}h ago`; }
+  if (diff < 604800) { const d = Math.floor(diff / 86400); return `${d}d ago`; }
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function refreshTimeago() {
+  document.querySelectorAll(".timeago").forEach(el => {
+    const dt = el.getAttribute("datetime");
+    if (!dt) return;
+    try { el.textContent = timeAgo(new Date(dt)); } catch {}
+  });
+}
+refreshTimeago();
+setInterval(refreshTimeago, 30000);
+
+// --- Live suggest ---
+(function() {
+  const input = document.getElementById("searchInput");
+  const box = document.getElementById("suggestBox");
+  if (!input || !box) return;
+
+  let debounceTimer = null;
+  let activeIdx = -1;
+
+  function hideSuggest() { box.classList.add("hidden"); box.innerHTML = ""; activeIdx = -1; }
+
+  input.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    const q = input.value.trim();
+    if (q.length < 2) { hideSuggest(); return; }
+    debounceTimer = setTimeout(() => fetchSuggestions(q), 200);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    const items = box.querySelectorAll("[data-suggest-id]");
+    if (!items.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, items.length - 1);
+      highlightItem(items);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, 0);
+      highlightItem(items);
+    } else if (e.key === "Enter" && activeIdx >= 0) {
+      e.preventDefault();
+      const id = items[activeIdx].dataset.suggestId;
+      hideSuggest();
+      openVacancyPane(parseInt(id, 10));
+    } else if (e.key === "Escape") {
+      hideSuggest();
+    }
+  });
+
+  function highlightItem(items) {
+    items.forEach((el, i) => {
+      el.classList.toggle("bg-slate-800", i === activeIdx);
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!document.getElementById("searchWrap").contains(e.target)) hideSuggest();
+  });
+
+  async function fetchSuggestions(q) {
+    try {
+      const r = await fetch(`/api/vacancies/suggest?q=${encodeURIComponent(q)}`);
+      if (!r.ok) return;
+      const items = await r.json();
+      if (!items.length) { hideSuggest(); return; }
+      activeIdx = -1;
+      box.innerHTML = "";
+      items.forEach(item => {
+        const row = document.createElement("div");
+        row.dataset.suggestId = item.id;
+        row.className = "px-3 py-2 cursor-pointer hover:bg-slate-800 transition border-b border-slate-800/50 last:border-0";
+        const domains = (item.domains || []).map(d => `<span class="px-1.5 py-0.5 text-[10px] bg-slate-800 rounded text-slate-400 border border-slate-700">${escapeHtml(d)}</span>`).join(" ");
+        const ago = item.created_at ? timeAgo(new Date(item.created_at)) : "";
+        row.innerHTML = `
+          <div class="text-sm text-slate-200 truncate">${escapeHtml(item.title)}</div>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span class="text-[11px] text-slate-500">${escapeHtml(item.company_name || "")}</span>
+            ${domains}
+            ${ago ? `<span class="text-[10px] text-slate-600 ml-auto">${ago}</span>` : ""}
+          </div>
+        `;
+        row.addEventListener("click", () => {
+          hideSuggest();
+          input.value = item.title || "";
+          openVacancyPane(item.id);
+        });
+        box.appendChild(row);
+      });
+      box.classList.remove("hidden");
+    } catch {}
+  }
+})();
 </script>
 {% endblock %}

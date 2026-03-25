@@ -494,7 +494,7 @@ async def vacancies_page(
   category: str | None = Query(None),  # backward compat (mapped to domain)
   channel: str | None = Query(None),
   search: str | None = Query(None),
-  search_mode: str = Query("text", pattern="^(text|semantic)$"),
+  search_mode: str = Query("auto"),
   domains: list[str] = Query([]),
   location_type: str | None = Query(None),
   # NOTE: must accept empty string values coming from HTML forms.
@@ -502,6 +502,10 @@ async def vacancies_page(
   salary_min_usd: str | None = Query(None),
   salary_max_usd: str | None = Query(None),
   risk_label: str | None = Query(None),
+  seniority: str | None = Query(None),
+  employment_type: str | None = Query(None),
+  score_min: str | None = Query(None),
+  score_max: str | None = Query(None),
 ):
   async with SessionLocal() as s:
     vacancies: list[object]
@@ -524,7 +528,28 @@ async def vacancies_page(
     except Exception:
       salary_max_usd_val = None
 
-    if search_mode == "semantic" and search and search.strip():
+    score_min_val: int | None = None
+    score_max_val: int | None = None
+    try:
+      if score_min is not None and str(score_min).strip() != "":
+        score_min_val = int(str(score_min).strip())
+    except Exception:
+      score_min_val = None
+    try:
+      if score_max is not None and str(score_max).strip() != "":
+        score_max_val = int(str(score_max).strip())
+    except Exception:
+      score_max_val = None
+
+    seniority_val = (seniority or "").strip().lower() or None
+    employment_type_val = (employment_type or "").strip().lower() or None
+
+    effective_mode = search_mode
+    if effective_mode == "auto" and search and search.strip():
+      words = search.strip().split()
+      effective_mode = "semantic" if len(words) >= 4 else "text"
+
+    if effective_mode == "semantic" and search and search.strip():
       embedding = await embed_text(search)
       if not embedding:
         raise HTTPException(status_code=503, detail="Embeddings are not available (configure OPENROUTER_API_KEY).")
@@ -563,6 +588,19 @@ async def vacancies_page(
         where.append("v.tg_channel_username = :channel")
         params["channel"] = channel
 
+      if seniority_val:
+        where.append("lower(v.seniority) = :seniority")
+        params["seniority"] = seniority_val
+      if employment_type_val:
+        where.append("v.metadata_json->>'employment_type' = :employment_type")
+        params["employment_type"] = employment_type_val
+      if score_min_val is not None:
+        where.append("v.ai_score_value >= :score_min")
+        params["score_min"] = score_min_val
+      if score_max_val is not None:
+        where.append("v.ai_score_value <= :score_max")
+        params["score_max"] = score_max_val
+
       where_sql = " AND ".join(where)
       sql_count = f"SELECT count(*) FROM vacancies v WHERE {where_sql}"
       sql_select = f"""
@@ -581,7 +619,11 @@ async def vacancies_page(
           v.raw_text,
           v.summary_en,
           v.category,
-          v.stack
+          v.stack,
+          v.created_at,
+          v.seniority,
+          v.english_level,
+          v.metadata_json
         FROM vacancies v
         WHERE {where_sql}
         ORDER BY v.embedding <=> (:vec)::vector ASC
@@ -621,6 +663,15 @@ async def vacancies_page(
         except Exception:
           pass
 
+      if seniority_val:
+        query = query.where(func.lower(Vacancy.seniority) == seniority_val)
+      if employment_type_val:
+        query = query.where(Vacancy.metadata_json["employment_type"].as_string() == employment_type_val)
+      if score_min_val is not None:
+        query = query.where(Vacancy.ai_score_value >= score_min_val)
+      if score_max_val is not None:
+        query = query.where(Vacancy.ai_score_value <= score_max_val)
+
       if channel:
         query = query.where(Vacancy.tg_channel_username == channel)
       if search and search.strip():
@@ -658,7 +709,7 @@ async def vacancies_page(
     ).all()
     domain_options = [(r.domain, r.count) for r in domain_options_rows]
     # UI: show stable domain set even if some domains have 0 vacancies.
-    known_domains = ["web3", "ai", "igaming", "tech", "gaming", "traffic"]
+    known_domains = ["web3", "ai", "dev", "design", "igaming", "gaming", "traffic", "fintech", "crypto", "marketing", "hr", "analytics", "product", "support"]
     existing_map = {d: int(c) for d, c in domain_options}
     domain_options = [(d, existing_map.get(d, 0)) for d in known_domains]
 
@@ -692,6 +743,10 @@ async def vacancies_page(
       "search_mode": search_mode,
       "domain_options": domain_options,
       "channels": channels,
+      "seniority": seniority_val,
+      "employment_type": employment_type_val,
+      "score_min": score_min_val,
+      "score_max": score_max_val,
     },
   )
 
@@ -1522,6 +1577,42 @@ async def api_public_vacancies_semantic_search(
   return {"page": page, "per_page": per_page, "total": total, "items": items, "q": q}
 
 
+@app.get("/api/vacancies/suggest")
+async def vacancy_suggest(
+  q: str = Query("", min_length=0),
+  _: bool = Depends(require_auth),
+):
+  """Fast autocomplete: return up to 7 matches by title/company_name."""
+  term = (q or "").strip()
+  if len(term) < 2:
+    return []
+  like = f"%{term}%"
+  async with SessionLocal() as s:
+    rows = (
+      await s.execute(
+        select(Vacancy.id, Vacancy.title, Vacancy.company_name, Vacancy.domains, Vacancy.created_at)
+        .where(
+          or_(
+            Vacancy.title.ilike(like),
+            Vacancy.company_name.ilike(like),
+          )
+        )
+        .order_by(desc(Vacancy.id))
+        .limit(7)
+      )
+    ).all()
+  return [
+    {
+      "id": r.id,
+      "title": r.title or "Untitled",
+      "company_name": r.company_name,
+      "domains": r.domains or [],
+      "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+    for r in rows
+  ]
+
+
 @app.get("/api/vacancies/{vacancy_id}")
 async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
   async with SessionLocal() as s:
@@ -1529,13 +1620,34 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
     if not v:
       raise HTTPException(status_code=404, detail="Vacancy not found")
     metadata = getattr(v, "metadata_json", {}) or {}
-    ai_score_100 = metadata.get("ai_score_100")
-    ai_score_points = metadata.get("ai_score_points") or []
-    if ai_score_100 is None and getattr(v, "ai_score_value", None) is not None:
-      try:
-        ai_score_100 = int(v.ai_score_value) * 10
-      except Exception:
-        ai_score_100 = None
+    scoring = metadata.get("scoring") or {}
+
+    # Backward compat: old format had ai_score_100 / ai_score_points
+    if not scoring and metadata.get("ai_score_points"):
+      old_score_100 = metadata.get("ai_score_100")
+      old_10 = None
+      if old_score_100 is not None:
+        try: old_10 = round(int(old_score_100) / 10.0, 1)
+        except Exception: pass
+      if old_10 is None and getattr(v, "ai_score_value", None) is not None:
+        try: old_10 = float(v.ai_score_value)
+        except Exception: old_10 = 5.0
+      scoring = {
+        "total_score": old_10 or 5.0,
+        "overall_summary": "",
+        "red_flags": [],
+        "scoring_results": [],
+      }
+
+    if not scoring:
+      sc_val = getattr(v, "ai_score_value", None)
+      scoring = {
+        "total_score": float(sc_val) if sc_val is not None else 5.0,
+        "overall_summary": "",
+        "red_flags": [],
+        "scoring_results": [],
+      }
+
     return {
       "id": v.id,
       "title": v.title,
@@ -1557,12 +1669,15 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
       "raw_text": v.raw_text,
       "source_url": v.source_url,
       "created_at": v.created_at.isoformat() if v.created_at else None,
-      "ai_score_100": ai_score_100,
-      "ai_score_points": ai_score_points,
+      "scoring": scoring,
       "company_url": getattr(v, "company_url", None),
       "company_linkedin": (metadata or {}).get("company_linkedin"),
       "company_url_verified": (metadata or {}).get("company_url_verified", False),
       "company_linkedin_verified": (metadata or {}).get("company_linkedin_verified", False),
+      "seniority": getattr(v, "seniority", None),
+      "english_level": getattr(v, "english_level", None),
+      "employment_type": (metadata or {}).get("employment_type"),
+      "language_requirements": (metadata or {}).get("language_requirements"),
     }
 
 
@@ -1617,18 +1732,11 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
     status_code = upstream_status if upstream_status in (400, 401, 402, 403, 429) else 502
     raise HTTPException(status_code=status_code, detail=msg)
 
-  score_100 = scoring.get("score")
+  total_score = scoring.get("total_score")
   try:
-    score_100_int = int(score_100) if score_100 is not None else None
+    ai_score_value_0_10 = int(round(float(total_score)))
   except Exception:
-    score_100_int = None
-  if score_100_int is None:
-    try:
-      ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
-    except Exception:
-      ai_score_value_0_10 = 5
-  else:
-    ai_score_value_0_10 = int(round(score_100_int / 10.0))
+    ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
   ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
 
   async with SessionLocal() as s:
@@ -1639,11 +1747,12 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
     new_meta = {
       **old_meta,
       **(analysis.get("metadata", {}) or {}),
-      "ai_score_100": score_100_int,
-      "ai_score_points": scoring.get("points") or [],
+      "scoring": scoring,
       "company_linkedin": _ci.get("company_linkedin"),
       "company_url_verified": _ci.get("company_url_verified", False),
       "company_linkedin_verified": _ci.get("company_linkedin_verified", False),
+      "employment_type": analysis.get("employment_type"),
+      "language_requirements": analysis.get("language_requirements"),
     }
     await s.execute(
       update(Vacancy)
@@ -1669,7 +1778,8 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
         requirements=analysis.get("requirements"),
         conditions=analysis.get("conditions"),
         role=analysis.get("role"),
-        seniority=analysis.get("seniority"),
+        seniority=(analysis.get("seniority") or "").lower().strip() or None,
+        english_level=(analysis.get("english_level") or "").strip().upper() or None,
         standardized_title=analysis.get("standardized_title"),
         language=analysis.get("language"),
       )

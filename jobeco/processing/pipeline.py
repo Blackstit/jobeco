@@ -163,6 +163,7 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int:
       conditions=payload.get("conditions"),
       role=payload.get("role"),
       seniority=payload.get("seniority"),
+      english_level=payload.get("english_level"),
       standardized_title=payload.get("standardized_title"),
       language=payload.get("language"),
     )
@@ -251,26 +252,16 @@ async def process_message(event: events.NewMessage.Event) -> None:
   analysis["_company_url_verified"] = company_info.get("company_url_verified", False)
   analysis["_company_linkedin_verified"] = company_info.get("company_linkedin_verified", False)
 
-  # Separate LLM step for scoring + 3 points.
   try:
     scoring = await score_vacancy_with_openrouter(text_raw, analysis)
   except Exception:
-    scoring = {"score": None, "points": []}
+    scoring = {"total_score": 5.0, "scoring_results": [], "overall_summary": "", "red_flags": []}
 
-  score_100 = scoring.get("score")
+  total_score = scoring.get("total_score")
   try:
-    score_100_int = int(score_100) if score_100 is not None else None
+    ai_score_value_0_10 = int(round(float(total_score)))
   except Exception:
-    score_100_int = None
-
-  if score_100_int is None:
-    try:
-      ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
-    except Exception:
-      ai_score_value_0_10 = 5
-  else:
-    ai_score_value_0_10 = int(round(score_100_int / 10.0))
-
+    ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
   ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
 
   payload = {
@@ -285,19 +276,19 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "salary_min_usd": analysis.get("salary_min_usd"),
     "salary_max_usd": analysis.get("salary_max_usd"),
     "stack": analysis.get("stack", []),
-    "category": analysis.get("category"),  # kept for backward compat
+    "category": analysis.get("category"),
     "ai_score_value": ai_score_value_0_10,
     "summary_ru": analysis.get("summary_ru"),
     "summary_en": analysis.get("summary_en"),
     "raw_text": text_raw,
-    # Merge scoring + company enrichment into metadata.
     "metadata": {
       **(analysis.get("metadata", {}) or {}),
-      "ai_score_100": score_100_int,
-      "ai_score_points": scoring.get("points") or [],
+      "scoring": scoring,
       "company_linkedin": company_info.get("company_linkedin"),
       "company_url_verified": company_info.get("company_url_verified", False),
       "company_linkedin_verified": company_info.get("company_linkedin_verified", False),
+      "employment_type": analysis.get("employment_type"),
+      "language_requirements": analysis.get("language_requirements"),
     },
     "domains": [str(x).lower() for x in (analysis.get("domains") or []) if str(x).strip()],
     "risk_label": analysis.get("risk_label"),
@@ -308,7 +299,8 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "requirements": analysis.get("requirements"),
     "conditions": analysis.get("conditions"),
     "role": analysis.get("role"),
-    "seniority": analysis.get("seniority"),
+    "seniority": (analysis.get("seniority") or "").lower().strip() or None,
+    "english_level": (analysis.get("english_level") or "").strip().upper() or None,
     "standardized_title": analysis.get("standardized_title"),
     "language": analysis.get("language") or pv.get("language"),
     "created_at": datetime.utcnow().isoformat(),
@@ -385,26 +377,16 @@ async def process_text_message(
   analysis["_company_url_verified"] = company_info.get("company_url_verified", False)
   analysis["_company_linkedin_verified"] = company_info.get("company_linkedin_verified", False)
 
-  # Separate LLM step for scoring + 3 points.
   try:
     scoring = await score_vacancy_with_openrouter(text_raw, analysis)
   except Exception:
-    scoring = {"score": None, "points": []}
+    scoring = {"total_score": 5.0, "scoring_results": [], "overall_summary": "", "red_flags": []}
 
-  score_100 = scoring.get("score")
+  total_score = scoring.get("total_score")
   try:
-    score_100_int = int(score_100) if score_100 is not None else None
+    ai_score_value_0_10 = int(round(float(total_score)))
   except Exception:
-    score_100_int = None
-
-  if score_100_int is None:
-    try:
-      ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
-    except Exception:
-      ai_score_value_0_10 = 5
-  else:
-    ai_score_value_0_10 = int(round(score_100_int / 10.0))
-
+    ai_score_value_0_10 = int(analysis.get("ai_score_value") or 5)
   ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
 
   payload = {
@@ -424,14 +406,14 @@ async def process_text_message(
     "summary_ru": analysis.get("summary_ru"),
     "summary_en": analysis.get("summary_en"),
     "raw_text": text_raw,
-    # Merge scoring + company enrichment into metadata.
     "metadata": {
       **(analysis.get("metadata", {}) or {}),
-      "ai_score_100": score_100_int,
-      "ai_score_points": scoring.get("points") or [],
+      "scoring": scoring,
       "company_linkedin": company_info.get("company_linkedin"),
       "company_url_verified": company_info.get("company_url_verified", False),
       "company_linkedin_verified": company_info.get("company_linkedin_verified", False),
+      "employment_type": analysis.get("employment_type"),
+      "language_requirements": analysis.get("language_requirements"),
     },
     "domains": [str(x).lower() for x in (analysis.get("domains") or []) if str(x).strip()],
     "risk_label": analysis.get("risk_label"),
@@ -442,7 +424,8 @@ async def process_text_message(
     "requirements": analysis.get("requirements"),
     "conditions": analysis.get("conditions"),
     "role": analysis.get("role"),
-    "seniority": analysis.get("seniority"),
+    "seniority": (analysis.get("seniority") or "").lower().strip() or None,
+    "english_level": (analysis.get("english_level") or "").strip().upper() or None,
     "standardized_title": analysis.get("standardized_title"),
     "language": analysis.get("language") or pv.get("language"),
     "created_at": datetime.utcnow().isoformat(),

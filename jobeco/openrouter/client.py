@@ -329,10 +329,22 @@ async def analyze_with_openrouter(text: str) -> dict:
     "- company_linkedin: string|null (LinkedIn URL from post text only, do NOT invent)\n"
     "- recruiter: string|null\n"
     "- contacts: string[] (@username, emails, personal links, application form URLs)\n"
-    "- domains: string[] from this set (lowercase): ['web3','ai','igaming','tech','gaming','traffic']\n"
+    "- domains: string[] — one or more from this set (lowercase, a vacancy can belong to MULTIPLE):\n"
+    "  ['web3','ai','igaming','tech','gaming','traffic','design','dev','fintech','crypto','marketing','hr','analytics','product','support']\n"
+    "  Pick ALL that apply. Examples:\n"
+    "  - A graphic designer for a traffic team → ['design','traffic']\n"
+    "  - A frontend dev for a web3 project → ['dev','web3']\n"
+    "  - An AI engineer → ['ai','dev']\n"
+    "  - A community manager for a game studio → ['gaming','marketing']\n"
     "- risk_label: 'high-risk'|null (only if scam/high-risk)\n"
     "- role: string|null\n"
-    "- seniority: string|null\n"
+    "- seniority: string|null — one of: 'trainee'|'junior'|'middle'|'senior'|'lead'|'head'|'c-level'|null\n"
+    "  Use lowercase. If text says 'Junior/Middle' pick the higher one ('middle').\n"
+    "- employment_type: string|null — one of: 'full-time'|'part-time'|'project'|'freelance'|'internship'|null\n"
+    "- language_requirements: object|null — language proficiency required, e.g. {\"english\": \"B2\", \"russian\": \"C1\"}.\n"
+    "  Keys are lowercase language names, values are level codes (A1/A2/B1/B2/C1/C2/native) or 'any'.\n"
+    "  Extract ONLY if explicitly mentioned in the text. null if no language info.\n"
+    "- english_level: string|null — shortcut: the English level from language_requirements if present (e.g. 'B2').\n"
     "- location_type: 'remote'|'hybrid'|'office'|null\n"
     "- salary_min_usd: integer|null\n"
     "- salary_max_usd: integer|null\n"
@@ -415,213 +427,75 @@ async def analyze_with_openrouter(text: str) -> dict:
     }
 
 
+_SCORING_CRITERIA = [
+  {"key": "tasks_and_kpi",       "label": "Tasks & KPI clarity",   "weight": 0.30},
+  {"key": "compensation_clarity", "label": "Compensation clarity", "weight": 0.25},
+  {"key": "tech_stack_and_ops",  "label": "Stack & processes",     "weight": 0.20},
+  {"key": "requirement_logic",   "label": "Requirement logic",     "weight": 0.15},
+  {"key": "company_profile",     "label": "Company profile",       "weight": 0.10},
+]
+
+
 async def score_vacancy_with_openrouter(text: str, analysis: dict | None = None) -> dict:
   """
-  Separate LLM step: score vacancy quality + 3 evidence-backed points (sentiment).
+  Score vacancy quality using 5 weighted criteria.
 
-  Returns:
+  Returns dict compatible with the new format:
   {
-    "score": int 0..100,
-    "points": [{"sentiment": "positive|neutral|negative", "text": "...", "evidence": "..."}]  // length=3
+    "total_score": float 0..10,
+    "overall_summary": str,
+    "red_flags": [str, ...],
+    "scoring_results": [
+      {"criterion": str, "key": str, "score": int 0..10, "weight": float, "summary": str},
+      ...  # exactly 5
+    ]
   }
   """
   runtime = await get_runtime_settings()
   api_key = runtime.get("openrouter", {}).get("api_key") or ""
+  extracted = analysis or {}
+
   if not api_key:
-    return {
-      "score": 50,
-      "points": [
-        {"sentiment": "neutral", "text": "Score is unavailable (OPENROUTER_API_KEY not set).", "evidence": "Not available"},
-        {"sentiment": "neutral", "text": "Vacancy extraction still runs as a best-effort stub.", "evidence": "Stub mode"},
-        {"sentiment": "neutral", "text": "Provide OPENROUTER_API_KEY to enable accurate scoring.", "evidence": "Missing API key"},
-      ],
-    }
+    return _heuristic_scoring(text, extracted)
 
   default_system = (
     "You are a strict JSON generator.\n"
-    "You will score a Telegram job vacancy for usefulness/clarity for applicants.\n"
+    "Analyze the provided Telegram job vacancy and score its quality for applicants.\n"
+    "\n"
+    "Score the vacancy on 5 criteria (each 0-10):\n"
+    "1. tasks_and_kpi (weight 0.30) — How specific are the responsibilities? Are deliverables/KPIs measurable?\n"
+    "2. compensation_clarity (weight 0.25) — Is salary range stated with currency? Are payment terms clear?\n"
+    "3. tech_stack_and_ops (weight 0.20) — Are tools, technologies, and work processes described?\n"
+    "4. requirement_logic (weight 0.15) — Do required skills/experience match the stated seniority?\n"
+    "5. company_profile (weight 0.10) — Is the company/product understandable? Are there links/socials?\n"
     "\n"
     "Rules:\n"
-    "- Use ONLY information supported by the provided post text and extracted fields.\n"
-    "- Do not invent salary, requirements, or contacts.\n"
-    "- Points must be evidence-backed. If something is missing, mention the absence as evidence.\n"
-    "- ALL output MUST be in ENGLISH ONLY (including evidence). Do NOT output any Russian/Cyrillic.\n"
-    "- Do NOT copy long bullet lists or verbatim sentences from the post/extraction.\n"
-    "- `text` is an evaluation sentence for applicants (quality/usefulness), NOT a quote.\n"
-    "- `evidence` must be a short English phrase describing what was present/missing (max ~12 words), not a quote.\n"
-    "- Output ONLY valid JSON (no markdown).\n"
+    "- ALL output MUST be in ENGLISH ONLY. No Russian/Cyrillic.\n"
+    "- Use ONLY information from the provided text and extracted fields.\n"
+    "- `summary` is a concise evaluation sentence (max ~25 words), NOT a quote from the post.\n"
+    "- `overall_summary` is 1 sentence (max ~30 words) summarizing overall quality.\n"
+    "- `red_flags` is an array of short strings for red flags (empty array if none). Examples:\n"
+    "  night shift, no training, suspicious scheme, MLM, no company info, unrealistic salary.\n"
+    "- Output ONLY valid JSON (no markdown fences).\n"
     "\n"
-    "Return JSON with keys:\n"
-    "- score: integer from 0 to 100\n"
-    "- points: array of exactly 3 objects\n"
-    "  Each point object must have:\n"
-    "  - sentiment: 'positive' | 'neutral' | 'negative'\n"
-    "  - text: short English sentence (1 line)\n"
-    "  - evidence: a short English phrase describing evidence (no quotes)\n"
-    "\n"
-    "Scoring guidance (not strict math):\n"
-    "- Higher score if: clear role/title, concrete responsibilities/requirements, salary present, direct contacts.\n"
-    "- Lower score if: responsibilities are vague/broad, requirements are missing, salary not provided, contacts absent.\n"
+    "Return JSON:\n"
+    "{\n"
+    '  "scoring_results": [\n'
+    '    {"criterion": "Tasks & KPI clarity", "key": "tasks_and_kpi", "score": <0-10>, "summary": "..."},\n'
+    '    {"criterion": "Compensation clarity", "key": "compensation_clarity", "score": <0-10>, "summary": "..."},\n'
+    '    {"criterion": "Stack & processes", "key": "tech_stack_and_ops", "score": <0-10>, "summary": "..."},\n'
+    '    {"criterion": "Requirement logic", "key": "requirement_logic", "score": <0-10>, "summary": "..."},\n'
+    '    {"criterion": "Company profile", "key": "company_profile", "score": <0-10>, "summary": "..."}\n'
+    "  ],\n"
+    '  "overall_summary": "...",\n'
+    '  "red_flags": []\n'
+    "}\n"
   )
 
   system = runtime.get("prompts", {}).get("vacancy_scorer_system") or default_system
   url = runtime["openrouter"]["base_url"].rstrip("/") + "/chat/completions"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-  # Provide both raw text and the extraction to reduce hallucinations.
-  extracted = analysis or {}
-
-  def _has_value(v) -> bool:
-    if v is None:
-      return False
-    if isinstance(v, str):
-      return bool(v.strip())
-    if isinstance(v, (list, tuple, set, dict)):
-      return len(v) > 0
-    return True
-
-  def _heuristic_points_and_score(extracted_fields: dict) -> dict:
-    # Stable 3-point output derived from extraction + obvious text signals.
-    # We intentionally penalize unfavorable/unclear constraints to avoid overrating weak posts.
-    has_role_title = (
-      _has_value(extracted_fields.get("role"))
-      or _has_value(extracted_fields.get("title"))
-      or _has_value(extracted_fields.get("standardized_title"))
-    )
-    has_details = (
-      _has_value(extracted_fields.get("responsibilities"))
-      or _has_value(extracted_fields.get("requirements"))
-      or _has_value(extracted_fields.get("description"))
-    )
-    has_contacts = _has_value(extracted_fields.get("contacts"))
-    has_salary = _has_value(extracted_fields.get("salary_min_usd")) or _has_value(extracted_fields.get("salary_max_usd"))
-
-    company_name = extracted_fields.get("company_name")
-    has_company_info = _has_value(company_name)
-    has_any_links = bool(re.search(r"https?://|www\.", text, flags=re.IGNORECASE))
-    has_verified_website = bool(extracted_fields.get("_company_url_verified"))
-    has_verified_linkedin = bool(extracted_fields.get("_company_linkedin_verified"))
-
-    # Negative constraints from raw post text.
-    is_night_shift = bool(
-      re.search(r"\b7\s*/\s*0\b", text, flags=re.IGNORECASE)
-      or re.search(r"\b17\s*:\s*00\b", text, flags=re.IGNORECASE)
-      or re.search(r"\b05\s*:\s*00\b", text, flags=re.IGNORECASE)
-      or re.search(r"night\s*shift|ночн", text, flags=re.IGNORECASE)
-    )
-    no_training = bool(
-      re.search(r"no\s*training|we\s*do\s*not\s*train", text, flags=re.IGNORECASE)
-      or re.search(r"не\s*обучаем|не\s*обуча|обучаем\s*не", text, flags=re.IGNORECASE)
-    )
-
-    # 1) Role + requirements quality
-    if has_role_title and has_details:
-      p1 = {
-        "sentiment": "positive",
-        "text": "A clear role/title and specific requirements are provided.",
-        "evidence": "Role/title and requirements are explicitly mentioned.",
-      }
-    elif has_role_title:
-      p1 = {
-        "sentiment": "neutral",
-        "text": "A role/title is provided, but requirements are limited.",
-        "evidence": "Role/title is present; details are partially missing.",
-      }
-    else:
-      p1 = {
-        "sentiment": "negative",
-        "text": "The vacancy does not specify a clear role/title.",
-        "evidence": "Role/title is missing in the extraction.",
-      }
-
-    # 2) Contacts + salary completeness
-    if has_contacts and has_salary:
-      p2 = {
-        "sentiment": "positive",
-        "text": "Direct contacts and salary information are provided for applicants.",
-        "evidence": "Contacts and salary are present in the extraction.",
-      }
-    elif has_contacts:
-      p2 = {
-        "sentiment": "neutral",
-        "text": "Direct contacts are provided, but salary information is missing.",
-        "evidence": "Contacts are present; salary is not mentioned.",
-      }
-    elif has_salary:
-      p2 = {
-        "sentiment": "neutral",
-        "text": "Salary information is mentioned, but direct contacts are missing.",
-        "evidence": "Salary is present; contacts are not mentioned.",
-      }
-    else:
-      p2 = {
-        "sentiment": "negative",
-        "text": "Direct contacts and salary information are missing.",
-        "evidence": "Contacts and salary are not mentioned.",
-      }
-
-    # 3) Red flags / transparency + company verification
-    missing_company = (not has_company_info) or (not has_any_links)
-    red_flags = []
-    green_flags = []
-    if is_night_shift:
-      red_flags.append("night 7/0 shift is stated")
-    if no_training:
-      red_flags.append("no training is offered")
-    if missing_company:
-      red_flags.append("company info/links are missing")
-    if has_verified_website:
-      green_flags.append("company website verified")
-    if has_verified_linkedin:
-      green_flags.append("LinkedIn page verified")
-
-    if red_flags and not green_flags:
-      evidence = "; ".join(red_flags)[:140]
-      p3 = {
-        "sentiment": "negative",
-        "text": "Work conditions and transparency reduce applicant fit.",
-        "evidence": evidence,
-      }
-    elif red_flags and green_flags:
-      evidence = ("Verified: " + ", ".join(green_flags) + "; Flags: " + ", ".join(red_flags))[:140]
-      p3 = {
-        "sentiment": "neutral",
-        "text": "Company web presence is verified, but some work conditions raise concerns.",
-        "evidence": evidence,
-      }
-    elif green_flags:
-      evidence = ", ".join(green_flags)[:140]
-      p3 = {
-        "sentiment": "positive",
-        "text": "The company has a verified web presence, increasing trust.",
-        "evidence": evidence,
-      }
-    else:
-      p3 = {
-        "sentiment": "neutral",
-        "text": "The vacancy provides useful details without major red flags.",
-        "evidence": "No strong negative constraints detected in the post.",
-      }
-
-    # Score aligned with points.
-    score = 40
-    score += 18 if has_role_title else -10
-    score += 20 if has_details else -12
-    score += 10 if has_contacts else -12
-    score += 10 if has_salary else -8
-    if has_verified_website:
-      score += 8
-    if has_verified_linkedin:
-      score += 5
-    if is_night_shift:
-      score -= 22
-    if no_training:
-      score -= 15
-    if missing_company:
-      score -= 15
-
-    score = max(0, min(100, int(round(score))))
-    return {"score": score, "points": [p1, p2, p3]}
   user_content = (
     "POST_TEXT:\n"
     + text[: int(runtime.get("limits", {}).get("analyzer_max_chars", 12000))]
@@ -641,149 +515,202 @@ async def score_vacancy_with_openrouter(text: str, analysis: dict | None = None)
     r.raise_for_status()
     content = r.json()["choices"][0]["message"]["content"]
 
+  return _parse_scoring_response(content, text, extracted)
+
+
+def _clean_text(s: str, max_len: int = 200) -> str:
+  s = re.sub(r"\s+", " ", (s or "")).strip()
+  s = re.sub(r"^[\-\u2022\u2013\u2014\*\d\.\)\s]+", "", s).strip()
+  if re.search(r"[\u0400-\u04FF\u0500-\u052F]", s):
+    s = ""
+  return s[:max_len]
+
+
+def _parse_scoring_response(content: str, text: str, extracted: dict) -> dict:
+  import json as _json
+
+  raw = (content or "").strip()
+  raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+  raw = re.sub(r"\s*```$", "", raw)
+
+  data = None
   try:
-    import json
-
-    raw = (content or "").strip()
-
-    # 1) Remove markdown code fences if any.
-    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
-    raw = re.sub(r"\s*```$", "", raw)
-
-    # 2) Try full parse.
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-      raise ValueError("scorer_returned_non_dict")
-    points = data.get("points") or []
-    # Normalize sentiment values.
-    norm_points = []
-    for p in points[:3]:
-      if not isinstance(p, dict):
-        continue
-      sent = str(p.get("sentiment") or "").lower().strip()
-      if sent not in {"positive", "neutral", "negative"}:
-        sent = "neutral"
-      # Normalize output to keep UI clean and avoid accidental markdown/bullets.
-      out_text = str(p.get("text") or "").strip()
-      out_evidence = str(p.get("evidence") or "").strip()
-      # Collapse whitespace/newlines to single spaces.
-      out_text = re.sub(r"\s+", " ", out_text).strip()
-      out_evidence = re.sub(r"\s+", " ", out_evidence).strip()
-      # Remove leading bullet markers like "•", "-", "1.", etc.
-      out_text = re.sub(r"^[\-\u2022\u2013\u2014\*\d\.\)\s]+", "", out_text).strip()
-      out_evidence = re.sub(r"^[\-\u2022\u2013\u2014\*\d\.\)\s]+", "", out_evidence).strip()
-      # Enforce length (evidence should stay short).
-      out_text = out_text[:160]
-      out_evidence = out_evidence[:140]
-
-      # If the model returned Cyrillic, we replace with a generic English evidence.
-      # This is safer than showing Russian in the UI.
-      if re.search(r"[\u0400-\u04FF\u0500-\u052F]", out_text):
-        out_text = "The vacancy provides relevant details for applicants."
-      if re.search(r"[\u0400-\u04FF\u0500-\u052F]", out_evidence):
-        out_evidence = "Supported (or missing) per the post content."
-
-      norm_points.append(
-        {
-          "sentiment": sent,
-          "text": out_text or "No scoring data available.",
-          "evidence": out_evidence or "Not mentioned in the text",
-        }
-      )
-
-    # Model sometimes returns partially filled points with placeholders.
-    # Use fuzzy matching to reliably detect them, then replace with deterministic heuristics.
-    placeholder_detected = False
-    if len(norm_points) < 3:
-      placeholder_detected = True
-    else:
-      for pt in norm_points:
-        text_v = str(pt.get("text") or "").strip().lower()
-        ev_v = str(pt.get("evidence") or "").strip().lower()
-        if "no scoring data available" in text_v:
-          placeholder_detected = True
-          break
-        if "not mentioned" in ev_v:
-          placeholder_detected = True
-          break
-
-    while len(norm_points) < 3:
-      norm_points.append({"sentiment": "neutral", "text": "No scoring data available.", "evidence": "Not mentioned in the text"})
-    score = data.get("score")
-    try:
-      score = int(score)
-    except Exception:
-      score = 50
-    score = max(0, min(100, score))
-    if placeholder_detected:
-      heur = _heuristic_points_and_score(extracted)
-      return {"score": heur["score"], "points": heur["points"][:3]}
-
-    return {"score": score, "points": norm_points[:3]}
+    data = _json.loads(raw)
   except Exception:
-    # Last resort: extract the first JSON object substring.
+    start, end = raw.find("{"), raw.rfind("}")
+    if start != -1 and end > start:
+      try:
+        data = _json.loads(raw[start:end + 1])
+      except Exception:
+        pass
+
+  if not isinstance(data, dict):
+    return _heuristic_scoring(text, extracted)
+
+  raw_results = data.get("scoring_results") or []
+  if not isinstance(raw_results, list) or len(raw_results) < 3:
+    return _heuristic_scoring(text, extracted)
+
+  criteria_keys = [c["key"] for c in _SCORING_CRITERIA]
+  criteria_map = {c["key"]: c for c in _SCORING_CRITERIA}
+  results = []
+  for item in raw_results:
+    if not isinstance(item, dict):
+      continue
+    key = str(item.get("key") or "").strip()
+    if key not in criteria_map:
+      continue
+    sc = item.get("score")
     try:
-      import json, re
-
-      raw2 = (content or "").strip()
-      start = raw2.find("{")
-      end = raw2.rfind("}")
-      if start != -1 and end != -1 and end > start:
-        data2 = json.loads(raw2[start : end + 1])
-        if isinstance(data2, dict):
-          points2 = data2.get("points") or []
-          norm_points2 = []
-          for p in points2[:3]:
-            if not isinstance(p, dict):
-              continue
-            sent = str(p.get("sentiment") or "").lower().strip()
-            if sent not in {"positive", "neutral", "negative"}:
-              sent = "neutral"
-          out_text = str(p.get("text") or "").strip()
-          out_evidence = str(p.get("evidence") or "").strip()
-          out_text = re.sub(r"\s+", " ", out_text).strip()
-          out_evidence = re.sub(r"\s+", " ", out_evidence).strip()
-          out_text = re.sub(r"^[\-\u2022\u2013\u2014\*\d\.\)\s]+", "", out_text).strip()
-          out_evidence = re.sub(r"^[\-\u2022\u2013\u2014\*\d\.\)\s]+", "", out_evidence).strip()
-          out_text = out_text[:160]
-          out_evidence = out_evidence[:140]
-          if re.search(r"[\u0400-\u04FF\u0500-\u052F]", out_text):
-            out_text = "The vacancy provides relevant details for applicants."
-          if re.search(r"[\u0400-\u04FF\u0500-\u052F]", out_evidence):
-            out_evidence = "Supported (or missing) per the post content."
-
-          norm_points2.append({"sentiment": sent, "text": out_text or "No scoring data available.", "evidence": out_evidence or "Not mentioned in the text"})
-          while len(norm_points2) < 3:
-            norm_points2.append(
-              {"sentiment": "neutral", "text": "No scoring data available.", "evidence": "Not mentioned in the text"}
-            )
-          score2 = data2.get("score")
-          try:
-            score2_int = int(score2)
-          except Exception:
-            score2_int = 50
-          score2_int = max(0, min(100, score2_int))
-          placeholder2 = (
-            len(norm_points2) < 3
-            or any(
-              (pt.get("text") == "No scoring data available." or "Not mentioned in the text" in (pt.get("evidence") or ""))
-              for pt in norm_points2
-            )
-          )
-          if placeholder2:
-            heur = _heuristic_points_and_score(extracted)
-            return {"score": heur["score"], "points": heur["points"][:3]}
-          return {"score": score2_int, "points": norm_points2[:3]}
+      sc = max(0, min(10, int(sc)))
     except Exception:
-      pass
-    return {
-      "score": 50,
-      "points": [
-        {"sentiment": "neutral", "text": "Scoring failed, defaulted to neutral.", "evidence": "Model output not parseable as JSON"},
-        {"sentiment": "neutral", "text": "Use the re-analyze button to try again.", "evidence": "JSON parse failure"},
-        {"sentiment": "neutral", "text": "Scoring is based on extraction fields and post text.", "evidence": "Extraction driven"},
-      ],
-    }
+      sc = 5
+    summary = _clean_text(str(item.get("summary") or ""))
+    if not summary:
+      summary = "No details provided."
+    c = criteria_map[key]
+    results.append({
+      "criterion": c["label"],
+      "key": key,
+      "score": sc,
+      "weight": c["weight"],
+      "summary": summary,
+    })
+
+  seen_keys = {r["key"] for r in results}
+  for c in _SCORING_CRITERIA:
+    if c["key"] not in seen_keys:
+      results.append({
+        "criterion": c["label"],
+        "key": c["key"],
+        "score": 5,
+        "weight": c["weight"],
+        "summary": "Not enough information to evaluate.",
+      })
+
+  results.sort(key=lambda r: criteria_keys.index(r["key"]))
+
+  total = sum(r["score"] * r["weight"] for r in results)
+  total = round(max(0.0, min(10.0, total)), 1)
+
+  overall = _clean_text(str(data.get("overall_summary") or ""))
+  if not overall:
+    overall = "Vacancy quality assessment based on 5 criteria."
+
+  red_flags = []
+  raw_flags = data.get("red_flags") or []
+  if isinstance(raw_flags, list):
+    for f in raw_flags[:10]:
+      ft = _clean_text(str(f), 100)
+      if ft:
+        red_flags.append(ft)
+
+  return {
+    "total_score": total,
+    "overall_summary": overall,
+    "red_flags": red_flags,
+    "scoring_results": results,
+  }
+
+
+def _has_value(v) -> bool:
+  if v is None:
+    return False
+  if isinstance(v, str):
+    return bool(v.strip())
+  if isinstance(v, (list, tuple, set, dict)):
+    return len(v) > 0
+  return True
+
+
+def _heuristic_scoring(text: str, extracted: dict) -> dict:
+  """Deterministic fallback scoring using extracted fields."""
+  has_role = _has_value(extracted.get("role")) or _has_value(extracted.get("title"))
+  has_resp = _has_value(extracted.get("responsibilities"))
+  has_req = _has_value(extracted.get("requirements"))
+  has_desc = _has_value(extracted.get("description"))
+  has_contacts = _has_value(extracted.get("contacts"))
+  has_salary = _has_value(extracted.get("salary_min_usd")) or _has_value(extracted.get("salary_max_usd"))
+  has_stack = _has_value(extracted.get("stack"))
+  has_company = _has_value(extracted.get("company_name"))
+  has_links = bool(re.search(r"https?://|www\.", text, flags=re.IGNORECASE))
+  has_verified_web = bool(extracted.get("_company_url_verified"))
+  has_verified_li = bool(extracted.get("_company_linkedin_verified"))
+
+  is_night = bool(re.search(r"\b7\s*/\s*0\b|night\s*shift|ночн", text, re.I))
+  no_train = bool(re.search(r"не\s*обучаем|no\s*training|we\s*do\s*not\s*train", text, re.I))
+
+  # tasks_and_kpi
+  t1 = 3
+  if has_role: t1 += 2
+  if has_resp: t1 += 3
+  if has_req: t1 += 2
+  t1 = min(10, t1)
+  s1 = "Clear responsibilities and role are described." if t1 >= 7 else ("Some task info present but lacking specifics." if t1 >= 4 else "Tasks and KPIs are not clearly defined.")
+
+  # compensation_clarity
+  t2 = 2
+  if has_salary: t2 += 6
+  if has_contacts: t2 += 2
+  t2 = min(10, t2)
+  s2 = "Salary range and contact details are provided." if t2 >= 8 else ("Partial compensation info available." if t2 >= 4 else "No salary or payment details mentioned.")
+
+  # tech_stack_and_ops
+  t3 = 3
+  if has_stack: t3 += 4
+  if has_resp: t3 += 2
+  if has_desc: t3 += 1
+  t3 = min(10, t3)
+  s3 = "Tech stack and processes are well documented." if t3 >= 7 else ("Some technical details mentioned." if t3 >= 4 else "No stack or process information provided.")
+
+  # requirement_logic
+  t4 = 4
+  if has_req: t4 += 3
+  if has_role: t4 += 2
+  if _has_value(extracted.get("seniority")): t4 += 1
+  t4 = min(10, t4)
+  s4 = "Requirements match the stated role level." if t4 >= 7 else ("Requirements are partially defined." if t4 >= 4 else "Requirements are vague or missing.")
+
+  # company_profile
+  t5 = 2
+  if has_company: t5 += 2
+  if has_links: t5 += 1
+  if has_desc: t5 += 2
+  if has_verified_web: t5 += 2
+  if has_verified_li: t5 += 1
+  t5 = min(10, t5)
+  s5 = "Company identity is clear with verified presence." if t5 >= 7 else ("Some company info available." if t5 >= 4 else "Company profile is unclear or missing.")
+
+  red_flags = []
+  if is_night:
+    red_flags.append("Night/extreme work schedule detected")
+    t1 = max(0, t1 - 2)
+    t2 = max(0, t2 - 1)
+  if no_train:
+    red_flags.append("No training offered")
+    t4 = max(0, t4 - 2)
+  if not has_company and not has_links:
+    red_flags.append("No company info or links")
+
+  results = [
+    {"criterion": "Tasks & KPI clarity", "key": "tasks_and_kpi", "score": t1, "weight": 0.30, "summary": s1},
+    {"criterion": "Compensation clarity", "key": "compensation_clarity", "score": t2, "weight": 0.25, "summary": s2},
+    {"criterion": "Stack & processes", "key": "tech_stack_and_ops", "score": t3, "weight": 0.20, "summary": s3},
+    {"criterion": "Requirement logic", "key": "requirement_logic", "score": t4, "weight": 0.15, "summary": s4},
+    {"criterion": "Company profile", "key": "company_profile", "score": t5, "weight": 0.10, "summary": s5},
+  ]
+
+  total = round(sum(r["score"] * r["weight"] for r in results), 1)
+  total = max(0.0, min(10.0, total))
+
+  overall = "Vacancy quality estimated from extracted structured fields."
+
+  return {
+    "total_score": total,
+    "overall_summary": overall,
+    "red_flags": red_flags,
+    "scoring_results": results,
+  }
 
 
 async def categorize_channel(title: str | None, bio: str | None, last_posts: list[str]) -> dict:
@@ -815,7 +742,7 @@ Goal: infer the CHANNEL'S THEME/ESSENCE, not summarize individual posts.
 Use last posts only as weak signals/examples. Title+bio are primary.
 
 Return ONLY valid JSON with keys:
-  ai_domains: string[] from ['web3','ai','igaming','tech','gaming','traffic']
+  ai_domains: string[] from ['web3','ai','igaming','tech','gaming','traffic','design','dev','fintech','crypto','marketing','hr','analytics','product','support']
   ai_tags: string[] (EXACTLY 2 or 3 items, short, high-signal, no duplicates)
   ai_risk_label: 'high-risk'|null (only if scam/high-risk)
   admin_contacts: string[] (emails, @usernames, links) found in BIO only
@@ -881,10 +808,15 @@ Rules for ai_tags:
     "- company_linkedin: string|null (LinkedIn URL from post text only, do NOT invent)\n"
     "- recruiter: string|null\n"
     "- contacts: string[] (@username, emails, personal links, application form URLs)\n"
-    "- domains: string[] from this set (lowercase): ['web3','ai','igaming','tech','gaming','traffic']\n"
+    "- domains: string[] — one or more from: ['web3','ai','igaming','tech','gaming','traffic','design','dev','fintech','crypto','marketing','hr','analytics','product','support']\n"
     "- risk_label: 'high-risk'|null (only if scam/high-risk)\n"
     "- role: string|null\n"
-    "- seniority: string|null\n"
+    "- seniority: string|null — one of: 'trainee'|'junior'|'middle'|'senior'|'lead'|'head'|'c-level'|null\n"
+    "  Use lowercase. If text says 'Junior/Middle' pick the higher one ('middle').\n"
+    "- employment_type: string|null — one of: 'full-time'|'part-time'|'project'|'freelance'|'internship'|null\n"
+    "- language_requirements: object|null — e.g. {\"english\": \"B2\", \"russian\": \"C1\"}.\n"
+    "  Keys are lowercase language names, values are level codes (A1-C2/native). null if not mentioned.\n"
+    "- english_level: string|null — the English level if present (e.g. 'B2').\n"
     "- location_type: 'remote'|'hybrid'|'office'|null\n"
     "- salary_min_usd: integer|null\n"
     "- salary_max_usd: integer|null\n"
