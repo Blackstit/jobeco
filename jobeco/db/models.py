@@ -127,6 +127,23 @@ class Vacancy(Base):
   company_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("companies.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
+class WebSource(Base):
+  __tablename__ = "web_sources"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  slug: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+  name: Mapped[str] = mapped_column(String(255), nullable=False)
+  url: Mapped[str] = mapped_column(Text, nullable=False)
+  parser_type: Mapped[str] = mapped_column(String(64), nullable=False)
+  enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+  sync_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default="180")
+  max_pages: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+  last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+  vacancies_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+  config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+  created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class SystemSettings(Base):
   __tablename__ = "system_settings"
 

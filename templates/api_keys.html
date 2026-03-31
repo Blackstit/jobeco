@@ -1,377 +1,352 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="mb-6">
-  <h2 class="text-2xl font-semibold mb-2">API</h2>
-  <p class="text-sm text-slate-400">Создавай ключи и настраивай фильтры выдачи вакансий для внешних сервисов.</p>
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h2 class="text-2xl font-semibold">API Keys</h2>
+    <p class="text-sm text-slate-400 mt-1">Manage access tokens for the public vacancy API</p>
+  </div>
+  <a href="/api/docs" class="px-4 py-2 text-xs btn-ghost">
+    API Docs
+  </a>
 </div>
 
 {% if flash %}
-  <div class="mb-4 p-3 rounded-lg bg-slate-800/60 border border-slate-700 text-sm text-slate-200">
-    {{ flash }}
-  </div>
+<div class="mb-4 px-4 py-3 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-slate-200">
+  {{ flash }}
+</div>
 {% endif %}
 
 {% if generated_token %}
-  <div class="mb-6 p-4 rounded-xl bg-emerald-950/70 border border-emerald-800 text-emerald-100">
-    <div class="font-semibold mb-2">Секретный токен (показан один раз)</div>
-    <div class="text-xs text-emerald-200 mb-2">
-      Используй его в заголовке: <span class="font-mono">X-API-Key: {{ generated_token }}</span>
-    </div>
-    <div class="bg-slate-900 border border-emerald-800 rounded-lg p-3 break-all font-mono text-sm">
-      {{ generated_token }}
-    </div>
-    <div class="text-xs text-emerald-200 mt-2">
-      Токен больше не будет отображаться. Сохрани его в безопасном месте.
-    </div>
+<div class="mb-6 p-5 rounded-xl bg-emerald-950/60 border border-emerald-800/80">
+  <div class="flex items-center gap-2 mb-3">
+    <div class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+    <span class="text-sm font-semibold text-emerald-200">New token generated</span>
   </div>
+  <div class="bg-base border border-emerald-900 rounded-lg px-4 py-3 font-mono text-sm break-all text-emerald-100 select-all">
+    {{ generated_token }}
+  </div>
+  <p class="text-xs text-emerald-300/70 mt-2">This token will not be shown again. Copy and store it securely.</p>
+</div>
 {% endif %}
 
-<div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4 mb-8">
-  <div>
-    <div class="text-sm font-semibold mb-1">Создать ключ</div>
-    <div class="text-xs text-slate-400">Фильтры задаются на уровне ключа.</div>
-  </div>
-
-  <form method="post" action="/api/keys/create" class="space-y-4">
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <label class="text-sm text-slate-200">Название ключа</label>
-        <input name="name" type="text" required class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="Web3 board / AI bot / ..."/>
-      </div>
-      <div>
-        <label class="text-sm text-slate-200">Active</label>
-        <div class="mt-3">
-          <input name="is_active" type="checkbox" value="1" checked class="h-4 w-4 text-blue-500 rounded"/>
-        </div>
-      </div>
+<!-- Create key -->
+<details class="mb-8 group">
+  <summary class="flex items-center justify-between cursor-pointer card px-5 py-3.5 hover:bg-white/[0.03] transition select-none">
+    <div class="flex items-center gap-3">
+      <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-accent/20 text-accent text-lg">+</span>
+      <span class="text-sm font-medium">Create new key</span>
     </div>
+    <svg class="w-4 h-4 text-slate-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+  </summary>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <form method="post" action="/api/keys/create" class="bg-surface border border-t-0 border-white/[0.06] rounded-b-xl px-5 pb-5 pt-4 space-y-5">
+    <!-- Row 1: Name + Owner + Expiry -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div>
-        <label class="text-sm text-slate-200">Owner (владелец ключа)</label>
-        <select name="owner_id" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
-          <option value="" selected>(текущий админ)</option>
+        <label class="text-xs text-slate-400 uppercase tracking-wider">Name</label>
+        <input name="name" type="text" required placeholder="e.g. Web3 board" class="mt-1.5 w-full px-3 py-2 input-dark text-sm"/>
+      </div>
+      <div>
+        <label class="text-xs text-slate-400 uppercase tracking-wider">Owner</label>
+        <select name="owner_id" class="mt-1.5 w-full px-3 py-2 input-dark text-sm">
+          <option value="">(current admin)</option>
           {% for u in admin_users | default([]) %}
             <option value="{{ u.id }}">{{ u.email }}</option>
           {% endfor %}
         </select>
       </div>
       <div>
-        <label class="text-sm text-slate-200">Срок действия токена</label>
-        <select name="expires_period" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
-          <option value="forever" selected>Бесконечный</option>
-          <option value="1m">На 1 месяц</option>
-          <option value="3m">На 3 месяца</option>
-          <option value="1y">На 1 год</option>
+        <label class="text-xs text-slate-400 uppercase tracking-wider">Expires</label>
+        <select name="expires_period" class="mt-1.5 w-full px-3 py-2 input-dark text-sm">
+          <option value="forever" selected>Never</option>
+          <option value="1m">1 month</option>
+          <option value="3m">3 months</option>
+          <option value="1y">1 year</option>
         </select>
       </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <label class="text-sm text-slate-200">Domains (через запятую)</label>
-        <input name="domains" type="text" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="web3,ai,igaming"/>
-        <div class="text-xs text-slate-500 mt-1">Поддерживаемый набор: web3, ai, igaming, tech, gaming, traffic</div>
+    <!-- Filters section -->
+    <div class="border-t border-white/[0.06] pt-4">
+      <div class="text-xs text-slate-500 uppercase tracking-wider mb-3">Key-level filters (optional)</div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <label class="text-xs text-slate-400">Domains</label>
+          <input name="domains" type="text" placeholder="web3, ai, igaming" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Location</label>
+          <select name="location_type" class="mt-1 w-full px-3 py-1.5 input-dark text-xs">
+            <option value="">Any</option>
+            <option value="remote">Remote</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="office">Office</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Risk</label>
+          <select name="risk_label" class="mt-1 w-full px-3 py-1.5 input-dark text-xs">
+            <option value="">Any</option>
+            <option value="high-risk">High-risk only</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Role</label>
+          <input name="role" type="text" placeholder="engineer" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+        </div>
       </div>
-      <div>
-        <label class="text-sm text-slate-200">Location type</label>
-        <select name="location_type" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
-          <option value="">(любое)</option>
-          <option value="remote">remote</option>
-          <option value="hybrid">hybrid</option>
-          <option value="office">office</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div>
-        <label class="text-sm text-slate-200">Role</label>
-        <input name="role" type="text" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="engineer / analyst / ..."/>
-      </div>
-      <div>
-        <label class="text-sm text-slate-200">Recruiter</label>
-        <input name="recruiter" type="text" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="HR / name / ..."/>
-      </div>
-      <div>
-        <label class="text-sm text-slate-200">Company domain</label>
-        <input name="company_domain" type="text" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="example.com"/>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <label class="text-sm text-slate-200">Salary min (USD)</label>
-        <input name="salary_min_usd" type="number" min="0" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="1000"/>
-      </div>
-      <div>
-        <label class="text-sm text-slate-200">Salary max (USD)</label>
-        <input name="salary_max_usd" type="number" min="0" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="3000"/>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <label class="text-sm text-slate-200">Risk label</label>
-        <select name="risk_label" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
-          <option value="">(не фильтровать)</option>
-          <option value="high-risk">high-risk</option>
-        </select>
-      </div>
-      <div>
-        <label class="text-sm text-slate-200">Requests per minute</label>
-        <input name="requests_per_minute" type="number" min="0" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="60"/>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+        <div>
+          <label class="text-xs text-slate-400">Salary min $</label>
+          <input name="salary_min_usd" type="number" min="0" placeholder="1000" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Salary max $</label>
+          <input name="salary_max_usd" type="number" min="0" placeholder="5000" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">RPM limit</label>
+          <input name="requests_per_minute" type="number" min="0" placeholder="60" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Daily quota</label>
+          <input name="daily_quota" type="number" min="0" placeholder="5000" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+        </div>
       </div>
     </div>
 
-    <div>
-      <label class="text-sm text-slate-200">Daily quota</label>
-      <input name="daily_quota" type="number" min="0" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="5000"/>
-      <div class="text-xs text-slate-500 mt-1">
-        Оставь пустым, если квота не нужна.
-      </div>
-    </div>
-
-    <div class="pt-2 flex items-center justify-between">
-      <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
-        Создать
+    <div class="flex items-center justify-end pt-1">
+      <button type="submit" class="px-5 py-2 btn-accent text-sm">
+        Create key
       </button>
-      <div class="text-xs text-slate-500">
-        Эндпоинт: <span class="font-mono">GET /api/public/vacancies</span>
-      </div>
     </div>
   </form>
-</div>
+</details>
 
-<div class="space-y-4">
-  <div class="text-sm font-semibold mb-1">Ключи</div>
+<!-- Keys list -->
+{% if keys %}
+<div class="space-y-3">
+  {% for k in keys %}
+  {% set filters = (k.config or {}).get('filters', {}) %}
+  {% set limits = k.limits or {} %}
+  {% set u = usage_map.get(k.id) %}
+  {% set exp = (expires_period_map.get(k.id) if expires_period_map is defined else 'forever') %}
 
-    {% for k in keys %}
-    {% set filters = (k.config or {}).get('filters', {}) %}
-    {% set limits = k.limits or {} %}
-    {% set u = usage_map.get(k.id) %}
-    {% set exp = (expires_period_map.get(k.id) if expires_period_map is defined else 'forever') %}
-
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-      <div class="flex items-start justify-between gap-4">
+  <div class="card overflow-hidden">
+    <!-- Card header -->
+    <div class="px-5 py-4 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-none
+          {% if k.is_active %}bg-emerald-900/40 text-emerald-400{% else %}bg-slate-800 text-slate-500{% endif %}">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+        </div>
         <div class="min-w-0">
-          <div class="flex items-center gap-2 mb-1">
-            <div class="font-semibold text-sm truncate">{{ k.name }}</div>
+          <div class="flex items-center gap-2">
+            <span class="font-medium text-sm truncate">{{ k.name }}</span>
             {% if k.is_active %}
-              <span class="text-xs px-2 py-1 rounded-full bg-emerald-900/60 border border-emerald-800 text-emerald-200">active</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-900/50 text-emerald-300 border border-emerald-800/50">active</span>
             {% else %}
-              <span class="text-xs px-2 py-1 rounded-full bg-rose-900/60 border border-rose-800 text-rose-200">inactive</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-red-900/40 text-red-300 border border-red-800/50">inactive</span>
             {% endif %}
           </div>
-          <div class="text-xs text-slate-500">id: {{ k.id }}</div>
-          <div class="text-xs text-slate-500 mt-1">
-            owner: {{ (owner_email_map.get(k.owner_id) if owner_email_map is defined else '-') }}
-          </div>
-          <div class="text-xs text-slate-500 mt-1">
-            expires: {% if k.expires_at %}{{ k.expires_at.isoformat() }}{% else %}∞{% endif %}
-          </div>
-        </div>
-
-        <div class="text-right">
-          <div class="text-xs text-slate-500">usage 24h</div>
-          <div class="text-lg font-semibold">{{ u.used_24h if u else 0 }}</div>
-          <div class="text-xs text-slate-500 mt-1">last used: {{ u.last_used_at if u else 'n/a' }}</div>
-        </div>
-      </div>
-
-      <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="text-sm">
-          <div class="text-xs text-slate-400 mb-2">Filters</div>
-          <div class="flex flex-wrap gap-2">
-            {% for d in (filters.get('domains') or []) %}
-              <span class="text-xs px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200">{{ d }}</span>
-            {% endfor %}
-            {% if not (filters.get('domains') or []) %}
-              <span class="text-xs text-slate-500">(all domains)</span>
-            {% endif %}
-          </div>
-          <div class="text-xs text-slate-500 mt-2">
-            role: {{ filters.get('role') or '-' }} |
-            recruiter: {{ filters.get('recruiter') or '-' }}
-          </div>
-          <div class="text-xs text-slate-500 mt-1">
-            company_domain: {{ filters.get('company_domain') or '-' }} |
-            location: {{ filters.get('location_type') or '-' }}
-          </div>
-          <div class="text-xs text-slate-500 mt-1">
-            salary: {{ filters.get('salary_min_usd') if filters.get('salary_min_usd') is not none else '-' }} -
-            {{ filters.get('salary_max_usd') if filters.get('salary_max_usd') is not none else '-' }} |
-            risk: {{ filters.get('risk_label') or '-' }}
-          </div>
-        </div>
-
-        <div class="text-sm">
-          <div class="text-xs text-slate-400 mb-2">Limits</div>
-          <div class="text-xs text-slate-500">
-            rpm: {{ limits.get('requests_per_minute') or '∞' }} |
-            daily: {{ limits.get('daily_quota') or '∞' }}
-          </div>
-
-          <div class="mt-3 flex flex-wrap gap-2">
-            <form method="post" action="/api/keys/{{ k.id }}/toggle">
-              <button class="px-3 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs">
-                Toggle
-              </button>
-            </form>
-            <form method="post" action="/api/keys/{{ k.id }}/regenerate">
-              <button class="px-3 py-1 bg-amber-600 hover:bg-amber-700 border border-amber-700 rounded-lg text-xs">
-                Regenerate
-              </button>
-            </form>
-            <form method="post" action="/api/keys/{{ k.id }}/delete" onsubmit="return confirm('Delete this API key?');">
-              <button class="px-3 py-1 bg-rose-600 hover:bg-rose-700 border border-rose-700 rounded-lg text-xs">
-                Delete
-              </button>
-            </form>
+          <div class="text-[11px] text-slate-500 mt-0.5">
+            #{{ k.id }}
+            · {{ (owner_email_map.get(k.owner_id) if owner_email_map is defined else '') or 'no owner' }}
+            · expires {% if k.expires_at %}{{ k.expires_at.strftime('%d %b %Y') }}{% else %}never{% endif %}
           </div>
         </div>
       </div>
 
-      <div class="mt-4 flex flex-wrap gap-2">
-        <button type="button" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 border border-blue-700 rounded-lg text-xs" onclick="openKeyModal({{ k.id }})">
-          Редактировать
-        </button>
-        <button type="button" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs" onclick="openKeyModal({{ k.id }})">
-          Настроить
-        </button>
-      </div>
+      <div class="flex items-center gap-4 flex-none">
+        <!-- Usage stats -->
+        <div class="text-right hidden sm:block">
+          <div class="text-lg font-semibold tabular-nums">{{ u.used_24h if u else 0 }}</div>
+          <div class="text-[10px] text-slate-500">requests / 24h</div>
+        </div>
 
-      <div id="keyModal-{{ k.id }}" class="hidden fixed inset-0 z-50">
-        <div class="absolute inset-0 bg-black/60" onclick="closeKeyModal({{ k.id }})"></div>
-        <div class="relative bg-slate-950 border border-slate-800 rounded-xl max-w-5xl mx-auto mt-14 p-6 overflow-y-auto max-h-[82vh]">
-          <div class="flex items-start justify-between gap-4 mb-5">
-            <div>
-              <div class="text-sm font-semibold text-slate-200">Ключ #{{ k.id }}</div>
-              <div class="text-xs text-slate-500 mt-1">Фильтры/лимиты + владелец/срок действия</div>
-            </div>
-            <button type="button" class="text-slate-300 hover:text-white text-xl leading-none" onclick="closeKeyModal({{ k.id }})">×</button>
-          </div>
-
-          <form method="post" action="/api/keys/{{ k.id }}/update" class="space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="text-sm text-slate-200">Название ключа</label>
-                <input name="name" type="text" required value="{{ k.name }}" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"/>
-              </div>
-              <div>
-                <label class="text-sm text-slate-200">Active</label>
-                <div class="mt-3">
-                  <input name="is_active" type="checkbox" value="1" {% if k.is_active %}checked{% endif %} class="h-4 w-4 text-blue-500 rounded"/>
-                </div>
-              </div>
-              <div>
-                <label class="text-sm text-slate-200">Owner (владелец)</label>
-                <select name="owner_id" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
-                  <option value="" {% if not k.owner_id %}selected{% endif %}>Без изменения</option>
-                  {% for u in admin_users | default([]) %}
-                    <option value="{{ u.id }}" {% if k.owner_id == u.id %}selected{% endif %}>{{ u.email }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div>
-                <label class="text-sm text-slate-200">Срок действия токена</label>
-                <select name="expires_period" class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500">
-                  <option value="forever" {% if exp == 'forever' %}selected{% endif %}>Бесконечный</option>
-                  <option value="1m" {% if exp == '1m' %}selected{% endif %}>На 1 месяц</option>
-                  <option value="3m" {% if exp == '3m' %}selected{% endif %}>На 3 месяца</option>
-                  <option value="1y" {% if exp == '1y' %}selected{% endif %}>На 1 год</option>
-                  <option value="custom" {% if exp == 'custom' %}selected{% endif %}>Сохранить текущую дату</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="text-xs text-slate-400">Domains</label>
-                <input name="domains" type="text" value="{{ (filters.get('domains') or [])|join(',') }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
-              </div>
-              <div>
-                <label class="text-xs text-slate-400">Location type</label>
-                <select name="location_type" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500">
-                  <option value="" {% if not filters.get('location_type') %}selected{% endif %}>(не фильтровать)</option>
-                  <option value="remote" {% if filters.get('location_type') == 'remote' %}selected{% endif %}>remote</option>
-                  <option value="hybrid" {% if filters.get('location_type') == 'hybrid' %}selected{% endif %}>hybrid</option>
-                  <option value="office" {% if filters.get('location_type') == 'office' %}selected{% endif %}>office</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label class="text-xs text-slate-400">Role</label>
-                <input name="role" type="text" value="{{ filters.get('role') or '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
-              </div>
-              <div>
-                <label class="text-xs text-slate-400">Recruiter</label>
-                <input name="recruiter" type="text" value="{{ filters.get('recruiter') or '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
-              </div>
-              <div>
-                <label class="text-xs text-slate-400">Company domain</label>
-                <input name="company_domain" type="text" value="{{ filters.get('company_domain') or '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="text-xs text-slate-400">Salary min (USD)</label>
-                <input name="salary_min_usd" type="number" min="0" value="{{ filters.get('salary_min_usd') if filters.get('salary_min_usd') is not none else '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
-              </div>
-              <div>
-                <label class="text-xs text-slate-400">Salary max (USD)</label>
-                <input name="salary_max_usd" type="number" min="0" value="{{ filters.get('salary_max_usd') if filters.get('salary_max_usd') is not none else '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="text-xs text-slate-400">Risk label</label>
-                <select name="risk_label" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500">
-                  <option value="" {% if not filters.get('risk_label') %}selected{% endif %}>(не фильтровать)</option>
-                  <option value="high-risk" {% if filters.get('risk_label') == 'high-risk' %}selected{% endif %}>high-risk</option>
-                </select>
-              </div>
-              <div>
-                <label class="text-xs text-slate-400">Requests per minute</label>
-                <input name="requests_per_minute" type="number" min="0" value="{{ limits.get('requests_per_minute') if limits.get('requests_per_minute') is not none else '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-              <div>
-                <label class="text-xs text-slate-400">Daily quota</label>
-                <input name="daily_quota" type="number" min="0" value="{{ limits.get('daily_quota') if limits.get('daily_quota') is not none else '' }}" class="mt-1 w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
-              </div>
-              <div class="flex items-center justify-end gap-2">
-                <button type="button" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs border border-slate-700" onclick="closeKeyModal({{ k.id }})">
-                  Отмена
-                </button>
-                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-medium transition">
-                  Сохранить
-                </button>
-              </div>
-            </div>
+        <!-- Actions -->
+        <div class="flex items-center gap-1.5">
+          <button type="button" onclick="openKeyModal({{ k.id }})" title="Edit"
+            class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          </button>
+          <form method="post" action="/api/keys/{{ k.id }}/toggle" class="inline">
+            <button title="Toggle active" class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost">
+              {% if k.is_active %}
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+              {% else %}
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              {% endif %}
+            </button>
+          </form>
+          <form method="post" action="/api/keys/{{ k.id }}/regenerate" class="inline">
+            <button title="Regenerate token" class="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-900/30 hover:bg-amber-900/50 border border-amber-800/50 transition text-amber-400 hover:text-amber-300">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </button>
+          </form>
+          <form method="post" action="/api/keys/{{ k.id }}/delete" onsubmit="return confirm('Delete this API key permanently?');" class="inline">
+            <button title="Delete" class="w-8 h-8 flex items-center justify-center rounded-lg bg-red-900/20 hover:bg-red-900/40 border border-red-800/40 transition text-red-400 hover:text-red-300">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
           </form>
         </div>
       </div>
     </div>
+
+    <!-- Card details bar -->
+    <div class="px-5 py-2.5 bg-base/50 border-t border-white/[0.04] flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-slate-500">
+      {% set f_domains = filters.get('domains') or [] %}
+      <span>
+        Domains:
+        {% if f_domains %}
+          {% for d in f_domains %}<span class="text-slate-300">{{ d }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
+        {% else %}
+          <span class="text-slate-600">all</span>
+        {% endif %}
+      </span>
+      <span>Location: <span class="{% if filters.get('location_type') %}text-slate-300{% else %}text-slate-600{% endif %}">{{ filters.get('location_type') or 'any' }}</span></span>
+      <span>Risk: <span class="{% if filters.get('risk_label') %}text-slate-300{% else %}text-slate-600{% endif %}">{{ filters.get('risk_label') or 'any' }}</span></span>
+      {% if filters.get('salary_min_usd') or filters.get('salary_max_usd') %}
+        <span>Salary: <span class="text-slate-300">${{ filters.get('salary_min_usd', '?') }}–${{ filters.get('salary_max_usd', '?') }}</span></span>
+      {% endif %}
+      <span>RPM: <span class="{% if limits.get('requests_per_minute') %}text-slate-300{% else %}text-slate-600{% endif %}">{{ limits.get('requests_per_minute') or '∞' }}</span></span>
+      <span>Daily: <span class="{% if limits.get('daily_quota') %}text-slate-300{% else %}text-slate-600{% endif %}">{{ limits.get('daily_quota') or '∞' }}</span></span>
+    </div>
+  </div>
+
+  <!-- Edit modal -->
+  <div id="keyModal-{{ k.id }}" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeKeyModal({{ k.id }})"></div>
+    <div class="relative bg-surface border border-white/[0.08] rounded-xl max-w-2xl mx-auto mt-[8vh] p-6 overflow-y-auto max-h-[84vh] shadow-2xl">
+      <div class="flex items-center justify-between mb-5">
+        <div class="text-sm font-semibold">Edit key: {{ k.name }}</div>
+        <button type="button" class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost" onclick="closeKeyModal({{ k.id }})">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <form method="post" action="/api/keys/{{ k.id }}/update" class="space-y-5">
+        <!-- General -->
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wider mb-3">General</div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400">Name</label>
+              <input name="name" type="text" required value="{{ k.name }}" class="mt-1 w-full px-3 py-2 input-dark text-sm"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Owner</label>
+              <select name="owner_id" class="mt-1 w-full px-3 py-2 input-dark text-sm">
+                <option value="" {% if not k.owner_id %}selected{% endif %}>—</option>
+                {% for u in admin_users | default([]) %}
+                  <option value="{{ u.id }}" {% if k.owner_id == u.id %}selected{% endif %}>{{ u.email }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Status</label>
+              <div class="mt-2 flex items-center gap-2">
+                <input name="is_active" type="checkbox" value="1" {% if k.is_active %}checked{% endif %} class="h-4 w-4 rounded border-white/[0.12] text-accent focus:ring-accent bg-surface"/>
+                <span class="text-xs text-slate-300">Active</span>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Expires</label>
+              <select name="expires_period" class="mt-1 w-full px-3 py-2 input-dark text-sm">
+                <option value="forever" {% if exp == 'forever' %}selected{% endif %}>Never</option>
+                <option value="1m" {% if exp == '1m' %}selected{% endif %}>1 month</option>
+                <option value="3m" {% if exp == '3m' %}selected{% endif %}>3 months</option>
+                <option value="1y" {% if exp == '1y' %}selected{% endif %}>1 year</option>
+                <option value="custom" {% if exp == 'custom' %}selected{% endif %}>Keep current</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="border-t border-white/[0.06] pt-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wider mb-3">Filters</div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400">Domains</label>
+              <input name="domains" type="text" value="{{ (filters.get('domains') or [])|join(', ') }}" placeholder="web3, ai" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Location</label>
+              <select name="location_type" class="mt-1 w-full px-3 py-1.5 input-dark text-xs">
+                <option value="" {% if not filters.get('location_type') %}selected{% endif %}>Any</option>
+                <option value="remote" {% if filters.get('location_type') == 'remote' %}selected{% endif %}>Remote</option>
+                <option value="hybrid" {% if filters.get('location_type') == 'hybrid' %}selected{% endif %}>Hybrid</option>
+                <option value="office" {% if filters.get('location_type') == 'office' %}selected{% endif %}>Office</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Role</label>
+              <input name="role" type="text" value="{{ filters.get('role') or '' }}" placeholder="engineer" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Risk</label>
+              <select name="risk_label" class="mt-1 w-full px-3 py-1.5 input-dark text-xs">
+                <option value="" {% if not filters.get('risk_label') %}selected{% endif %}>Any</option>
+                <option value="high-risk" {% if filters.get('risk_label') == 'high-risk' %}selected{% endif %}>High-risk</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Salary min $</label>
+              <input name="salary_min_usd" type="number" min="0" value="{{ filters.get('salary_min_usd') if filters.get('salary_min_usd') is not none else '' }}" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Salary max $</label>
+              <input name="salary_max_usd" type="number" min="0" value="{{ filters.get('salary_max_usd') if filters.get('salary_max_usd') is not none else '' }}" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Limits -->
+        <div class="border-t border-white/[0.06] pt-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wider mb-3">Rate limits</div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400">Requests per minute</label>
+              <input name="requests_per_minute" type="number" min="0" value="{{ limits.get('requests_per_minute') if limits.get('requests_per_minute') is not none else '' }}" placeholder="60" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Daily quota</label>
+              <input name="daily_quota" type="number" min="0" value="{{ limits.get('daily_quota') if limits.get('daily_quota') is not none else '' }}" placeholder="5000" class="mt-1 w-full px-3 py-1.5 input-dark text-xs"/>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button type="button" class="px-4 py-2 btn-ghost text-xs" onclick="closeKeyModal({{ k.id }})">
+            Cancel
+          </button>
+          <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-medium transition">
+            Save changes
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
   {% endfor %}
 </div>
+{% else %}
+<div class="text-center py-16 text-slate-500">
+  <svg class="w-12 h-12 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+  <div class="text-sm">No API keys yet</div>
+  <div class="text-xs mt-1">Create one above to get started</div>
+</div>
+{% endif %}
 
 <script>
-  function openKeyModal(id) {
-    const el = document.getElementById('keyModal-' + id);
-    if (el) el.classList.remove('hidden');
-  }
-  function closeKeyModal(id) {
-    const el = document.getElementById('keyModal-' + id);
-    if (el) el.classList.add('hidden');
-  }
+function openKeyModal(id) {
+  document.getElementById('keyModal-' + id)?.classList.remove('hidden');
+  document.body.classList.add('overflow-hidden');
+}
+function closeKeyModal(id) {
+  document.getElementById('keyModal-' + id)?.classList.add('hidden');
+  document.body.classList.remove('overflow-hidden');
+}
 </script>
 {% endblock %}
-

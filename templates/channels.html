@@ -1,394 +1,766 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="mb-6 flex items-center justify-between">
-  <div>
-    <h2 class="text-2xl font-semibold mb-2">Каналы</h2>
-    <p class="text-sm text-slate-400">Управление каналами для парсинга + AI мета</p>
-  </div>
-  <button onclick="showAddChannelModal()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
-    + Добавить канал
-  </button>
-</div>
+<style>
+  #chRoot { height: calc(100vh - 56px); display: flex; flex-direction: column; }
+  #chBody { flex: 1; min-height: 0; display: flex; gap: 1rem; }
+  #chList { overflow-y: auto; }
+  #chPane { overflow-y: auto; }
+  #chList::-webkit-scrollbar, #chPane::-webkit-scrollbar { width: 5px; }
+  #chList::-webkit-scrollbar-thumb, #chPane::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+  .source-tab { padding: 6px 14px; font-size: 12px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; transition: all .15s; }
+  .source-tab:hover { background: rgba(255,255,255,0.04); }
+  .source-tab.active { border-color: var(--accent); color: var(--accent); background: rgba(0,255,136,0.06); }
+  .ws-card { position: relative; overflow: hidden; }
+  .ws-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); border-radius: 0 2px 2px 0; opacity: 0; transition: opacity .15s; }
+  .ws-card:hover::before { opacity: 1; }
+  .sync-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
 
-<!-- Bulk bar -->
-<div id="bulkBar" class="hidden mb-4 bg-slate-900 border border-slate-800 rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-  <div class="text-sm text-slate-300">
-    Выбрано: <span class="font-semibold" id="selectedCount">0</span>
-  </div>
-  <div class="flex flex-wrap gap-2">
-    <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="bulkRefreshAI()">Обновить AI</button>
-    <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="bulkFetchLast5()">5 последних</button>
-    <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="bulkSetEnabled(true)">Включить</button>
-    <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="bulkSetEnabled(false)">Выключить</button>
-    <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="bulkNormalize()">Нормализовать</button>
-    <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="clearSelection()">Снять выбор</button>
-  </div>
-</div>
+<div id="chRoot">
+  <!-- Header -->
+  <form method="get" action="/channels" id="filterForm">
+    <div class="flex items-center gap-2 mb-3">
+      <!-- Source type tabs -->
+      <div class="flex items-center gap-1 mr-2">
+        <button type="button" class="source-tab active" data-tab="all" onclick="switchTab('all')">All</button>
+        <button type="button" class="source-tab" data-tab="telegram" onclick="switchTab('telegram')">
+          <span class="inline-flex items-center gap-1">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            Telegram
+          </span>
+        </button>
+        <button type="button" class="source-tab" data-tab="web" onclick="switchTab('web')">
+          <span class="inline-flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+            Web
+          </span>
+        </button>
+      </div>
 
-<form method="get" action="/channels" class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4">
-  <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
-    <div class="md:col-span-2">
-      <label class="text-xs text-slate-400">Поиск</label>
-      <input
-        type="text"
-        name="search"
-        value="{{ filters.search if filters is defined else '' }}"
-        placeholder="username, title, bio…"
-        class="mt-1 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-      />
-    </div>
-    <div>
-      <label class="text-xs text-slate-400">Статус</label>
-      <select name="enabled" class="mt-1 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm">
-        <option value="" {% if filters.enabled=='' %}selected{% endif %}>Любой</option>
-        <option value="true" {% if filters.enabled=='true' %}selected{% endif %}>ON</option>
-        <option value="false" {% if filters.enabled=='false' %}selected{% endif %}>OFF</option>
-      </select>
-    </div>
-    <div>
-      <label class="text-xs text-slate-400">Ниша</label>
-      <select name="domain" class="mt-1 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm">
-        <option value="" {% if filters.domain=='' %}selected{% endif %}>Любая</option>
-        {% for d in (domain_options or []) %}
-          <option value="{{ d }}" {% if filters.domain==d %}selected{% endif %}>{{ d }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="text-xs text-slate-400">Риск</label>
-      <select name="risk" class="mt-1 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm">
-        <option value="" {% if filters.risk=='' %}selected{% endif %}>Любой</option>
-        <option value="high-risk" {% if filters.risk=='high-risk' %}selected{% endif %}>high-risk</option>
-        <option value="not-high-risk" {% if filters.risk=='not-high-risk' %}selected{% endif %}>не high-risk</option>
-      </select>
-    </div>
-  </div>
-  <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mt-3 items-end">
-    <div>
-      <label class="text-xs text-slate-400">Сортировка</label>
-      <select name="sort" class="mt-1 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm">
-        <option value="created_desc" {% if filters.sort=='created_desc' %}selected{% endif %}>Сначала новые</option>
-        <option value="members_desc" {% if filters.sort=='members_desc' %}selected{% endif %}>Подписчики ↓</option>
-        <option value="members_asc" {% if filters.sort=='members_asc' %}selected{% endif %}>Подписчики ↑</option>
-        <option value="vacancies_desc" {% if filters.sort=='vacancies_desc' %}selected{% endif %}>Вакансии ↓</option>
-      </select>
-    </div>
-    <div class="md:col-span-4 flex gap-2">
-      <button type="submit" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
-        Применить
+      <div class="relative flex-1 max-w-md">
+        <input type="text" name="search" value="{{ filters.search }}" placeholder="Search sources..."
+          autocomplete="off"
+          class="w-full pl-9 pr-3 py-2 input-dark text-sm" />
+        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      </div>
+
+      <!-- Status pills (telegram only) -->
+      {% for val, label in [('', 'All'), ('true', 'ON'), ('false', 'OFF')] %}
+      <button type="button" onclick="setEnabled('{{ val }}')"
+        class="hidden md:inline-flex tg-only px-3 py-1.5 text-xs rounded-lg border transition
+          {% if filters.enabled == val %}pill-active{% else %}btn-ghost{% endif %}"
+      >{{ label }}</button>
+      {% endfor %}
+      <input type="hidden" name="enabled" id="hEnabled" value="{{ filters.enabled }}" />
+
+      {% set _adv = (filters.domain or filters.risk or filters.sort != 'created_desc') %}
+      <button type="button" onclick="toggleAdvanced()" id="advToggle"
+        class="tg-only flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition
+          {% if _adv %}pill-active{% else %}btn-ghost{% endif %}"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+        Filters{% if _adv %} <span class="px-1.5 py-0.5 text-[10px] bg-accent rounded-full leading-none text-black font-medium">!</span>{% endif %}
       </button>
-      <a href="/channels" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-center transition">
-        Сбросить
-      </a>
+
+      <button type="submit" class="px-4 py-1.5 btn-accent text-xs">Search</button>
+
+      {% if filters.search or filters.enabled or _adv %}
+      <a href="/channels" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition">&times; Clear</a>
+      {% endif %}
+
+      <span class="text-xs text-slate-500 ml-auto" id="sourceCount">{{ channels|length + web_sources|length }} sources</span>
+
+      <button type="button" onclick="showAddModal()" class="px-3 py-1.5 btn-accent text-xs">+ Add</button>
+    </div>
+
+    <!-- Advanced filters (telegram) -->
+    <div id="advPanel" class="{% if not _adv %}hidden{% endif %} tg-only card p-4 mb-3">
+      <div class="flex flex-wrap gap-3 items-end">
+        <div>
+          <span class="text-[11px] text-slate-500">Domain</span>
+          <select name="domain" class="ml-1 px-2 py-1 input-dark text-xs">
+            <option value="" {% if not filters.domain %}selected{% endif %}>Any</option>
+            {% for d in (domain_options or []) %}
+              <option value="{{ d }}" {% if filters.domain == d %}selected{% endif %}>{{ d }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <span class="text-[11px] text-slate-500">Risk</span>
+          <select name="risk" class="ml-1 px-2 py-1 input-dark text-xs">
+            <option value="" {% if not filters.risk %}selected{% endif %}>Any</option>
+            <option value="high-risk" {% if filters.risk == 'high-risk' %}selected{% endif %}>High-risk</option>
+            <option value="not-high-risk" {% if filters.risk == 'not-high-risk' %}selected{% endif %}>Not high-risk</option>
+          </select>
+        </div>
+        <div>
+          <span class="text-[11px] text-slate-500">Sort</span>
+          <select name="sort" class="ml-1 px-2 py-1 input-dark text-xs">
+            <option value="created_desc" {% if filters.sort == 'created_desc' %}selected{% endif %}>Newest first</option>
+            <option value="members_desc" {% if filters.sort == 'members_desc' %}selected{% endif %}>Members ↓</option>
+            <option value="members_asc" {% if filters.sort == 'members_asc' %}selected{% endif %}>Members ↑</option>
+            <option value="vacancies_desc" {% if filters.sort == 'vacancies_desc' %}selected{% endif %}>Vacancies ↓</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <!-- Bulk bar -->
+  <div id="bulkBar" class="hidden card px-4 py-2.5 mb-3 flex items-center justify-between gap-3">
+    <div class="text-xs text-slate-300">
+      Selected: <span class="font-semibold text-accent" id="selectedCount">0</span>
+    </div>
+    <div class="flex flex-wrap gap-1.5">
+      <button type="button" class="px-2.5 py-1 text-xs btn-ghost" onclick="bulkRefreshAI()">Refresh AI</button>
+      <button type="button" class="px-2.5 py-1 text-xs btn-ghost" onclick="bulkFetchLast5()">Fetch last 5</button>
+      <button type="button" class="px-2.5 py-1 text-xs btn-ghost" onclick="bulkSetEnabled(true)">Enable</button>
+      <button type="button" class="px-2.5 py-1 text-xs btn-ghost" onclick="bulkSetEnabled(false)">Disable</button>
+      <button type="button" class="px-2.5 py-1 text-xs btn-ghost" onclick="bulkNormalize()">Normalize</button>
+      <button type="button" class="px-2.5 py-1 text-xs text-slate-500 hover:text-slate-300 transition" onclick="clearSelection()">Deselect</button>
     </div>
   </div>
-</form>
 
-<div class="space-y-3">
-  <div class="flex items-center gap-2 text-xs text-slate-400">
-    <input id="selectAll" type="checkbox" onchange="toggleSelectAll(this.checked)" />
-    <label for="selectAll" class="cursor-pointer">Выбрать все на странице</label>
-  </div>
-  {% for ch, vac_count in channels %}
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 hover:bg-slate-800/40 transition cursor-pointer"
-       onclick="openChannel({{ ch.id }})">
-    <div class="flex items-start justify-between gap-4">
-      <div class="min-w-0">
-        <div class="flex items-center gap-2">
-          <input class="channelCk mt-0.5" type="checkbox" data-channel-id="{{ ch.id }}" onclick="event.stopPropagation(); onSelectionChange();" />
-          <div class="font-medium text-sm truncate">{{ ch.title or ch.username or ("ID: " ~ ch.tg_id) }}</div>
-          {% if ch.username %}
-          <a class="text-xs text-slate-400 hover:text-white underline" href="https://t.me/{{ ch.username }}" target="_blank" rel="noreferrer"
-             onclick="event.stopPropagation();">@{{ ch.username }}</a>
-          {% endif %}
+  <!-- Split view body -->
+  <div id="chBody">
+    <!-- List -->
+    <div id="chList" class="w-full transition-all pr-1">
+      <!-- Select all (telegram only) -->
+      <div class="flex items-center gap-2 text-xs text-slate-500 mb-2 px-1 tg-only" id="selectAllWrap">
+        <input id="selectAll" type="checkbox" onchange="toggleSelectAll(this.checked)" class="rounded border-slate-600 bg-slate-800" />
+        <label for="selectAll" class="cursor-pointer select-none">Select all</label>
+      </div>
+
+      <!-- Web Sources -->
+      <div id="webSourcesList" class="space-y-2 mb-4">
+        {% for ws in web_sources %}
+        <div id="ws-card-{{ ws.id }}"
+             class="ws-card group card card-hover px-4 py-3 cursor-pointer"
+             data-source-type="web"
+             onclick="openWebSourcePane({{ ws.id }})">
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-none text-sm font-semibold bg-blue-900/30 text-blue-400">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
+                <span class="font-medium text-sm truncate min-w-0 shrink">{{ ws.name }}</span>
+                {% if ws.enabled %}
+                  <span class="badge badge-domain" style="border-radius:9999px">ON</span>
+                {% else %}
+                  <span class="badge badge-neutral" style="border-radius:9999px">OFF</span>
+                {% endif %}
+                <span class="badge badge-neutral" style="font-size:10px;padding:1px 6px;border-color:rgba(96,165,250,0.3);color:#60a5fa">Web</span>
+              </div>
+              <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+                <span>{{ ws.url }}</span>
+                <span>{{ ws.vacancies_count }} vacancies</span>
+                {% if ws.last_synced_at %}
+                  <span>Synced: {{ ws.last_synced_at.strftime('%d %b %H:%M') if ws.last_synced_at else '—' }}</span>
+                {% endif %}
+                <span>Every {{ ws.sync_interval_minutes // 60 }}h</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1 flex-none opacity-0 group-hover:opacity-100 transition mt-0.5" onclick="event.stopPropagation();">
+              <button onclick="syncWebSource({{ ws.id }})" title="Sync now" id="syncBtn-{{ ws.id }}"
+                class="w-7 h-7 flex items-center justify-center rounded-lg btn-ghost transition">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              </button>
+              <button onclick="toggleWebSource({{ ws.id }})" title="Toggle"
+                class="w-7 h-7 flex items-center justify-center rounded-lg btn-ghost transition">
+                {% if ws.enabled %}
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                {% else %}
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                {% endif %}
+              </button>
+            </div>
+          </div>
         </div>
-        <div class="text-xs text-slate-400 mt-1 line-clamp-2">{{ ch.bio or "" }}</div>
-        <div class="mt-2 flex flex-wrap gap-2">
-          {% for d in (ch.ai_domains or []) %}
-            <span class="px-2 py-0.5 text-xs bg-slate-800 rounded text-slate-200 border border-slate-700">{{ d }}</span>
-          {% endfor %}
-          {% for t in (ch.ai_tags or [])[:3] %}
-            <span class="px-2 py-0.5 text-xs bg-slate-800/60 rounded text-slate-200 border border-slate-700">{{ t }}</span>
-          {% endfor %}
-          {% if ch.ai_risk_label == "high-risk" %}
-            <span class="px-2 py-0.5 text-xs bg-red-900/30 rounded text-red-300 border border-red-700/50">high-risk</span>
-          {% endif %}
+        {% endfor %}
+      </div>
+
+      <!-- Telegram header -->
+      <div class="tg-only flex items-center gap-2 mb-2 px-1" id="tgHeader">
+        <svg class="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+        <span class="text-xs text-slate-500 font-medium">Telegram Channels</span>
+        <span class="text-[10px] text-slate-600">{{ channels|length }}</span>
+      </div>
+
+      <!-- Telegram channels list -->
+      <div class="space-y-2" id="tgChannels">
+        {% for ch, vac_count in channels %}
+        <div id="ch-card-{{ ch.id }}"
+             class="group card card-hover px-4 py-3 cursor-pointer"
+             data-source-type="telegram"
+             onclick="openChannelPane({{ ch.id }})">
+          <div class="flex items-start gap-3">
+            <input class="channelCk rounded border-slate-600 bg-slate-800 flex-none mt-1" type="checkbox" data-channel-id="{{ ch.id }}" onclick="event.stopPropagation(); onSelectionChange();" />
+
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-none text-sm font-semibold
+              {% if ch.enabled %}bg-emerald-900/30 text-emerald-400{% else %}bg-slate-800 text-slate-500{% endif %}">
+              {% if ch.username %}{{ ch.username[0]|upper }}{% else %}#{% endif %}
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
+                <span class="font-medium text-sm truncate min-w-0 shrink">{{ ch.title or ch.username or ("ID: " ~ ch.tg_id) }}</span>
+                {% if ch.enabled %}
+                  <span class="badge badge-domain" style="border-radius:9999px">ON</span>
+                {% else %}
+                  <span class="badge badge-neutral" style="border-radius:9999px">OFF</span>
+                {% endif %}
+                {% if ch.ai_domains %}
+                <div class="flex flex-wrap gap-1 items-center shrink-0 max-w-full">
+                  {% for d in (ch.ai_domains or [])[:3] %}
+                    <span class="badge badge-domain" style="font-size:10px;padding:1px 6px">{{ d }}</span>
+                  {% endfor %}
+                  {% if (ch.ai_domains|length) > 3 %}
+                    <span class="text-[10px] text-slate-500 whitespace-nowrap">+{{ (ch.ai_domains|length) - 3 }}</span>
+                  {% endif %}
+                </div>
+                {% endif %}
+                {% if ch.ai_risk_label == "high-risk" %}
+                  <span class="badge badge-risk" style="border-radius:9999px;font-size:10px;padding:1px 6px">risk</span>
+                {% endif %}
+              </div>
+              <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+                {% if ch.username %}
+                  <span>@{{ ch.username }}</span>
+                {% endif %}
+                <span>{{ ch.members_count|default('—', true) }} members</span>
+                <span>{{ vac_count or 0 }} vacancies</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1 flex-none opacity-0 group-hover:opacity-100 transition mt-0.5" onclick="event.stopPropagation();">
+              <button onclick="toggleChannel({{ ch.id }})" title="Toggle parsing"
+                class="w-7 h-7 flex items-center justify-center rounded-lg btn-ghost transition">
+                {% if ch.enabled %}
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                {% else %}
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                {% endif %}
+              </button>
+              <button onclick="refreshAI({{ ch.id }})" title="Refresh AI"
+                class="w-7 h-7 flex items-center justify-center rounded-lg btn-ghost transition">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              </button>
+              <button onclick="deleteChannel({{ ch.id }}, '{{ ch.username or ch.title or ch.id }}')" title="Delete"
+                class="w-7 h-7 flex items-center justify-center rounded-lg border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 transition text-red-400">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
-        <div class="mt-2 text-xs text-slate-500">
-          Подписчики: {{ ch.members_count if ch.members_count is not none else "—" }} · Вакансий: {{ vac_count or 0 }}
+        {% endfor %}
+
+        {% if not channels and not web_sources %}
+        <div class="text-center py-16 text-slate-500">
+          <svg class="w-12 h-12 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+          <div class="text-sm">No sources yet</div>
+          <div class="text-xs mt-1">Add one via the Telegram bot or using the button above</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Detail pane -->
+    <div id="chPane" class="hidden w-1/2 bg-base border border-white/[0.06] rounded-xl overflow-hidden flex-col min-h-0">
+      <div class="p-4 border-b border-white/[0.04] flex-none bg-base">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <div id="pIcon" class="w-10 h-10 rounded-lg flex items-center justify-center flex-none text-lg font-bold bg-emerald-900/30 text-emerald-400"></div>
+              <div class="min-w-0">
+                <div class="text-lg font-semibold truncate" id="pTitle">—</div>
+                <a id="pLink" class="text-xs text-slate-400 hover:text-blue-400 transition hidden" target="_blank" rel="noreferrer"></a>
+              </div>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1.5" id="pBadges"></div>
+            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500" id="pStats"></div>
+          </div>
+          <div class="flex items-center gap-1.5 flex-none">
+            <button type="button" id="paneSyncBtn" onclick="paneSyncAction()" title="Sync / Refresh"
+              class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </button>
+            <button type="button" id="paneFetchBtn" onclick="paneFetchAction()" title="Fetch last 5"
+              class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost transition hidden">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
+            </button>
+            <button class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost transition" onclick="closePane()">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation();">
-        {% set is_enabled = ch.enabled %}
-        <button
-          onclick="toggleChannel({{ ch.id }})"
-          class="px-3 py-1 text-xs rounded transition {% if is_enabled %}bg-green-900/30 text-green-400 hover:bg-green-900/50{% else %}bg-slate-800 text-slate-400 hover:bg-slate-700{% endif %}"
-          title="Вкл/выкл парсинг"
-        >
-          {{ 'ON' if is_enabled else 'OFF' }}
-        </button>
+      <!-- Pane body -->
+      <div class="p-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
+        <div id="secBio" class="card p-4 hidden">
+          <div class="text-sm font-semibold mb-2">Description</div>
+          <div class="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed" id="pBio"></div>
+        </div>
 
-        <div class="relative">
-          <button class="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded transition" onclick="toggleMenu({{ ch.id }})">⋯</button>
-          <div id="menu-{{ ch.id }}" class="hidden absolute right-0 mt-2 w-48 bg-slate-950 border border-slate-800 rounded-lg overflow-hidden z-20">
-            <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800" onclick="refreshAI({{ ch.id }})">Обновить</button>
-            <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800" onclick="fetchLast5({{ ch.id }})">5 последних</button>
-            <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800 text-red-300" onclick="deleteChannel({{ ch.id }}, '{{ ch.username or ch.title or ch.id }}')">Удалить</button>
+        <div id="secTags" class="card p-4 hidden">
+          <div class="text-sm font-semibold mb-2">AI Tags</div>
+          <div class="flex flex-wrap gap-1.5" id="pTags"></div>
+        </div>
+
+        <!-- Sync result (web sources) -->
+        <div id="secSyncResult" class="card p-4 hidden">
+          <div class="text-sm font-semibold mb-2">Last sync result</div>
+          <div class="text-sm text-slate-300" id="pSyncResult"></div>
+        </div>
+
+        <div class="card p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-semibold">Latest vacancies</div>
+            <span class="text-[11px] text-slate-500" id="pVacCount"></span>
+          </div>
+          <div class="space-y-1.5" id="pVacancies">
+            <div class="text-xs text-slate-500 text-center py-4">Loading...</div>
           </div>
         </div>
       </div>
     </div>
   </div>
-  {% endfor %}
-  {% if not channels %}
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-400 text-sm">
-    Нет каналов. Добавьте первый канал через Telegram бота или используйте кнопку выше.
-  </div>
-  {% endif %}
 </div>
 
-<!-- Add Channel Modal -->
-<div id="addChannelModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-6 w-full max-w-md">
-    <h3 class="text-lg font-semibold mb-4">Добавить канал</h3>
-    <p class="text-sm text-slate-400 mb-4">
-      Используйте Telegram бота для добавления каналов. Отправьте боту ссылку на канал или перешлите пост из канала.
-    </p>
-    <button
-      onclick="hideAddChannelModal()"
-      class="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition"
-    >
-      Закрыть
-    </button>
+<!-- Add Modal -->
+<div id="addModal" class="hidden fixed inset-0 z-50">
+  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="hideAddModal()"></div>
+  <div class="relative bg-surface border border-white/[0.08] rounded-xl max-w-md mx-auto mt-[20vh] p-6 shadow-2xl">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-sm font-semibold text-white">Add source</div>
+      <button type="button" class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost" onclick="hideAddModal()">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="space-y-3">
+      <div class="card p-4 hover:bg-white/[0.03] transition cursor-pointer" onclick="hideAddModal()">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-blue-900/30 flex items-center justify-center">
+            <svg class="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-medium">Telegram Channel</div>
+            <div class="text-xs text-slate-500">Use the Telegram bot to add channels</div>
+          </div>
+        </div>
+      </div>
+      <div class="card p-4 opacity-50">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-emerald-900/30 flex items-center justify-center">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-medium">Web Source</div>
+            <div class="text-xs text-slate-500">Web job boards are managed via config</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button onclick="hideAddModal()" class="w-full mt-4 px-4 py-2 btn-ghost text-sm">Close</button>
   </div>
 </div>
 
 <script>
-function selectedIds() {
-  return Array.from(document.querySelectorAll(".channelCk:checked")).map((x) => parseInt(x.dataset.channelId, 10));
+let openChannelId = null;
+let openWebSourceId = null;
+let currentPaneType = null; // 'telegram' | 'web'
+let currentTab = 'all';
+
+/* ── Tabs ── */
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.source-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+
+  const webList = document.getElementById('webSourcesList');
+  const tgChannels = document.getElementById('tgChannels');
+  const tgOnlyEls = document.querySelectorAll('.tg-only');
+  const tgHeader = document.getElementById('tgHeader');
+
+  if (tab === 'all') {
+    webList.style.display = '';
+    tgChannels.style.display = '';
+    tgHeader.style.display = '';
+    tgOnlyEls.forEach(el => el.style.display = '');
+  } else if (tab === 'telegram') {
+    webList.style.display = 'none';
+    tgChannels.style.display = '';
+    tgHeader.style.display = 'none';
+    tgOnlyEls.forEach(el => el.style.display = '');
+  } else if (tab === 'web') {
+    webList.style.display = '';
+    tgChannels.style.display = 'none';
+    tgHeader.style.display = 'none';
+    tgOnlyEls.forEach(el => el.style.display = 'none');
+  }
 }
 
+/* ── Filters ── */
+function setEnabled(val) {
+  document.getElementById('hEnabled').value = val;
+  document.getElementById('filterForm').submit();
+}
+function toggleAdvanced() {
+  document.getElementById('advPanel').classList.toggle('hidden');
+}
+
+/* ── Selection ── */
+function selectedIds() {
+  return Array.from(document.querySelectorAll(".channelCk:checked")).map(x => parseInt(x.dataset.channelId, 10));
+}
 function onSelectionChange() {
   const ids = selectedIds();
-  const bar = document.getElementById("bulkBar");
   document.getElementById("selectedCount").textContent = ids.length;
-  if (ids.length) bar.classList.remove("hidden"); else bar.classList.add("hidden");
+  document.getElementById("bulkBar").classList.toggle("hidden", ids.length === 0);
 }
-
 function toggleSelectAll(checked) {
-  document.querySelectorAll(".channelCk").forEach((ck) => { ck.checked = checked; });
+  document.querySelectorAll(".channelCk").forEach(ck => { ck.checked = checked; });
   onSelectionChange();
 }
-
 function clearSelection() {
   document.getElementById("selectAll").checked = false;
-  document.querySelectorAll(".channelCk").forEach((ck) => { ck.checked = false; });
+  document.querySelectorAll(".channelCk").forEach(ck => { ck.checked = false; });
   onSelectionChange();
 }
 
-function toggleChannel(channelId) {
-  fetch(`/api/channels/${channelId}/toggle`, { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-      location.reload();
-    })
-    .catch(err => {
-      alert('Ошибка: ' + err.message);
-    });
+/* ── Telegram actions ── */
+function toggleChannel(id) {
+  fetch(`/api/channels/${id}/toggle`, { method: 'POST' }).then(() => location.reload()).catch(err => alert('Error: ' + err.message));
+}
+function refreshAI(id) {
+  fetch(`/api/channels/${id}/refresh-ai`, { method: 'POST' }).then(() => location.reload()).catch(err => alert('Error: ' + err.message));
+}
+function fetchLast5(id) {
+  fetch(`/api/channels/${id}/fetch-last-5`, { method: 'POST' }).then(r => r.json()).then(data => {
+    alert(`Done. Scanned: ${data.scanned}, saved: ${data.saved}`);
+    location.reload();
+  }).catch(err => alert('Error: ' + err.message));
+}
+function deleteChannel(id, name) {
+  if (!confirm(`Delete source "${name}"?`)) return;
+  fetch(`/api/channels/${id}/delete`, { method: 'POST' }).then(() => location.reload()).catch(err => alert('Error: ' + err.message));
 }
 
-function toggleMenu(id) {
-  const el = document.getElementById(`menu-${id}`);
-  el.classList.toggle('hidden');
-}
-
-document.addEventListener('click', () => {
-  document.querySelectorAll("[id^='menu-']").forEach((el) => el.classList.add('hidden'));
-});
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    const m = document.getElementById('chModal');
-    if (m && !m.classList.contains('hidden')) closeChannel();
+/* ── Web source actions ── */
+async function syncWebSource(id) {
+  const btn = document.getElementById('syncBtn-' + id);
+  if (btn) btn.innerHTML = '<span class="sync-spinner"></span>';
+  try {
+    const res = await fetch(`/api/web-sources/${id}/sync`, { method: 'POST' });
+    const data = await res.json();
+    alert(`Sync complete. Added: ${data.added}, Skipped: ${data.skipped}, Errors: ${data.errors?.length || 0}`);
+    location.reload();
+  } catch (e) {
+    alert('Sync error: ' + e.message);
+    location.reload();
   }
-});
-
-function deleteChannel(channelId, channelName) {
-  if (!confirm(`Удалить канал "${channelName}"?`)) return;
-  
-  fetch(`/api/channels/${channelId}/delete`, { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-      location.reload();
-    })
-    .catch(err => {
-      alert('Ошибка: ' + err.message);
-    });
+}
+function toggleWebSource(id) {
+  fetch(`/api/web-sources/${id}/toggle`, { method: 'POST' }).then(() => location.reload()).catch(err => alert('Error: ' + err.message));
 }
 
-function refreshAI(channelId) {
-  fetch(`/api/channels/${channelId}/refresh-ai`, { method: 'POST' })
-    .then(r => r.json())
-    .then(data => location.reload())
-    .catch(err => alert('Ошибка: ' + err.message));
-}
-
-function fetchLast5(channelId) {
-  fetch(`/api/channels/${channelId}/fetch-last-5`, { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-      alert(`Готово. Просканировано: ${data.scanned}, сохранено вакансий: ${data.saved}`);
-      location.reload();
-    })
-    .catch(err => alert('Ошибка: ' + err.message));
-}
-
+/* ── Bulk ── */
 async function bulkRefreshAI() {
-  const ids = selectedIds();
-  if (!ids.length) return;
-  const res = await fetch(`/api/channels/bulk/refresh-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
-  if (res.ok) location.reload();
+  const ids = selectedIds(); if (!ids.length) return;
+  await fetch('/api/channels/bulk/refresh-ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+  location.reload();
 }
-
 async function bulkFetchLast5() {
-  const ids = selectedIds();
-  if (!ids.length) return;
-  const res = await fetch(`/api/channels/bulk/fetch-last-5`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+  const ids = selectedIds(); if (!ids.length) return;
+  const res = await fetch('/api/channels/bulk/fetch-last-5', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
   const data = await res.json().catch(() => null);
-  alert(`Готово. Просканировано: ${data?.scanned ?? 0}, сохранено вакансий: ${data?.saved ?? 0}`);
+  alert(`Done. Scanned: ${data?.scanned ?? 0}, saved: ${data?.saved ?? 0}`);
+  location.reload();
+}
+async function bulkSetEnabled(enabled) {
+  const ids = selectedIds(); if (!ids.length) return;
+  await fetch('/api/channels/bulk/toggle-enabled', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, enabled }) });
+  location.reload();
+}
+async function bulkNormalize() {
+  const ids = selectedIds(); if (!ids.length) return alert('Select sources first');
+  await fetch('/api/channels/bulk/normalize-ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
   location.reload();
 }
 
-async function bulkSetEnabled(enabled) {
-  const ids = selectedIds();
-  if (!ids.length) return;
-  const res = await fetch(`/api/channels/bulk/toggle-enabled`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, enabled }) });
-  if (res.ok) location.reload();
+/* ── Modal ── */
+function showAddModal() { document.getElementById('addModal').classList.remove('hidden'); document.body.classList.add('overflow-hidden'); }
+function hideAddModal() { document.getElementById('addModal').classList.add('hidden'); document.body.classList.remove('overflow-hidden'); }
+
+/* ── Pane helpers ── */
+function _openPane() {
+  const list = document.getElementById('chList');
+  const pane = document.getElementById('chPane');
+  list.classList.remove('w-full'); list.classList.add('w-1/2');
+  pane.classList.remove('hidden'); pane.classList.add('flex');
 }
 
-async function bulkNormalize() {
-  const ids = selectedIds();
-  // allow empty -> normalize all? here keep selected only
-  if (!ids.length) return alert('Выбери каналы');
-  const res = await fetch(`/api/channels/bulk/normalize-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
-  if (res.ok) location.reload();
+function paneSyncAction() {
+  if (currentPaneType === 'telegram' && openChannelId) refreshAI(openChannelId);
+  if (currentPaneType === 'web' && openWebSourceId) syncWebSource(openWebSourceId);
+}
+function paneFetchAction() {
+  if (currentPaneType === 'telegram' && openChannelId) fetchLast5(openChannelId);
 }
 
-function showAddChannelModal() {
-  document.getElementById('addChannelModal').classList.remove('hidden');
-}
+/* ── Web source pane ── */
+async function openWebSourcePane(id) {
+  openWebSourceId = id;
+  openChannelId = null;
+  currentPaneType = 'web';
 
-function hideAddChannelModal() {
-  document.getElementById('addChannelModal').classList.add('hidden');
-}
-
-async function openChannel(id) {
-  const res = await fetch(`/api/channels/${id}`);
-  if (!res.ok) return;
-  const ch = await res.json();
-  document.getElementById('chTitle').textContent = ch.title || ch.username || '—';
-  const u = document.getElementById('chUsername');
-  if (ch.username) {
-    u.textContent = '@' + ch.username;
-    u.href = 'https://t.me/' + ch.username;
-    u.classList.remove('hidden');
-  } else {
-    u.classList.add('hidden');
-  }
-  document.getElementById('chBio').textContent = ch.bio || '';
-  document.getElementById('chMembers').textContent = ch.members_count ?? '—';
-  document.getElementById('chEnabled').textContent = ch.enabled ? 'ON' : 'OFF';
-  const badges = document.getElementById('chBadges');
-  badges.innerHTML = '';
-  (ch.ai_domains || []).forEach((d) => {
-    const s = document.createElement('span');
-    s.className = 'px-2 py-0.5 text-xs bg-slate-800 rounded text-slate-200 border border-slate-700';
-    s.textContent = d;
-    badges.appendChild(s);
+  // Highlight
+  document.querySelectorAll('[id^="ch-card-"], [id^="ws-card-"]').forEach(el => {
+    el.classList.toggle('ring-1', el.id === 'ws-card-' + id);
+    el.classList.toggle('ring-accent', el.id === 'ws-card-' + id);
   });
-  (ch.ai_tags || []).slice(0, 10).forEach((t) => {
-    const s = document.createElement('span');
-    s.className = 'px-2 py-0.5 text-xs bg-slate-800/60 rounded text-slate-200 border border-slate-700';
-    s.textContent = t;
-    badges.appendChild(s);
+
+  _openPane();
+
+  // Hide telegram-specific pane buttons
+  document.getElementById('paneFetchBtn').classList.add('hidden');
+  document.getElementById('secSyncResult').classList.add('hidden');
+
+  // Fetch source info
+  let sources;
+  try {
+    const res = await fetch('/api/web-sources');
+    sources = await res.json();
+  } catch (e) { alert('Error: ' + e.message); return; }
+
+  const ws = sources.find(s => s.id === id);
+  if (!ws) { alert('Source not found'); return; }
+
+  // Icon
+  const icon = document.getElementById('pIcon');
+  icon.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>';
+  icon.className = 'w-10 h-10 rounded-lg flex items-center justify-center flex-none text-lg font-bold bg-blue-900/30 text-blue-400';
+
+  document.getElementById('pTitle').textContent = ws.name;
+  const link = document.getElementById('pLink');
+  link.textContent = ws.url;
+  link.href = ws.url;
+  link.classList.remove('hidden');
+
+  // Badges
+  const badges = document.getElementById('pBadges');
+  badges.innerHTML = '';
+  badges.insertAdjacentHTML('beforeend',
+    `<span class="badge badge-neutral" style="border-color:rgba(96,165,250,0.3);color:#60a5fa">Web Source</span>`);
+  badges.insertAdjacentHTML('beforeend', ws.enabled
+    ? `<span class="badge badge-domain">syncing ON</span>`
+    : `<span class="badge badge-neutral">syncing OFF</span>`);
+  badges.insertAdjacentHTML('beforeend',
+    `<span class="badge badge-neutral">every ${ws.sync_interval_minutes / 60}h</span>`);
+
+  // Stats
+  const stats = document.getElementById('pStats');
+  const lastSync = ws.last_synced_at ? new Date(ws.last_synced_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never';
+  stats.innerHTML = `
+    <span>Vacancies: <span class="text-slate-200 font-medium">${ws.vacancies_count}</span></span>
+    <span>Last sync: <span class="text-slate-200">${lastSync}</span></span>
+    <span>Parser: <span class="text-slate-200">${esc(ws.parser_type)}</span></span>
+  `;
+
+  // Hide bio & tags for web sources
+  document.getElementById('secBio').classList.add('hidden');
+  document.getElementById('secTags').classList.add('hidden');
+
+  // Load vacancies
+  const vacList = document.getElementById('pVacancies');
+  const vacCountEl = document.getElementById('pVacCount');
+  vacList.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">Loading...</div>';
+
+  try {
+    const vRes = await fetch(`/api/web-sources/${id}/vacancies?per_page=20`);
+    const vData = await vRes.json();
+    vacCountEl.textContent = `showing ${vData.items.length} of ${vData.total}`;
+
+    if (vData.items.length === 0) {
+      vacList.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">No vacancies yet — click sync to fetch</div>';
+    } else {
+      vacList.innerHTML = '';
+      vData.items.forEach(v => {
+        const scoreColor = v.ai_score_value == null ? 'text-slate-500' :
+          v.ai_score_value <= 3 ? 'text-red-400' :
+          v.ai_score_value <= 7 ? 'text-blue-400' : 'text-emerald-400';
+        const scoreStr = v.ai_score_value != null ? v.ai_score_value : '—';
+        const domains = (v.domains || []).map(d => `<span class="badge badge-domain" style="font-size:10px;padding:1px 6px">${esc(d)}</span>`).join('');
+        const date = v.created_at ? _relTime(new Date(v.created_at)) : '';
+
+        vacList.insertAdjacentHTML('beforeend', `
+          <div class="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.05] transition cursor-pointer group"
+               onclick="goToVacancy(${v.id})">
+            <span class="text-sm font-semibold tabular-nums ${scoreColor} w-8 text-center flex-none">${scoreStr}</span>
+            <div class="min-w-0 flex-1">
+              <div class="text-sm text-slate-200 truncate group-hover:text-white transition">${esc(v.title || 'Untitled')}</div>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                ${v.company_name ? `<span class="text-[10px] text-slate-500">${esc(v.company_name)}</span>` : ''}
+                ${domains}
+              </div>
+            </div>
+            <span class="text-[10px] text-slate-600 flex-none">${date}</span>
+          </div>
+        `);
+      });
+    }
+  } catch (e) {
+    vacList.innerHTML = `<div class="text-xs text-red-400 text-center py-4">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+/* ── Telegram channel pane ── */
+async function openChannelPane(id) {
+  openChannelId = id;
+  openWebSourceId = null;
+  currentPaneType = 'telegram';
+
+  document.querySelectorAll('[id^="ch-card-"], [id^="ws-card-"]').forEach(el => {
+    el.classList.toggle('ring-1', el.id === 'ch-card-' + id);
+    el.classList.toggle('ring-accent', el.id === 'ch-card-' + id);
+  });
+
+  _openPane();
+  document.getElementById('paneFetchBtn').classList.remove('hidden');
+  document.getElementById('secSyncResult').classList.add('hidden');
+
+  let ch;
+  try {
+    const res = await fetch(`/api/channels/${id}`);
+    if (!res.ok) { alert('Failed to load channel details'); return; }
+    ch = await res.json();
+  } catch(e) { alert('Error loading channel: ' + e.message); return; }
+
+  const icon = document.getElementById('pIcon');
+  const letter = ((ch.username || ch.title || '#')[0] || '#').toUpperCase();
+  icon.textContent = letter;
+  icon.className = 'w-10 h-10 rounded-lg flex items-center justify-center flex-none text-lg font-bold ' +
+    (ch.enabled ? 'bg-emerald-900/30 text-emerald-400' : 'bg-slate-800 text-slate-500');
+
+  document.getElementById('pTitle').textContent = ch.title || ch.username || '—';
+  const link = document.getElementById('pLink');
+  if (ch.username) {
+    link.textContent = '@' + ch.username;
+    link.href = 'https://t.me/' + ch.username;
+    link.classList.remove('hidden');
+  } else { link.classList.add('hidden'); }
+
+  const badges = document.getElementById('pBadges');
+  badges.innerHTML = '';
+  (ch.ai_domains || []).forEach(d => {
+    badges.insertAdjacentHTML('beforeend', `<span class="badge badge-domain">${esc(d)}</span>`);
   });
   if (ch.ai_risk_label === 'high-risk') {
-    const s = document.createElement('span');
-    s.className = 'px-2 py-0.5 text-xs bg-red-900/30 rounded text-red-300 border border-red-700/50';
-    s.textContent = 'high-risk';
-    badges.appendChild(s);
+    badges.insertAdjacentHTML('beforeend', `<span class="badge badge-risk">high-risk</span>`);
+  }
+  badges.insertAdjacentHTML('beforeend', ch.enabled
+    ? `<span class="badge badge-domain">parsing ON</span>`
+    : `<span class="badge badge-neutral">parsing OFF</span>`);
+
+  const stats = document.getElementById('pStats');
+  const membersStr = ch.members_count != null ? ch.members_count.toLocaleString() : '—';
+  const tgIdStr = ch.tg_id != null ? String(ch.tg_id) : '—';
+  const createdStr = ch.created_at ? new Date(ch.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+  const totalVac = ch.total_vacancies ?? 0;
+  stats.innerHTML = `
+    <span>Members: <span class="text-slate-200 font-medium">${membersStr}</span></span>
+    <span>Vacancies: <span class="text-slate-200 font-medium">${totalVac}</span></span>
+    <span>TG ID: <span class="text-slate-200">${tgIdStr}</span></span>
+    <span>Added: <span class="text-slate-200">${createdStr}</span></span>
+  `;
+
+  const bioEl = document.getElementById('pBio');
+  const bioSec = document.getElementById('secBio');
+  if (ch.bio) { bioEl.textContent = ch.bio; bioSec.classList.remove('hidden'); }
+  else { bioSec.classList.add('hidden'); }
+
+  const tagsSec = document.getElementById('secTags');
+  const tagsEl = document.getElementById('pTags');
+  const tags = (ch.ai_tags || []).filter(t => !t.startsWith('contact:'));
+  const contacts = (ch.ai_tags || []).filter(t => t.startsWith('contact:')).map(t => t.replace('contact:', ''));
+  if (tags.length || contacts.length) {
+    tagsEl.innerHTML = '';
+    tags.forEach(t => { tagsEl.insertAdjacentHTML('beforeend', `<span class="badge badge-neutral">${esc(t)}</span>`); });
+    contacts.forEach(c => { tagsEl.insertAdjacentHTML('beforeend', `<span class="badge badge-grade">${esc(c)}</span>`); });
+    tagsSec.classList.remove('hidden');
+  } else { tagsSec.classList.add('hidden'); }
+
+  const vacList = document.getElementById('pVacancies');
+  const vacCountEl = document.getElementById('pVacCount');
+  vacCountEl.textContent = `showing ${(ch.latest_vacancies || []).length} of ${totalVac}`;
+
+  if ((ch.latest_vacancies || []).length === 0) {
+    vacList.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">No vacancies from this source</div>';
+  } else {
+    vacList.innerHTML = '';
+    (ch.latest_vacancies || []).forEach(v => {
+      const scoreColor = v.score == null ? 'text-slate-500' :
+        v.score <= 3 ? 'text-red-400' :
+        v.score <= 7 ? 'text-blue-400' : 'text-emerald-400';
+      const scoreStr = v.score != null ? (v.score % 1 === 0 ? v.score.toFixed(0) : v.score.toFixed(1)) : '—';
+      const domains = (v.domains || []).map(d => `<span class="badge badge-domain" style="font-size:10px;padding:1px 6px">${esc(d)}</span>`).join('');
+      const date = v.created_at ? _relTime(new Date(v.created_at)) : '';
+      const company = v.company_name ? `<span class="text-[10px] text-slate-500">${esc(v.company_name)}</span>` : '';
+      const sen = v.seniority ? `<span class="text-[10px] text-violet-300">${esc(v.seniority)}</span>` : '';
+
+      vacList.insertAdjacentHTML('beforeend', `
+        <div class="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.05] transition cursor-pointer group"
+             onclick="goToVacancy(${v.id})">
+          <span class="text-sm font-semibold tabular-nums ${scoreColor} w-8 text-center flex-none">${scoreStr}</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm text-slate-200 truncate group-hover:text-white transition">${esc(v.title || 'Untitled')}</div>
+            <div class="flex items-center gap-1.5 mt-0.5">${company}${sen}${domains}</div>
+          </div>
+          <span class="text-[10px] text-slate-600 flex-none">${date}</span>
+        </div>
+      `);
+    });
   }
 
-  const list = document.getElementById('chVacancies');
-  list.innerHTML = '';
-  (ch.latest_vacancies || []).forEach((v) => {
-    const btn = document.createElement('button');
-    btn.className = 'w-full text-left px-3 py-2 bg-slate-900 border border-slate-800 rounded hover:bg-slate-800/40 transition';
-    btn.textContent = (v.title || '—') + (v.company_name ? ` · ${v.company_name}` : '');
-    btn.onclick = async () => {
-      // reuse vacancy modal from vacancies page is not available here, so open API details in new tab
-      window.open(`/vacancies?search=${encodeURIComponent(v.title || '')}`, '_blank');
-    };
-    list.appendChild(btn);
+  const card = document.getElementById('ch-card-' + id);
+  if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function goToVacancy(vacId) { window.open('/vacancies?open_vacancy_id=' + vacId, '_blank'); }
+
+function closePane() {
+  openChannelId = null;
+  openWebSourceId = null;
+  currentPaneType = null;
+  const list = document.getElementById('chList');
+  const pane = document.getElementById('chPane');
+  list.classList.remove('w-1/2'); list.classList.add('w-full');
+  pane.classList.add('hidden'); pane.classList.remove('flex');
+  document.querySelectorAll('[id^="ch-card-"], [id^="ws-card-"]').forEach(el => {
+    el.classList.remove('ring-1', 'ring-accent');
   });
-
-  const m = document.getElementById('chModal');
-  m.classList.remove('hidden');
-  m.classList.add('flex');
-  // lock background scroll
-  document.body.style.overflow = 'hidden';
 }
 
-function closeChannel() {
-  const m = document.getElementById('chModal');
-  m.classList.add('hidden');
-  m.classList.remove('flex');
-  document.body.style.overflow = '';
-}
-</script>
-<script>
-  // Deep-link support: /channels?open_channel_id=<id>
-  // Used by the parser logs page.
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const openId = params.get("open_channel_id");
-    if (openId) {
-      const id = parseInt(openId, 10);
-      if (!Number.isNaN(id)) {
-        setTimeout(() => openChannel(id), 0);
-      }
-    }
-  } catch {}
-</script>
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-<!-- Channel Modal -->
-<div id="chModal" class="hidden fixed inset-0 bg-black/70 items-center justify-center z-50 p-6"
-     onclick="closeChannel()">
-  <div class="bg-slate-950 border border-slate-800 rounded-xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden"
-       onclick="event.stopPropagation()">
-    <div class="p-5 border-b border-slate-800 flex items-start justify-between gap-3 sticky top-0 bg-slate-950">
-      <div class="min-w-0">
-        <div class="text-lg font-semibold" id="chTitle">—</div>
-        <a id="chUsername" class="text-sm text-slate-400 hover:text-white underline hidden" target="_blank" rel="noreferrer"></a>
-        <div class="mt-2 flex flex-wrap gap-2" id="chBadges"></div>
-        <div class="mt-2 text-xs text-slate-500">Подписчики: <span id="chMembers"></span> · Парсинг: <span id="chEnabled"></span></div>
-      </div>
-      <button onclick="closeChannel()" class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition">Закрыть</button>
-    </div>
-    <div class="p-5 overflow-y-auto">
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-        <div class="text-sm font-semibold mb-2">Описание</div>
-        <div class="text-sm text-slate-300 whitespace-pre-wrap" id="chBio"></div>
-      </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-        <div class="text-sm font-semibold mb-2">Последние вакансии</div>
-        <div class="space-y-2" id="chVacancies"></div>
-      </div>
-      </div>
-    </div>
-  </div>
-</div>
+function _relTime(date) {
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 60) return 'just now';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  if (secs < 2592000) return Math.floor(secs / 86400) + 'd ago';
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePane(); });
+
+try {
+  const openId = new URLSearchParams(window.location.search).get('open_channel_id');
+  if (openId) setTimeout(() => openChannelPane(parseInt(openId, 10)), 0);
+} catch {}
+</script>
 {% endblock %}

@@ -1,7 +1,11 @@
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
+import json
+import math
 import secrets
+
+from markupsafe import Markup
 
 from fastapi import FastAPI, Request, Query, Form, Depends, HTTPException, status, Header
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -13,8 +17,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from telethon import TelegramClient
 from telethon.tl.functions.channels import GetFullChannelRequest
 
-from jobeco.db.session import SessionLocal
-from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage, ParserLog, Company
+from jobeco.db.session import SessionLocal, engine
+from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage, ParserLog, Company, WebSource
 from jobeco.settings import settings
 from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text, score_vacancy_with_openrouter, resolve_company_info, enrich_company_profile
 from jobeco.processing.pipeline import upsert_company, _boost_company_score
@@ -27,7 +31,53 @@ from jobeco.runtime_settings import (
 from jobeco.auth.passwords import hash_password_pbkdf2, verify_password_pbkdf2
 
 
-app = FastAPI(title="Job-Eco Admin")
+import asyncio as _asyncio
+from contextlib import asynccontextmanager
+
+from jobeco.parsers.degencryptojobs import sync_source as degen_sync, ensure_source_record
+from jobeco.db.base import Base as _SABase
+import structlog as _structlog
+
+_bg_log = _structlog.get_logger()
+
+
+async def _web_sources_scheduler():
+  """Background loop: sync enabled web sources on their configured interval."""
+  await _asyncio.sleep(10)  # let the app finish startup
+  while True:
+    try:
+      async with SessionLocal() as s:
+        sources = (await s.execute(
+          select(WebSource).where(WebSource.enabled == True)
+        )).scalars().all()
+      for src in sources:
+        if src.last_synced_at:
+          elapsed = (datetime.now(timezone.utc) - src.last_synced_at).total_seconds()
+          if elapsed < src.sync_interval_minutes * 60:
+            continue
+        _bg_log.info("web_source_sync_start", slug=src.slug)
+        try:
+          if src.parser_type == "degencryptojobs":
+            await degen_sync(max_pages=src.max_pages, limit=20)
+        except Exception as e:
+          _bg_log.error("web_source_sync_error", slug=src.slug, error=str(e))
+    except Exception as e:
+      _bg_log.error("scheduler_loop_error", error=str(e))
+    await _asyncio.sleep(300)
+
+
+@asynccontextmanager
+async def lifespan(app):
+  # Create web_sources table if missing
+  async with engine.begin() as conn:
+    await conn.run_sync(lambda c: _SABase.metadata.create_all(c, tables=[WebSource.__table__], checkfirst=True))
+  await ensure_source_record()
+  task = _asyncio.create_task(_web_sources_scheduler())
+  yield
+  task.cancel()
+
+
+app = FastAPI(title="Job-Eco Admin", lifespan=lifespan)
 # Stable secret key is required for sessions to survive restarts.
 _session_secret = settings.session_secret_key or settings.openrouter_api_key or "jobeco_session_dev_secret"
 app.add_middleware(SessionMiddleware, secret_key=_session_secret)
@@ -271,7 +321,8 @@ async def _enforce_api_key_limits_and_log(
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-  # Для HTML запросов на 401 делаем редирект на /login, чтобы не показывать JSON.
+  if request.url.path.startswith("/api/public/"):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
   if exc.status_code == 401:
     accept = request.headers.get("accept", "")
     if "text/html" in accept or "*/*" in accept or accept == "":
@@ -463,7 +514,13 @@ async def settings_save(
 async def dashboard(request: Request, _: bool = Depends(require_auth)):
   async with SessionLocal() as s:
     total_vacancies = (await s.execute(select(func.count(Vacancy.id)))).scalar() or 0
-    total_channels = (await s.execute(select(func.count(Channel.id)))).scalar() or 0
+    tg_channels = (await s.execute(select(func.count(Channel.id)))).scalar() or 0
+    web_sources_cnt = 0
+    try:
+      web_sources_cnt = (await s.execute(select(func.count(WebSource.id)))).scalar() or 0
+    except Exception:
+      pass
+    total_channels = tg_channels + web_sources_cnt
     
     # Статистика по доменам (domains[] из vacancies)
     domain_stats_rows = (
@@ -525,6 +582,7 @@ async def vacancies_page(
   employment_type: str | None = Query(None),
   score_min: str | None = Query(None),
   score_max: str | None = Query(None),
+  sort_by: str = Query("date_desc"),
 ):
   async with SessionLocal() as s:
     vacancies: list[object]
@@ -611,7 +669,7 @@ async def vacancies_page(
         where.append("lower(v.seniority) = :seniority")
         params["seniority"] = seniority_val
       if employment_type_val:
-        where.append("v.metadata_json->>'employment_type' = :employment_type")
+        where.append("v.metadata->>'employment_type' = :employment_type")
         params["employment_type"] = employment_type_val
       if score_min_val is not None:
         where.append("v.ai_score_value >= :score_min")
@@ -622,6 +680,20 @@ async def vacancies_page(
 
       where_sql = " AND ".join(where)
       sql_count = f"SELECT count(*) FROM vacancies v WHERE {where_sql}"
+
+      _sort_map_sql = {
+        "date_desc": "v.id DESC",
+        "date_asc": "v.id ASC",
+        "salary_desc": "COALESCE(v.salary_max_usd, 0) DESC, v.id DESC",
+        "salary_asc": "COALESCE(v.salary_min_usd, 999999999) ASC, v.id DESC",
+        "score_desc": "COALESCE(v.ai_score_value, 0) DESC, v.id DESC",
+        "score_asc": "COALESCE(v.ai_score_value, 0) ASC, v.id DESC",
+        "relevance": "v.embedding <=> (:vec)::vector ASC",
+      }
+      order_clause = _sort_map_sql.get(sort_by, _sort_map_sql.get("relevance", "v.id DESC"))
+      if sort_by == "date_desc" and effective_mode == "semantic":
+        order_clause = _sort_map_sql["relevance"]
+
       sql_select = f"""
         SELECT
           v.id,
@@ -647,7 +719,7 @@ async def vacancies_page(
         FROM vacancies v
         LEFT JOIN companies c ON c.id = v.company_id
         WHERE {where_sql}
-        ORDER BY v.embedding <=> (:vec)::vector ASC
+        ORDER BY {order_clause}
         LIMIT :limit OFFSET :offset
       """
 
@@ -705,6 +777,16 @@ async def vacancies_page(
 
       total = (await s.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
 
+      _sort_orm = {
+        "date_desc": [desc(Vacancy.id)],
+        "date_asc": [Vacancy.id],
+        "salary_desc": [desc(func.coalesce(Vacancy.salary_max_usd, 0)), desc(Vacancy.id)],
+        "salary_asc": [func.coalesce(Vacancy.salary_min_usd, 999999999), desc(Vacancy.id)],
+        "score_desc": [desc(func.coalesce(Vacancy.ai_score_value, 0)), desc(Vacancy.id)],
+        "score_asc": [func.coalesce(Vacancy.ai_score_value, 0), desc(Vacancy.id)],
+      }
+      order_cols = _sort_orm.get(sort_by, _sort_orm["date_desc"])
+
       rows_orm = (
         await s.execute(
           select(Vacancy, Company.logo_url)
@@ -712,11 +794,11 @@ async def vacancies_page(
           .outerjoin(Company, Company.id == Vacancy.company_id)
           .where(Vacancy.id.in_(
             query.with_only_columns(Vacancy.id)
-            .order_by(desc(Vacancy.id))
+            .order_by(*order_cols)
             .offset((page - 1) * per_page)
             .limit(per_page)
           ))
-          .order_by(desc(Vacancy.id))
+          .order_by(*order_cols)
         )
       ).all()
       vacancies = []
@@ -778,6 +860,7 @@ async def vacancies_page(
       "employment_type": employment_type_val,
       "score_min": score_min_val,
       "score_max": score_max_val,
+      "sort_by": sort_by,
     },
   )
 
@@ -1278,7 +1361,6 @@ async def api_public_vacancies(
   request: Request,
   page: int = Query(1, ge=1),
   per_page: int = Query(50, ge=1, le=200),
-  # Query-level filters (override key-level config if provided)
   search: str | None = Query(None),
   domains: list[str] = Query([]),
   location_type: str | None = Query(None),
@@ -1290,6 +1372,7 @@ async def api_public_vacancies(
   score_max: str | None = Query(None),
   risk_label: str | None = Query(None),
   company_name: str | None = Query(None),
+  sort: str | None = Query(None, description="Sort order: date_asc, date_desc (default), salary_asc, salary_desc, score_asc, score_desc"),
 ):
   api_key_token = (request.headers.get("X-API-Key") or "").strip()
   if not api_key_token:
@@ -1381,6 +1464,16 @@ async def api_public_vacancies(
 
     total = (await s.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
 
+    _sort_map = {
+      "date_asc": Vacancy.created_at.asc(),
+      "date_desc": Vacancy.created_at.desc(),
+      "salary_asc": Vacancy.salary_min_usd.asc().nulls_last(),
+      "salary_desc": Vacancy.salary_max_usd.desc().nulls_last(),
+      "score_asc": Vacancy.ai_score_value.asc().nulls_last(),
+      "score_desc": Vacancy.ai_score_value.desc().nulls_last(),
+    }
+    order_clause = _sort_map.get((sort or "").strip().lower(), desc(Vacancy.id))
+
     rows_orm = (
       await s.execute(
         select(Vacancy, Company.logo_url, Company.website.label("company_website_enriched"),
@@ -1391,11 +1484,11 @@ async def api_public_vacancies(
         .outerjoin(Company, Company.id == Vacancy.company_id)
         .where(Vacancy.id.in_(
           query.with_only_columns(Vacancy.id)
-          .order_by(desc(Vacancy.id))
+          .order_by(order_clause)
           .offset((page - 1) * per_page)
           .limit(per_page)
         ))
-        .order_by(desc(Vacancy.id))
+        .order_by(order_clause)
       )
     ).all()
 
@@ -1419,7 +1512,7 @@ async def api_public_vacancies(
         pass
 
       company_data = None
-      if v.company_id and row[2]:  # company_website_enriched exists
+      if v.company_id and row[2]:
         company_data = {
           "name": v.company_name,
           "website": row[2],
@@ -1455,19 +1548,24 @@ async def api_public_vacancies(
         "role": v.role,
         "domains": v.domains or [],
         "risk_label": v.risk_label,
+        "ai_score_value": getattr(v, "ai_score_value", None),
         "location_type": v.location_type,
         "salary_min_usd": v.salary_min_usd,
         "salary_max_usd": v.salary_max_usd,
+        "currency": getattr(v, "currency", None),
         "seniority": getattr(v, "seniority", None),
         "english_level": getattr(v, "english_level", None),
         "employment_type": v_meta.get("employment_type"),
         "language_requirements": v_meta.get("language_requirements"),
+        "experience_years": getattr(v, "experience_years", None),
+        "country_city": getattr(v, "country_city", None),
         "recruiter": v.recruiter,
         "summary": summary,
         "skills": v.stack or [],
         "stack": v.stack or [],
         "contacts": contacts_dict,
         "source_url": v.source_url or derived_source_url,
+        "source_channel": getattr(v, "source_channel", None),
         "created_at": v.created_at.isoformat() if v.created_at else None,
         "scoring": {
           "total_score": scoring.get("total_score"),
@@ -1502,6 +1600,9 @@ async def api_public_vacancies_semantic_search(
   score_min: str | None = Query(None),
   score_max: str | None = Query(None),
   risk_label: str | None = Query(None),
+  company_name: str | None = Query(None),
+  search: str | None = Query(None),
+  sort: str | None = Query(None, description="Sort: relevance (default), date_asc, date_desc, salary_asc, salary_desc, score_asc, score_desc"),
 ):
   """Semantic search with the same rich response as /api/public/vacancies."""
   api_key_token = (request.headers.get("X-API-Key") or "").strip()
@@ -1570,7 +1671,7 @@ async def api_public_vacancies_semantic_search(
 
     q_emp = (employment_type or "").strip().lower() or None
     if q_emp:
-      where.append("v.metadata_json->>'employment_type' = :employment_type")
+      where.append("v.metadata->>'employment_type' = :employment_type")
       params["employment_type"] = q_emp
 
     _sal_min = _safe_int(salary_min_usd) if salary_min_usd else _safe_int(key_filters.get("salary_min_usd"))
@@ -1595,18 +1696,42 @@ async def api_public_vacancies_semantic_search(
     if role_f:
       where.append("v.role ILIKE '%' || :role || '%'")
       params["role"] = str(role_f).strip()
+    recruiter_f = key_filters.get("recruiter")
+    if recruiter_f:
+      where.append("v.recruiter ILIKE '%' || :recruiter || '%'")
+      params["recruiter"] = str(recruiter_f).strip()
+
+    if company_name and company_name.strip():
+      where.append("v.company_name ILIKE '%' || :company_name || '%'")
+      params["company_name"] = company_name.strip()
+
+    if search and search.strip():
+      where.append("(v.title ILIKE '%' || :search || '%' OR v.company_name ILIKE '%' || :search || '%' OR v.raw_text ILIKE '%' || :search || '%')")
+      params["search"] = search.strip()
 
     where_sql = " AND ".join(where) if where else "TRUE"
+
+    _sort_key = (sort or "").strip().lower()
+    _sort_sql_map = {
+      "date_asc": "v.created_at ASC",
+      "date_desc": "v.created_at DESC",
+      "salary_asc": "v.salary_min_usd ASC NULLS LAST",
+      "salary_desc": "v.salary_max_usd DESC NULLS LAST",
+      "score_asc": "v.ai_score_value ASC NULLS LAST",
+      "score_desc": "v.ai_score_value DESC NULLS LAST",
+    }
+    order_sql = _sort_sql_map.get(_sort_key, "v.embedding <=> (:vec)::vector ASC")
 
     sql_count = f"SELECT count(*) FROM vacancies v WHERE {where_sql}"
     sql_select = f"""
       SELECT
         v.id, v.title, v.company_name, v.role, v.domains, v.risk_label,
         v.ai_score_value, v.location_type, v.salary_min_usd, v.salary_max_usd,
-        v.recruiter, v.summary_en, v.summary_ru, v.contacts, v.source_url,
-        v.created_at, v.description, v.responsibilities, v.requirements,
+        v.currency, v.recruiter, v.summary_en, v.summary_ru, v.contacts, v.source_url,
+        v.source_channel, v.created_at, v.description, v.responsibilities, v.requirements,
         v.conditions, v.raw_text, v.stack, v.tg_channel_username, v.tg_message_id,
-        v.seniority, v.english_level, v.metadata_json, v.company_id,
+        v.seniority, v.english_level, v.experience_years, v.country_city,
+        v.metadata AS metadata_json, v.company_id,
         c.logo_url AS company_logo_url, c.website AS company_website,
         c.industry AS company_industry, c.size AS company_size,
         c.founded AS company_founded, c.headquarters AS company_hq,
@@ -1616,7 +1741,7 @@ async def api_public_vacancies_semantic_search(
       FROM vacancies v
       LEFT JOIN companies c ON c.id = v.company_id
       WHERE {where_sql}
-      ORDER BY v.embedding <=> (:vec)::vector ASC
+      ORDER BY {order_sql}
       LIMIT :limit OFFSET :offset
     """
 
@@ -1676,19 +1801,24 @@ async def api_public_vacancies_semantic_search(
         "role": row.get("role"),
         "domains": row.get("domains") or [],
         "risk_label": row.get("risk_label"),
+        "ai_score_value": row.get("ai_score_value"),
         "location_type": row.get("location_type"),
         "salary_min_usd": row.get("salary_min_usd"),
         "salary_max_usd": row.get("salary_max_usd"),
+        "currency": row.get("currency"),
         "seniority": row.get("seniority"),
         "english_level": row.get("english_level"),
         "employment_type": v_meta.get("employment_type"),
         "language_requirements": v_meta.get("language_requirements"),
+        "experience_years": row.get("experience_years"),
+        "country_city": row.get("country_city"),
         "recruiter": row.get("recruiter"),
         "summary": summary,
         "skills": row.get("stack") or [],
         "stack": row.get("stack") or [],
         "contacts": contacts_dict,
         "source_url": row.get("source_url") or derived_source_url,
+        "source_channel": row.get("source_channel"),
         "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
         "scoring": {
           "total_score": scoring.get("total_score"),
@@ -1859,6 +1989,9 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
       "english_level": getattr(v, "english_level", None),
       "employment_type": (metadata or {}).get("employment_type"),
       "language_requirements": (metadata or {}).get("language_requirements"),
+      "source_channel": getattr(v, "source_channel", None),
+      "external_id": getattr(v, "external_id", None),
+      "tg_channel_username": getattr(v, "tg_channel_username", None),
       "company": company_data,
       "related_vacancies": related_vacancies,
     }
@@ -2072,11 +2205,34 @@ async def channels_page(
     ).all()
     domain_options = [r[0] for r in domain_rows]
 
+    # Web sources
+    web_sources_raw = (await s.execute(
+      select(WebSource).order_by(desc(WebSource.created_at))
+    )).scalars().all()
+    web_sources = []
+    for ws in web_sources_raw:
+      vac_count = (await s.execute(
+        select(func.count(Vacancy.id)).where(Vacancy.source_channel == f"web:{ws.slug}")
+      )).scalar() or 0
+      web_sources.append({
+        "id": ws.id,
+        "slug": ws.slug,
+        "name": ws.name,
+        "url": ws.url,
+        "parser_type": ws.parser_type,
+        "enabled": ws.enabled,
+        "sync_interval_minutes": ws.sync_interval_minutes,
+        "last_synced_at": ws.last_synced_at,
+        "vacancies_count": vac_count,
+        "created_at": ws.created_at,
+      })
+
   return templates.TemplateResponse(
     "channels.html",
     {
       "request": request,
       "channels": channels,
+      "web_sources": web_sources,
       "filters": {
         "search": search or "",
         "enabled": enabled or "",
@@ -2106,25 +2262,57 @@ async def get_channel_details(channel_id: int, _: bool = Depends(require_auth)):
     ch = (await s.execute(select(Channel).where(Channel.id == channel_id))).scalar_one_or_none()
     if not ch:
       raise HTTPException(status_code=404, detail="Channel not found")
-    latest = (
-      await s.execute(
-        select(Vacancy)
-        .where(or_(Vacancy.tg_channel_id == ch.tg_id, Vacancy.tg_channel_username == ch.username, Vacancy.source_channel == ch.username))
-        .order_by(desc(Vacancy.id))
-        .limit(10)
-      )
-    ).scalars().all()
+    ch_conditions = []
+    if ch.tg_id is not None:
+      ch_conditions.append(Vacancy.tg_channel_id == ch.tg_id)
+    if ch.username:
+      ch_conditions.append(Vacancy.tg_channel_username == ch.username)
+      ch_conditions.append(Vacancy.source_channel == ch.username)
+    if ch_conditions:
+      ch_filter = or_(*ch_conditions)
+      total_vac = (await s.execute(select(func.count(Vacancy.id)).where(ch_filter))).scalar() or 0
+      latest = (
+        await s.execute(
+          select(Vacancy)
+          .where(ch_filter)
+          .order_by(desc(Vacancy.id))
+          .limit(20)
+        )
+      ).scalars().all()
+    else:
+      total_vac = 0
+      latest = []
+
+  def _vac_dict(v):
+    meta = v.metadata_json or {}
+    scoring = meta.get("scoring", {}) if isinstance(meta, dict) else {}
+    ts = scoring.get("total_score") if isinstance(scoring, dict) else None
+    score = float(ts) if ts is not None else (float(v.ai_score_value) if getattr(v, "ai_score_value", None) is not None else None)
+    return {
+      "id": v.id,
+      "title": v.title,
+      "company_name": v.company_name,
+      "score": score,
+      "domains": v.domains or [],
+      "location_type": v.location_type,
+      "seniority": getattr(v, "seniority", None),
+      "created_at": v.created_at.isoformat() if v.created_at else None,
+    }
+
   return {
     "id": ch.id,
+    "tg_id": ch.tg_id,
     "username": ch.username,
     "title": ch.title,
     "bio": ch.bio,
     "members_count": ch.members_count,
     "enabled": ch.enabled,
+    "created_at": ch.created_at.isoformat() if ch.created_at else None,
     "ai_domains": getattr(ch, "ai_domains", []) or [],
     "ai_tags": getattr(ch, "ai_tags", []) or [],
     "ai_risk_label": getattr(ch, "ai_risk_label", None),
-    "latest_vacancies": [{"id": v.id, "title": v.title, "company_name": v.company_name, "created_at": v.created_at.isoformat() if v.created_at else None} for v in latest],
+    "total_vacancies": total_vac,
+    "latest_vacancies": [_vac_dict(v) for v in latest],
   }
 
 
@@ -2346,79 +2534,564 @@ async def get_last_post(channel_id: int, _: bool = Depends(require_auth)):
     }
 
 
+def _charts_json_for_template(charts: dict) -> Markup:
+  """Embed chart data in <script> without relying on Jinja's tojson filter."""
+  s = json.dumps(charts, ensure_ascii=True, default=str, separators=(",", ":"))
+  s = s.replace("<", "\\u003c").replace(">", "\\u003e")
+  return Markup(s)
+
+
+def _safe_int_count(x: object) -> int:
+  try:
+    return int(x)  # type: ignore[arg-type]
+  except (TypeError, ValueError):
+    return 0
+
+
+def _empty_analytics_charts() -> dict:
+  z = {"labels": [], "counts": []}
+  return {
+    "domains": dict(z),
+    "timeline": dict(z),
+    "sources": dict(z),
+    "seniority": dict(z),
+    "location": dict(z),
+    "employment": dict(z),
+    "titles": dict(z),
+    "risk": dict(z),
+    "scores": dict(z),
+    "english": dict(z),
+    "salary_domains": {"labels": [], "avg_mid": []},
+  }
+
+
+async def _pg_table_columns(s, table_name: str) -> set[str]:
+  rows = (
+    await s.execute(
+      text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = :t"
+      ),
+      {"t": table_name},
+    )
+  ).all()
+  return {r[0] for r in rows}
+
+
+async def _exec_text_all(s, sql: str, params: dict | None = None):
+  return (await s.execute(text(sql), params or {})).all()
+
+
+# ── Web Sources API ──────────────────────────────────────────────
+@app.get("/api/web-sources")
+async def list_web_sources(_: bool = Depends(require_auth)):
+  async with SessionLocal() as s:
+    rows = (await s.execute(
+      select(WebSource).order_by(desc(WebSource.created_at))
+    )).scalars().all()
+    result = []
+    for ws in rows:
+      vac_count = (await s.execute(
+        select(func.count(Vacancy.id)).where(Vacancy.source_channel == f"web:{ws.slug}")
+      )).scalar() or 0
+      result.append({
+        "id": ws.id,
+        "slug": ws.slug,
+        "name": ws.name,
+        "url": ws.url,
+        "parser_type": ws.parser_type,
+        "enabled": ws.enabled,
+        "sync_interval_minutes": ws.sync_interval_minutes,
+        "max_pages": ws.max_pages,
+        "last_synced_at": ws.last_synced_at.isoformat() if ws.last_synced_at else None,
+        "vacancies_count": vac_count,
+        "created_at": ws.created_at.isoformat() if ws.created_at else None,
+      })
+  return result
+
+
+@app.post("/api/web-sources/{source_id}/sync")
+async def trigger_web_source_sync(source_id: int, _: bool = Depends(require_auth)):
+  async with SessionLocal() as s:
+    ws = (await s.execute(
+      select(WebSource).where(WebSource.id == source_id)
+    )).scalar_one_or_none()
+    if not ws:
+      raise HTTPException(status_code=404, detail="Web source not found")
+    slug = ws.slug
+    parser_type = ws.parser_type
+    max_pages = ws.max_pages
+
+  if parser_type == "degencryptojobs":
+    result = await degen_sync(max_pages=max_pages, limit=20)
+  else:
+    raise HTTPException(status_code=400, detail=f"Unknown parser type: {parser_type}")
+
+  return result
+
+
+@app.post("/api/web-sources/{source_id}/toggle")
+async def toggle_web_source(source_id: int, _: bool = Depends(require_auth)):
+  async with SessionLocal() as s:
+    ws = (await s.execute(
+      select(WebSource).where(WebSource.id == source_id)
+    )).scalar_one_or_none()
+    if not ws:
+      raise HTTPException(status_code=404, detail="Web source not found")
+    ws.enabled = not ws.enabled
+    new_state = ws.enabled
+    await s.commit()
+  return {"ok": True, "enabled": new_state}
+
+
+@app.get("/api/web-sources/{source_id}/vacancies")
+async def web_source_vacancies(
+  source_id: int,
+  _: bool = Depends(require_auth),
+  page: int = Query(1, ge=1),
+  per_page: int = Query(20, ge=1, le=100),
+):
+  async with SessionLocal() as s:
+    ws = (await s.execute(
+      select(WebSource).where(WebSource.id == source_id)
+    )).scalar_one_or_none()
+    if not ws:
+      raise HTTPException(status_code=404, detail="Web source not found")
+
+    source_channel = f"web:{ws.slug}"
+    total = (await s.execute(
+      select(func.count(Vacancy.id)).where(Vacancy.source_channel == source_channel)
+    )).scalar() or 0
+
+    vacancies = (await s.execute(
+      select(Vacancy)
+      .where(Vacancy.source_channel == source_channel)
+      .order_by(desc(Vacancy.id))
+      .offset((page - 1) * per_page)
+      .limit(per_page)
+    )).scalars().all()
+
+    items = []
+    for v in vacancies:
+      items.append({
+        "id": v.id,
+        "title": v.title,
+        "company_name": v.company_name,
+        "source_url": v.source_url,
+        "ai_score_value": v.ai_score_value,
+        "salary_min_usd": v.salary_min_usd,
+        "salary_max_usd": v.salary_max_usd,
+        "domains": list(v.domains or []),
+        "seniority": v.seniority,
+        "location_type": v.location_type,
+        "created_at": v.created_at.isoformat() if v.created_at else None,
+      })
+
+  return {"total": total, "page": page, "per_page": per_page, "items": items}
+
+
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics_page(request: Request, _: bool = Depends(require_auth)):
+  category_stats: list[tuple] = []
+  channel_stats: list[tuple] = []
+  date_stats: list[tuple] = []
+  salary_stats: list[tuple] = []
+  seniority_stats: list[tuple] = []
+  location_stats: list[tuple] = []
+  employment_stats: list[tuple] = []
+  title_stats: list[tuple] = []
+  risk_stats: list[tuple] = []
+  score_stats: list[tuple] = []
+  english_stats: list[tuple] = []
+  total_vac = total_ch = last_7 = with_salary = high_risk = with_company = 0
+  charts_json = _charts_json_for_template(_empty_analytics_charts())
+
   async with SessionLocal() as s:
-    category_stats_rows = (
+    try:
+      vc = await _pg_table_columns(s, "vacancies")
+    except Exception:
+      vc = set()
+
+    total_vac = (await s.execute(select(func.count(Vacancy.id)))).scalar() or 0
+    _tg_ch = (await s.execute(select(func.count(Channel.id)))).scalar() or 0
+    _ws_ch = 0
+    try:
+      _ws_ch = (await s.execute(select(func.count(WebSource.id)))).scalar() or 0
+    except Exception:
+      pass
+    total_ch = _tg_ch + _ws_ch
+    _cut7 = datetime.now(timezone.utc) - timedelta(days=7)
+    last_7 = (await s.execute(select(func.count(Vacancy.id)).where(Vacancy.created_at >= _cut7))).scalar() or 0
+    with_salary = (
       await s.execute(
-        text(
+        select(func.count(Vacancy.id)).where(or_(Vacancy.salary_min_usd.isnot(None), Vacancy.salary_max_usd.isnot(None)))
+      )
+    ).scalar() or 0
+
+    if "risk_label" in vc:
+      try:
+        high_risk = (await s.execute(select(func.count(Vacancy.id)).where(Vacancy.risk_label == "high-risk"))).scalar() or 0
+      except Exception:
+        high_risk = 0
+    if "company_id" in vc:
+      try:
+        with_company = (await s.execute(select(func.count(Vacancy.id)).where(Vacancy.company_id.isnot(None)))).scalar() or 0
+      except Exception:
+        with_company = 0
+
+    try:
+      if "domains" in vc:
+        category_stats_rows = await _exec_text_all(
+          s,
           """
-          SELECT lower(btrim(d)) as category, count(*) as count
+          SELECT lower(btrim(d::text)) AS category, COUNT(*) AS count
           FROM vacancies v
-          CROSS JOIN LATERAL unnest(v.domains) as d
-          WHERE d IS NOT NULL AND btrim(d) <> ''
+          CROSS JOIN LATERAL unnest(v.domains) AS d
+          WHERE d IS NOT NULL AND btrim(d::text) <> ''
           GROUP BY 1
           ORDER BY count DESC
+          """,
+        )
+        category_stats = [(r.category, r.count) for r in category_stats_rows]
+      elif "domain" in vc:
+        category_stats_rows = await _exec_text_all(
+          s,
           """
+          SELECT lower(btrim(domain::text)) AS category, COUNT(*) AS count
+          FROM vacancies v
+          WHERE domain IS NOT NULL AND btrim(domain::text) <> ''
+          GROUP BY 1
+          ORDER BY count DESC
+          """,
         )
-      )
-    ).all()
-    category_stats = [(r.category, r.count) for r in category_stats_rows]
-    
-    channel_stats = (
-      await s.execute(
-        select(
-          Vacancy.tg_channel_username,
-          func.count(Vacancy.id).label("count")
+        category_stats = [(r.category, r.count) for r in category_stats_rows]
+      elif "category" in vc:
+        category_stats_rows = await _exec_text_all(
+          s,
+          """
+          SELECT lower(btrim(category::text)) AS category, COUNT(*) AS count
+          FROM vacancies v
+          WHERE category IS NOT NULL AND btrim(category::text) <> ''
+          GROUP BY 1
+          ORDER BY count DESC
+          """,
         )
-        .where(Vacancy.tg_channel_username.isnot(None))
-        .group_by(Vacancy.tg_channel_username)
-        .order_by(desc("count"))
-        .limit(20)
-      )
-    ).all()
-    
-    date_stats = (
-      await s.execute(
-        select(
-          func.date(Vacancy.created_at).label("date"),
-          func.count(Vacancy.id).label("count")
+        category_stats = [(r.category, r.count) for r in category_stats_rows]
+    except Exception:
+      category_stats = []
+
+    try:
+      if "source_channel" in vc:
+        source_stats_rows = await _exec_text_all(
+          s,
+          """
+          SELECT CASE
+                   WHEN btrim(source_channel) LIKE 'web:%%' THEN '🌐 ' || btrim(source_channel)
+                   WHEN btrim(tg_channel_username) <> '' THEN '@' || btrim(tg_channel_username)
+                   WHEN btrim(source_channel) <> '' THEN btrim(source_channel)
+                   ELSE '(unknown)'
+                 END AS src,
+                 COUNT(*) AS count
+          FROM vacancies
+          GROUP BY 1
+          ORDER BY count DESC
+          LIMIT 25
+          """,
         )
-        # NOTE: func.interval("30 days") becomes interval($1) in Postgres and breaks.
-        .where(text("vacancies.created_at >= (CURRENT_DATE - INTERVAL '30 days')"))
-        .group_by(func.date(Vacancy.created_at))
-        .order_by(desc("date"))
-      )
-    ).all()
-    
-    salary_stats_rows = (
-      await s.execute(
-        text(
+      else:
+        source_stats_rows = await _exec_text_all(
+          s,
+          """
+          SELECT COALESCE('@' || NULLIF(btrim(tg_channel_username), ''), '(unknown)') AS src,
+                 COUNT(*) AS count
+          FROM vacancies
+          GROUP BY 1
+          ORDER BY count DESC
+          LIMIT 25
+          """,
+        )
+      channel_stats = [(r.src, r.count) for r in source_stats_rows]
+    except Exception:
+      channel_stats = []
+
+    try:
+      date_stats_rows = (
+        await s.execute(
+          select(
+            func.date(Vacancy.created_at).label("date"),
+            func.count(Vacancy.id).label("count"),
+          )
+          .where(text("vacancies.created_at >= (CURRENT_DATE - INTERVAL '30 days')"))
+          .group_by(func.date(Vacancy.created_at))
+          .order_by(func.date(Vacancy.created_at).asc())
+        )
+      ).all()
+      date_stats = [(r.date, r.count) for r in date_stats_rows]
+    except Exception:
+      date_stats = []
+
+    try:
+      if "domains" in vc:
+        salary_stats_rows = await _exec_text_all(
+          s,
           """
           SELECT
-            lower(btrim(d)) as category,
-            AVG(v.salary_min_usd) as avg_min,
-            AVG(v.salary_max_usd) as avg_max,
-            COUNT(v.id) as count
+            lower(btrim(d::text)) AS category,
+            AVG(v.salary_min_usd) AS avg_min,
+            AVG(v.salary_max_usd) AS avg_max,
+            COUNT(v.id) AS count
           FROM vacancies v
-          CROSS JOIN LATERAL unnest(v.domains) as d
-          WHERE d IS NOT NULL AND btrim(d) <> ''
-          WHERE v.salary_min_usd IS NOT NULL OR v.salary_max_usd IS NOT NULL
+          CROSS JOIN LATERAL unnest(v.domains) AS d
+          WHERE d IS NOT NULL AND btrim(d::text) <> ''
+            AND (v.salary_min_usd IS NOT NULL OR v.salary_max_usd IS NOT NULL)
           GROUP BY 1
           ORDER BY count DESC
-          """
+          """,
         )
-      )
-    ).all()
-    salary_stats = [(r.category, r.avg_min, r.avg_max, r.count) for r in salary_stats_rows]
+        salary_stats = [(r.category, r.avg_min, r.avg_max, r.count) for r in salary_stats_rows]
+      elif "domain" in vc:
+        salary_stats_rows = await _exec_text_all(
+          s,
+          """
+          SELECT
+            lower(btrim(domain::text)) AS category,
+            AVG(salary_min_usd) AS avg_min,
+            AVG(salary_max_usd) AS avg_max,
+            COUNT(id) AS count
+          FROM vacancies v
+          WHERE domain IS NOT NULL AND btrim(domain::text) <> ''
+            AND (salary_min_usd IS NOT NULL OR salary_max_usd IS NOT NULL)
+          GROUP BY 1
+          ORDER BY count DESC
+          """,
+        )
+        salary_stats = [(r.category, r.avg_min, r.avg_max, r.count) for r in salary_stats_rows]
+    except Exception:
+      salary_stats = []
+
+    if "seniority" in vc:
+      try:
+        seniority_rows = (
+          await s.execute(
+            select(Vacancy.seniority, func.count(Vacancy.id).label("count"))
+            .where(Vacancy.seniority.isnot(None))
+            .where(Vacancy.seniority != "")
+            .group_by(Vacancy.seniority)
+            .order_by(desc("count"))
+            .limit(16)
+          )
+        ).all()
+        seniority_stats = [(r.seniority, r.count) for r in seniority_rows]
+      except Exception:
+        seniority_stats = []
+
+    try:
+      location_rows = (
+        await s.execute(
+          select(Vacancy.location_type, func.count(Vacancy.id).label("count"))
+          .where(Vacancy.location_type.isnot(None))
+          .where(Vacancy.location_type != "")
+          .group_by(Vacancy.location_type)
+          .order_by(desc("count"))
+        )
+      ).all()
+      location_stats = [(r.location_type, r.count) for r in location_rows]
+    except Exception:
+      location_stats = []
+
+    meta_col = "metadata_json" if "metadata_json" in vc else "metadata" if "metadata" in vc else None
+    if meta_col:
+      try:
+        employment_rows = await _exec_text_all(
+          s,
+          f"""
+          SELECT lower(btrim({meta_col}->>'employment_type')) AS et, COUNT(*) AS count
+          FROM vacancies
+          WHERE {meta_col} ? 'employment_type'
+            AND btrim(COALESCE({meta_col}->>'employment_type', '')) <> ''
+          GROUP BY 1
+          ORDER BY count DESC
+          LIMIT 12
+          """,
+        )
+        employment_stats = [(r.et, r.count) for r in employment_rows]
+      except Exception:
+        employment_stats = []
+
+    try:
+      if "title" not in vc:
+        title_stats = []
+      elif "standardized_title" in vc:
+        title_rows = await _exec_text_all(
+          s,
+          """
+          SELECT COALESCE(NULLIF(btrim(standardized_title), ''), left(btrim(COALESCE(title, '')), 56)) AS job_label,
+                 COUNT(*) AS c
+          FROM vacancies
+          WHERE COALESCE(NULLIF(btrim(standardized_title), ''), btrim(COALESCE(title, ''))) <> ''
+          GROUP BY 1
+          ORDER BY c DESC
+          LIMIT 18
+          """,
+        )
+        title_stats = [(r.job_label, r.c) for r in title_rows]
+      else:
+        title_rows = await _exec_text_all(
+          s,
+          """
+          SELECT left(btrim(COALESCE(title, '')), 56) AS job_label, COUNT(*) AS c
+          FROM vacancies
+          WHERE btrim(COALESCE(title, '')) <> ''
+          GROUP BY 1
+          ORDER BY c DESC
+          LIMIT 18
+          """,
+        )
+        title_stats = [(r.job_label, r.c) for r in title_rows]
+    except Exception:
+      title_stats = []
+
+    if "risk_label" in vc:
+      try:
+        risk_rows = await _exec_text_all(
+          s,
+          """
+          SELECT COALESCE(NULLIF(btrim(risk_label), ''), '(none)') AS r, COUNT(*) AS count
+          FROM vacancies
+          GROUP BY 1
+          ORDER BY count DESC
+          """,
+        )
+        risk_stats = [(r.r, r.count) for r in risk_rows]
+      except Exception:
+        risk_stats = []
+
+    if meta_col:
+      try:
+        score_rows = await _exec_text_all(
+          s,
+          f"""
+          SELECT bucket_id, bucket_label, COUNT(*) AS count
+          FROM (
+            SELECT
+              CASE
+                WHEN sc IS NULL THEN 0
+                WHEN sc < 3 THEN 1
+                WHEN sc < 5 THEN 2
+                WHEN sc < 7 THEN 3
+                WHEN sc < 9 THEN 4
+                ELSE 5
+              END AS bucket_id,
+              CASE
+                WHEN sc IS NULL THEN 'No score'
+                WHEN sc < 3 THEN '0 – 2.9'
+                WHEN sc < 5 THEN '3 – 4.9'
+                WHEN sc < 7 THEN '5 – 6.9'
+                WHEN sc < 9 THEN '7 – 8.9'
+                ELSE '9 – 10'
+              END AS bucket_label
+            FROM (
+              SELECT
+                CASE
+                  WHEN ({meta_col}->'scoring'->>'total_score') ~ '^[0-9]+(\\.[0-9]+)?$'
+                    THEN ({meta_col}->'scoring'->>'total_score')::double precision
+                  WHEN ai_score_value IS NOT NULL THEN ai_score_value::double precision
+                  ELSE NULL
+                END AS sc
+              FROM vacancies
+            ) s
+          ) b
+          GROUP BY bucket_id, bucket_label
+          ORDER BY bucket_id
+          """,
+        )
+        score_stats = [(r.bucket_label, r.count) for r in score_rows]
+      except Exception:
+        score_stats = []
+
+    if "english_level" in vc:
+      try:
+        english_rows = (
+          await s.execute(
+            select(Vacancy.english_level, func.count(Vacancy.id).label("count"))
+            .where(Vacancy.english_level.isnot(None))
+            .where(Vacancy.english_level != "")
+            .group_by(Vacancy.english_level)
+            .order_by(desc("count"))
+            .limit(12)
+          )
+        ).all()
+        english_stats = [(r.english_level, r.count) for r in english_rows]
+      except Exception:
+        english_stats = []
+
+    def _fmt_chart_date(d):
+      if d is None:
+        return ""
+      if hasattr(d, "strftime"):
+        return d.strftime("%Y-%m-%d")
+      return str(d)
+
+    def _safe_chart_float(x: object) -> float:
+      try:
+        v = float(x) if x is not None else 0.0
+      except (TypeError, ValueError):
+        return 0.0
+      return v if math.isfinite(v) else 0.0
+
+    _salary_mid = [
+      _safe_chart_float((mn or 0) + (mx or 0)) / 2.0
+      if mn is not None and mx is not None
+      else _safe_chart_float(mn if mn is not None else mx)
+      for _, mn, mx, _ in salary_stats
+    ]
+
+    charts = {
+      "domains": {
+        "labels": [str(c) if c is not None else "" for c, _ in category_stats],
+        "counts": [_safe_int_count(n) for _, n in category_stats],
+      },
+      "timeline": {"labels": [_fmt_chart_date(d) for d, _ in date_stats], "counts": [_safe_int_count(n) for _, n in date_stats]},
+      "sources": {"labels": [str(s) for s, _ in channel_stats], "counts": [_safe_int_count(n) for _, n in channel_stats]},
+      "seniority": {"labels": [str(x) for x, _ in seniority_stats], "counts": [_safe_int_count(n) for _, n in seniority_stats]},
+      "location": {"labels": [str(x) for x, _ in location_stats], "counts": [_safe_int_count(n) for _, n in location_stats]},
+      "employment": {"labels": [str(x) for x, _ in employment_stats], "counts": [_safe_int_count(n) for _, n in employment_stats]},
+      "titles": {"labels": [str(t) for t, _ in title_stats], "counts": [_safe_int_count(n) for _, n in title_stats]},
+      "risk": {"labels": [str(x) for x, _ in risk_stats], "counts": [_safe_int_count(n) for _, n in risk_stats]},
+      "scores": {"labels": [str(x) for x, _ in score_stats], "counts": [_safe_int_count(n) for _, n in score_stats]},
+      "english": {"labels": [str(x) for x, _ in english_stats], "counts": [_safe_int_count(n) for _, n in english_stats]},
+      "salary_domains": {
+        "labels": [str(c) for c, _, _, _ in salary_stats],
+        "avg_mid": _salary_mid,
+      },
+    }
+
+    charts_json = _charts_json_for_template(charts)
 
   return templates.TemplateResponse(
     "analytics.html",
     {
       "request": request,
+      "charts_json": charts_json,
+      "kpis": {
+        "total_vacancies": total_vac,
+        "total_channels": total_ch,
+        "last_7_days": last_7,
+        "with_salary": with_salary,
+        "high_risk": high_risk,
+        "with_company": with_company,
+      },
       "category_stats": category_stats,
       "channel_stats": channel_stats,
       "date_stats": date_stats,
       "salary_stats": salary_stats,
+      "seniority_stats": seniority_stats,
+      "location_stats": location_stats,
+      "employment_stats": employment_stats,
+      "title_stats": title_stats,
+      "risk_stats": risk_stats,
+      "score_stats": score_stats,
+      "english_stats": english_stats,
+      "charts": charts,
     },
   )

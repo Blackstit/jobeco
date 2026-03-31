@@ -1,187 +1,142 @@
-# JobEco — AI-хаб вакансий из Telegram
+# JobEco
 
-JobEco собирает вакансии из Telegram-каналов и превращает “сырые посты” в структурированные записи, которые удобно фильтровать и использовать для витрин, ботов и публикаций.
+AI-powered job vacancy aggregator that collects postings from Telegram channels and web sources, structures them with LLMs, scores quality, enriches company data, and exposes everything through a modern admin panel and public API.
 
-Проект построен вокруг связки:
-- **Telethon userbot** — читает новые сообщения в целевых каналах
-- **Pipeline** — нормализует текст, считает embeddings, дедуплицирует, запускает OpenRouter для классификации и извлечения
-- **PostgreSQL + pgvector** — хранит вакансии/каналы и векторные представления для дедупа
-- **Admin Web (FastAPI + Jinja2 + Tailwind)** — панель администратора с поиском/фильтрами/категоризацией и действиями (reanalyze, fetch last 5, delete и т.д.)
-- **OpenRouter** — LLM для анализа вакансий и каналов (domains/tags/risk + structured blocks + контакты)
+## What it does
 
-> Если на OpenRouter заканчиваются кредиты/лимиты, задачи `Re-analyze` и “fetch last 5” могут падать — это штатная ситуация. UI показывает реальную причину (например `402 Payment Required`).
+**Ingest** — A Telethon userbot monitors Telegram channels for new posts. Web parsers (e.g. degencryptojobs.com) fetch listings on a schedule. Both feed into the same processing pipeline.
 
----
+**AI Pipeline** — Each vacancy goes through:
+- Pre-validation (cheap classifier rejects ads/memes/non-vacancies)
+- Structured extraction (title, salary, stack, contacts, location, seniority, responsibilities, requirements)
+- Multi-domain tagging and risk labeling
+- 5-criterion weighted quality scoring (tasks clarity, compensation, tech stack, requirements logic, company profile)
+- Company enrichment via Perplexity AI (website, industry, size, HQ, socials, logo)
+- Embedding generation for deduplication and semantic search
 
-## Что уже умеет
+**Admin Panel** — Dark-themed dashboard with vacancy browser (split-view with filters, sorting, AI scoring breakdown), source management (Telegram channels + web sources), analytics with charts, API key management, and parser logs.
 
-### Ингест из Telegram
-- Добавляйте каналы в админке
-- Userbot отслеживает новые посты и передаёт текст в pipeline
+**Public API** — Two endpoints with API key auth, rate limiting, full filtering, sorting, and semantic vector search.
 
-### Предвалидация (дешёвый LLM-классификатор)
-- До “дорогого” анализа проверяем: это реально вакансия или реклама/инфопост/мем
-- Снижается количество мусора в базе
+## Tech stack
 
-### AI-структурирование вакансий
-LLM возвращает JSON со структурой, которую мы сохраняем в БД:
-- `domains` (несколько доменов/ниш)
-- `risk_label` (например `high-risk` как отдельный бейдж/фильтр)
-- `summary_en` для карточки
-- `description`, `responsibilities`, `requirements`, `conditions` (Markdown со списками)
-- `contacts` (только прямые контакты HR/рекрутера; фильтрация хвостов канала)
-- `standardized_title` (нормализованная должность)
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python 3.11, FastAPI, SQLAlchemy (async) |
+| Database | PostgreSQL 16 + pgvector |
+| Telegram | Telethon (userbot), Aiogram v3 (admin bot) |
+| AI/LLM | OpenRouter (GPT-4o, GPT-4o-mini), Perplexity AI |
+| Embeddings | text-embedding-3-small (1536d) |
+| Frontend | Jinja2 templates, Tailwind CSS, Chart.js |
+| Infrastructure | Docker Compose |
 
-### Дедупликация
-- embeddings + cosine similarity
-- порог задаётся в настройках (`DEDUP_THRESHOLD`)
-
-### Семантический поиск (vector)
-- public API поддерживает vector/semantic поиск по embeddings вакансий
-- endpoint: `GET /api/public/vacancies/semantic-search`
-- параметры: `q` (обязателен), `page`, `per_page`
-- сортировка: по близости (cosine distance), ближайшие первыми
-- фильтры (domains/role/recruiter/...) применяются так же, как и для `GET /api/public/vacancies` — на уровне API-ключа
-
-### Admin Web
-- Вакансии: split-view (список + правая панель деталей)
-- Каналы: поиск/фильтры/сортировка + bulk действия (массовые обновления AI/“fetch last 5”)
-- Красивый рендер списков из `Description / Responsibilities / Requirements`
-- Удобное отображение контактов и “Original text” под спойлером
-
----
-
-## Стек
-
-- **Python / FastAPI** — админ web и API
-- **SQLAlchemy (async)** — работа с БД
-- **PostgreSQL + pgvector** — хранение вакансий/каналов и векторов
-- **Telethon** — Telegram ингест
-- **Aiogram (v3)** — Telegram admin-bot
-- **OpenRouter** — LLM для классификации и извлечения данных
-- **httpx / pydantic-settings / alembic** — инфраструктура интеграций и миграций
-- **Tailwind CSS (через Jinja2 templates)** — UI админ-панели
-
----
-
-## Быстрый старт (Docker Compose)
-
-### 1) Подготовь `.env`
-Файл секретный — **не коммить**.
+## Quick start
 
 ```bash
-cd /root/job-eco
 cp env.example .env
-# отредактируй: ADMIN_BOT_TOKEN, ADMIN_IDS, TELETHON_API_ID, TELETHON_API_HASH, OPENROUTER_API_KEY
-```
+# Edit .env: set ADMIN_BOT_TOKEN, TELETHON_API_ID/HASH, OPENROUTER_API_KEY
 
-### 2) Запуск
-```bash
 docker compose up -d --build
-```
-
-### 3) Миграции (1 раз)
-```bash
 docker compose exec admin-bot alembic upgrade head
 ```
 
-### 4) Проверка
-```bash
-docker compose ps
-docker compose logs -f admin-web
+Admin panel: [http://localhost:8000](http://localhost:8000)
+
+Default password: first 8 characters of your `OPENROUTER_API_KEY`.
+
+## Architecture
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│  Telegram    │────▶│   Userbot    │────▶│                 │
+│  Channels    │     │  (Telethon)  │     │    Processing   │
+└─────────────┘     └──────────────┘     │    Pipeline     │
+                                         │                 │
+┌─────────────┐     ┌──────────────┐     │  • Classify     │
+│  Web Sources │────▶│   Parsers    │────▶│  • Extract      │
+│  (scheduled) │     │  (httpx)     │     │  • Score        │     ┌──────────┐
+└─────────────┘     └──────────────┘     │  • Enrich       │────▶│ Postgres │
+                                         │  • Embed        │     │ +pgvector│
+                                         │  • Deduplicate  │     └────┬─────┘
+                                         └─────────────────┘          │
+                                                                      │
+                    ┌──────────────┐     ┌─────────────────┐          │
+                    │  Admin Panel │◀────│   FastAPI        │◀─────────┘
+                    │  (browser)   │     │   Web Server     │
+                    └──────────────┘     │                  │
+                                         │  /api/public/*   │◀── API consumers
+                    ┌──────────────┐     │                  │
+                    │  Admin Bot   │◀────│  Aiogram v3      │
+                    │  (Telegram)  │     └─────────────────┘
+                    └──────────────┘
 ```
 
-Admin Web доступен на `http://localhost:8000`.
+## Public API
 
----
+Two endpoints, both require `X-API-Key` header:
 
-## Логин в Admin Web
+### `GET /api/public/vacancies`
 
-Текущий пароль формируется так:
-- если задан `OPENROUTER_API_KEY` — пароль = первые **8** символов ключа
-- иначе — fallback `admin123`
+Paginated list with filters and sorting.
 
-После входа можно управлять каналами и вакансией через UI.
+```bash
+curl -H "X-API-Key: YOUR_TOKEN" \
+  "https://host/api/public/vacancies?domains=web3&seniority=senior&score_min=5&sort=score_desc&per_page=10"
+```
 
----
+### `GET /api/public/vacancies/semantic-search`
 
-## Конфигурация окружения
+Vector similarity search — same filters, plus a required `q` parameter.
 
-Смотри `env.example` в корне проекта.
+```bash
+curl -H "X-API-Key: YOUR_TOKEN" \
+  "https://host/api/public/vacancies/semantic-search?q=rust+defi+backend&per_page=10"
+```
 
-Ключевые параметры:
-- **DB**: `DATABASE_URL` / `POSTGRES_*`
-- **Telegram**: `ADMIN_BOT_TOKEN`, `ADMIN_IDS`, `TELETHON_API_ID`, `TELETHON_API_HASH`
-- **Telethon session path**: `TELETHON_SESSION_PATH` (файл хранится в `./data/telethon/`)
-- **OpenRouter**:
-  - `OPENROUTER_API_KEY`
-  - `OPENROUTER_BASE_URL` (по умолчанию `https://openrouter.ai/api/v1`)
-  - `OPENROUTER_MODEL_CLASSIFIER` (по умолчанию `gpt-4o-mini`)
-  - `OPENROUTER_MODEL_ANALYZER` (по умолчанию `gpt-4o`)
-- **Embeddings / Dedup**:
-  - `EMBEDDING_MODEL`, `EMBEDDING_DIM`
-  - `DEDUP_THRESHOLD`
+**Available filters:** `domains`, `location_type`, `seniority`, `employment_type`, `salary_min_usd`, `salary_max_usd`, `score_min`, `score_max`, `risk_label`, `company_name`, `search`
 
----
+**Sort options:** `date_desc` (default), `date_asc`, `salary_desc`, `salary_asc`, `score_desc`, `score_asc`
 
-## Telethon sessions и секреты
+Each vacancy includes: structured fields, AI scoring breakdown, enriched company profile, typed contacts, and full text blocks.
 
-Telethon session хранится в `./data/telethon/`.
+Full documentation: [API.md](API.md) or `/api/docs` in the admin panel.
 
-Чтобы избежать проблем:
-- не пушь `.session` файлы в Git (они приватные)
-- убедись, что session-файл не используется параллельно несколькими сервисами
+## Project structure
 
----
+```
+apps/
+  admin_bot.py       Aiogram admin bot
+  userbot.py         Telethon channel monitor
+  web_admin.py       FastAPI admin panel + public API
+jobeco/
+  db/                SQLAlchemy models, session, base
+  openrouter/        LLM client, company enrichment
+  parsers/           Web source parsers (degencryptojobs, ...)
+  processing/        Vacancy processing pipeline
+  tg/                Telethon session management
+  settings.py        Pydantic settings from env
+templates/           Jinja2 HTML templates (Tailwind CSS)
+alembic/             Database migrations
+docker/              Dockerfile
+```
 
-## AI-формат полей (важно для UI)
+## Environment variables
 
-Для полей:
-- `description`
-- `responsibilities`
-- `requirements`
-- `conditions`
+Copy `env.example` to `.env` and configure:
 
-LLM запрашивается возвращать **Markdown со списками** вида `- item`.
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string (asyncpg) |
+| `ADMIN_BOT_TOKEN` | Telegram bot token for admin bot |
+| `ADMIN_IDS` | Comma-separated Telegram user IDs for admin access |
+| `TELETHON_API_ID` / `TELETHON_API_HASH` | Telegram API credentials for userbot |
+| `OPENROUTER_API_KEY` | OpenRouter API key for LLM calls |
+| `OPENROUTER_MODEL_ANALYZER` | Model for extraction (default: `gpt-4o`) |
+| `OPENROUTER_MODEL_CLASSIFIER` | Model for pre-validation (default: `gpt-4o-mini`) |
+| `EMBEDDING_MODEL` | Embedding model (default: `text-embedding-3-small`) |
+| `DEDUP_THRESHOLD` | Cosine similarity threshold for dedup (default: `0.95`) |
+| `SESSION_SECRET_KEY` | Secret for admin panel session cookies |
 
-Admin Web рендерит это в буллет-листы, поэтому блоки выглядят аккуратно.
+## License
 
----
-
-## Частые проблемы
-
-### `Re-analyze failed: 402 Payment Required`
-OpenRouter не может принять запрос из-за кредитов/лимитов (иногда ещё из-за слишком большого лимита max_tokens).
-
-Что сделать:
-- пополнить кредиты в OpenRouter
-- при необходимости уменьшить лимиты запроса (при желании можно настроить в коде)
-
-### `database is locked` у Telethon
-Проверь:
-- уникальность `TELETHON_SESSION_PATH` для каждого сервиса
-- отсутствие параллельного использования одной и той же `.session`
-
----
-
-## API (коротко)
-
-Основные действия доступны из UI и через JSON API:
-- `POST /api/vacancies/{vacancy_id}/reanalyze`
-- `GET /api/vacancies/{vacancy_id}`
-- `POST /api/vacancies/{vacancy_id}/delete`
-
-Эндпоинты для каналов и bulk-действия тоже есть в `apps/web_admin.py`.
-
-Публичная выдача вакансий по API-ключу:
-- `GET /api/public/vacancies`
-  - авторизация: заголовок `X-API-Key: <token>`
-  - фильтры задаются на уровне ключа в UI (`/api/keys`)
-  - пагинация: `page`, `per_page`
-  - опционально: `include_blocks=1`, `include_raw_text=1`
-- `GET /api/public/vacancies/semantic-search`
-  - авторизация: заголовок `X-API-Key: <token>`
-  - параметры: `q` (текст запроса для embedding), `page`, `per_page`
-  - сортировка: по близости embedding (cosine distance)
-
-Подробнее: `API.md`.
+Private repository. All rights reserved.

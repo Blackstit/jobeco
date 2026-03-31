@@ -4,6 +4,18 @@
 {% set _adv_count = ((domains_selected|length if domains_selected else 0) + (1 if channel else 0) + (1 if salary_min_usd is not none or salary_max_usd is not none else 0) + (1 if risk_label else 0) + (1 if seniority else 0) + (1 if employment_type else 0) + (1 if score_min is not none or score_max is not none else 0)) %}
 
 {% block content %}
+<style>
+  .source-tip { position: relative; cursor: help; }
+  .source-tip::after {
+    content: attr(data-tip);
+    position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
+    padding: 3px 8px; border-radius: 6px; font-size: 10px; white-space: nowrap;
+    background: rgba(0,0,0,0.85); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.08);
+    opacity: 0; pointer-events: none; transition: opacity .15s;
+    margin-bottom: 4px; z-index: 10;
+  }
+  .source-tip:hover::after { opacity: 1; }
+</style>
 <form method="get" action="/vacancies" id="filterForm">
   <!-- Compact search bar -->
   <div class="flex items-center gap-2 mb-3">
@@ -11,32 +23,62 @@
       <input
         type="text" name="search" id="searchInput" value="{{ search or '' }}" placeholder="Search vacancies..."
         autocomplete="off"
-        class="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-sm focus:outline-none focus:border-blue-500 placeholder-slate-500"
+        class="w-full pl-9 pr-3 py-2 input-dark text-sm"
       />
       <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
       <!-- Live suggest dropdown -->
-      <div id="suggestBox" class="hidden absolute left-0 right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-30 overflow-hidden max-h-80"></div>
+      <div id="suggestBox" class="hidden absolute left-0 right-0 top-full mt-1 bg-surface border border-white/[0.08] rounded-xl shadow-2xl z-30 overflow-hidden max-h-80"></div>
     </div>
 
     <!-- Location quick pills -->
     {% for loc_val, loc_label in [('', 'All'), ('remote', 'Remote'), ('hybrid', 'Hybrid'), ('office', 'On-site')] %}
     <button type="button" onclick="setLocation('{{ loc_val }}')"
-      class="hidden md:inline-flex px-3 py-1.5 text-xs rounded-md border transition
-        {% if location_type == loc_val %}bg-blue-600 border-blue-500 text-white{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200{% endif %}"
+      class="hidden md:inline-flex px-3 py-1.5 text-xs rounded-lg border transition
+        {% if location_type == loc_val %}pill-active{% else %}btn-ghost{% endif %}"
     >{{ loc_label }}</button>
     {% endfor %}
     <input type="hidden" name="location_type" id="hLocType" value="{{ location_type or '' }}" />
 
     <!-- Advanced toggle -->
     <button type="button" onclick="toggleAdvanced()" id="advToggle"
-      class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border transition
-        {% if _adv_count > 0 %}bg-blue-900/30 border-blue-700/40 text-blue-200{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800{% endif %}"
+      class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition
+        {% if _adv_count > 0 %}pill-active{% else %}btn-ghost{% endif %}"
     >
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
-      Filters{% if _adv_count > 0 %} <span class="px-1.5 py-0.5 text-[10px] bg-blue-600 rounded-full leading-none">{{ _adv_count }}</span>{% endif %}
+      Filters{% if _adv_count > 0 %} <span class="px-1.5 py-0.5 text-[10px] bg-accent rounded-full leading-none text-black font-medium">{{ _adv_count }}</span>{% endif %}
     </button>
 
-    <button type="submit" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-md text-xs font-medium transition">Search</button>
+    <!-- Sort dropdown -->
+    <div class="relative" id="sortWrap">
+      <input type="hidden" name="sort_by" id="hSortBy" value="{{ sort_by or 'date_desc' }}" />
+      <button type="button" onclick="toggleSortMenu()" id="sortToggle"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition
+          {% if sort_by and sort_by != 'date_desc' %}pill-active{% else %}btn-ghost{% endif %}"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>
+        <span id="sortLabel">{{ {"date_desc": "Newest", "date_asc": "Oldest", "salary_desc": "Salary ↓", "salary_asc": "Salary ↑", "score_desc": "Score ↓", "score_asc": "Score ↑"}.get(sort_by, "Newest") }}</span>
+      </button>
+      <div id="sortMenu" class="hidden absolute right-0 top-full mt-1 w-44 bg-surface border border-white/[0.08] rounded-xl overflow-hidden z-30 shadow-2xl">
+        {% for val, label, icon in [
+          ('date_desc', 'Newest first', '↓ Date'),
+          ('date_asc', 'Oldest first', '↑ Date'),
+          ('score_desc', 'Highest score', '↓ Score'),
+          ('score_asc', 'Lowest score', '↑ Score'),
+          ('salary_desc', 'Highest salary', '↓ Salary'),
+          ('salary_asc', 'Lowest salary', '↑ Salary'),
+        ] %}
+        <button type="button" onclick="setSort('{{ val }}', '{{ label }}')"
+          class="w-full text-left px-3 py-2 text-xs hover:bg-white/[0.04] transition flex items-center justify-between
+            {% if sort_by == val %}text-accent{% else %}text-slate-300{% endif %}"
+        >
+          <span>{{ label }}</span>
+          <span class="text-[10px] text-slate-600 font-mono">{{ icon }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button type="submit" class="px-4 py-1.5 btn-accent text-xs">Search</button>
 
     {% if _has_filters %}
     <a href="/vacancies" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition" title="Clear all filters">&times; Clear</a>
@@ -46,7 +88,7 @@
   </div>
 
   <!-- Advanced filters panel (collapsed by default unless active) -->
-  <div id="advPanel" class="{% if _adv_count == 0 %}hidden{% endif %} bg-slate-900/60 border border-slate-800 rounded-lg p-3 mb-3 space-y-3">
+  <div id="advPanel" class="{% if _adv_count == 0 %}hidden{% endif %} card p-4 mb-3 space-y-3">
     <!-- Row 1: Domains -->
     <div>
       <div class="text-[11px] text-slate-500 uppercase tracking-wider mb-1.5">Domains</div>
@@ -54,7 +96,7 @@
         {% for dom, count in domain_options %}
           {% set is_sel = dom in domains_selected %}
           <label class="px-2.5 py-1 text-[11px] rounded-md border cursor-pointer transition select-none
-            {% if is_sel %}bg-blue-900/40 text-blue-200 border-blue-700/40{% else %}bg-slate-800/60 text-slate-300 border-slate-700/50 hover:bg-slate-800{% endif %}"
+            {% if is_sel %}pill-active{% else %}bg-white/[0.03] text-slate-400 border-white/[0.06] hover:bg-white/[0.06] hover:text-slate-200{% endif %}"
           >
             <input type="checkbox" name="domains" value="{{ dom }}" class="hidden" {% if is_sel %}checked{% endif %} />
             {{ dom }} <span class="text-slate-500">{{ count }}</span>
@@ -68,13 +110,13 @@
       <div class="flex items-center gap-1.5">
         <span class="text-[11px] text-slate-500">Salary $</span>
         <input type="number" name="salary_min_usd" value="{{ salary_min_usd if salary_min_usd is not none else '' }}" placeholder="min"
-          class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500" />
+          class="w-20 px-2 py-1 input-dark text-xs" />
         <span class="text-slate-600">–</span>
         <input type="number" name="salary_max_usd" value="{{ salary_max_usd if salary_max_usd is not none else '' }}" placeholder="max"
-          class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500" />
+          class="w-20 px-2 py-1 input-dark text-xs" />
       </div>
 
-      <select name="channel" class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500">
+      <select name="channel" class="px-2 py-1 input-dark text-xs">
         <option value="">All channels</option>
         {% for ch, count in channels %}
         <option value="{{ ch }}" {% if channel == ch %}selected{% endif %}>{{ ch }} ({{ count }})</option>
@@ -92,7 +134,7 @@
     <div class="flex flex-wrap gap-3 items-end">
       <div>
         <span class="text-[11px] text-slate-500">Grade</span>
-        <select name="seniority" class="ml-1 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500">
+        <select name="seniority" class="ml-1 px-2 py-1 input-dark text-xs">
           <option value="">Any</option>
           {% for g in ['trainee','junior','middle','senior','lead','head','c-level'] %}
           <option value="{{ g }}" {% if seniority == g %}selected{% endif %}>{{ g|capitalize }}</option>
@@ -102,7 +144,7 @@
 
       <div>
         <span class="text-[11px] text-slate-500">Employment</span>
-        <select name="employment_type" class="ml-1 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500">
+        <select name="employment_type" class="ml-1 px-2 py-1 input-dark text-xs">
           <option value="">Any</option>
           {% for et in ['full-time','part-time','project','freelance','internship'] %}
           <option value="{{ et }}" {% if employment_type == et %}selected{% endif %}>{{ et|capitalize }}</option>
@@ -113,10 +155,10 @@
       <div class="flex items-center gap-1.5">
         <span class="text-[11px] text-slate-500">Score</span>
         <input type="number" name="score_min" min="0" max="10" value="{{ score_min if score_min is not none else '' }}" placeholder="min"
-          class="w-14 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500" />
+          class="w-14 px-2 py-1 input-dark text-xs" />
         <span class="text-slate-600">–</span>
         <input type="number" name="score_max" min="0" max="10" value="{{ score_max if score_max is not none else '' }}" placeholder="max"
-          class="w-14 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs focus:outline-none focus:border-blue-500" />
+          class="w-14 px-2 py-1 input-dark text-xs" />
       </div>
     </div>
   </div>
@@ -128,7 +170,7 @@
     <div class="space-y-3">
       {% for v in vacancies %}
       <div id="vac-card-{{ v.id }}"
-           class="bg-slate-900 border border-slate-800 rounded-lg p-4 hover:bg-slate-800/40 transition cursor-pointer"
+           class="card card-hover p-4 cursor-pointer"
            onclick="openVacancyPane({{ v.id }})">
         <div class="flex items-start justify-between gap-4">
           {% if v is mapping %}
@@ -156,32 +198,43 @@
               {% if sc is not none %}
                 {% set sc_display = "%.1f"|format(sc) if sc != (sc|int|float) else "%d"|format(sc|int) %}
                 {% if sc|float <= 3 %}
-                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-red-900/30 text-red-300 border border-red-700/50 rounded">Score {{ sc_display }}/10</span>
+                  <span id="scoreBadge-{{ v.id }}" class="badge badge-risk">Score {{ sc_display }}/10</span>
                 {% elif sc|float <= 7 %}
-                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-blue-900/30 text-blue-200 border border-blue-700/40 rounded">Score {{ sc_display }}/10</span>
+                  <span id="scoreBadge-{{ v.id }}" class="badge badge-score">Score {{ sc_display }}/10</span>
                 {% else %}
-                  <span id="scoreBadge-{{ v.id }}" class="px-2 py-0.5 text-xs bg-green-900/30 text-green-200 border border-green-700/40 rounded">Score {{ sc_display }}/10</span>
+                  <span id="scoreBadge-{{ v.id }}" class="badge badge-domain">Score {{ sc_display }}/10</span>
                 {% endif %}
               {% endif %}
               {% set _sen = v.seniority|default('') %}
               {% if _sen %}
-                <span class="px-2 py-0.5 text-xs bg-violet-900/30 rounded text-violet-200 border border-violet-700/40">{{ _sen }}</span>
+                <span class="badge badge-grade">{{ _sen }}</span>
               {% endif %}
               {% if v.domains %}
                 {% for d in v.domains %}
-                  <span class="px-2 py-0.5 text-xs bg-slate-800 rounded text-slate-200 border border-slate-700">{{ d }}</span>
+                  <span class="badge badge-domain">{{ d }}</span>
                 {% endfor %}
               {% endif %}
               {% if v.risk_label == "high-risk" %}
-                <span class="px-2 py-0.5 text-xs bg-red-900/30 rounded text-red-300 border border-red-700/50">high-risk</span>
+                <span class="badge badge-risk">high-risk</span>
               {% endif %}
             </div>
-            <div class="text-xs text-slate-400 mt-1">
-              {{ v.company_name or "" }}
-              {% if v.tg_channel_username %} · @{{ v.tg_channel_username }}{% endif %}
-              {% if v.location_type %} · {{ v.location_type }}{% endif %}
-              {% if v.salary_min_usd or v.salary_max_usd %} · {{ v.salary_min_usd or "?" }}–{{ v.salary_max_usd or "?" }} USD{% endif %}
-              {% if v.created_at %} · <span class="timeago" datetime="{{ v.created_at }}"></span>{% endif %}
+            <div class="text-xs text-slate-400 mt-1 flex items-center gap-1 flex-wrap">
+              {% set _src = v.source_channel|default('') %}
+              {% if _src and _src.startswith('web:') %}
+                <span class="inline-flex items-center gap-0.5 source-tip" data-tip="{{ _src[4:] }}">
+                  <svg class="w-3 h-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                </span>
+              {% elif v.tg_channel_username %}
+                <span class="inline-flex items-center gap-0.5 source-tip" data-tip="@{{ v.tg_channel_username }}">
+                  <svg class="w-3 h-3 text-sky-400" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                </span>
+              {% endif %}
+              <span>{{ v.company_name or "" }}</span>
+              {% if v.tg_channel_username %}<span>· @{{ v.tg_channel_username }}</span>{% endif %}
+              {% if _src and _src.startswith('web:') %}<span>· {{ _src[4:] }}</span>{% endif %}
+              {% if v.location_type %}<span>· {{ v.location_type }}</span>{% endif %}
+              {% if v.salary_min_usd or v.salary_max_usd %}<span>· {{ v.salary_min_usd or "?" }}–{{ v.salary_max_usd or "?" }} USD</span>{% endif %}
+              {% if v.created_at %}<span>· <span class="timeago" datetime="{{ v.created_at }}"></span></span>{% endif %}
             </div>
             <div class="mt-2 text-sm text-slate-200">
               {{ (v.summary_en or '') }}
@@ -194,11 +247,11 @@
 
           <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation();">
             <div class="relative">
-              <button class="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded transition" onclick="toggleVacMenu({{ v.id }})">⋯</button>
-              <div id="vac-menu-{{ v.id }}" class="hidden absolute right-0 mt-2 w-48 bg-slate-950 border border-slate-800 rounded-lg overflow-hidden z-20">
-                <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800" onclick="openSource({{ v.id }})">Source ↗</button>
-                <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800" onclick="reanalyzeVacancy({{ v.id }})">Re-analyze</button>
-                <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800 text-red-300" onclick="deleteVacancy({{ v.id }})">Delete</button>
+              <button class="px-3 py-1 text-xs btn-ghost rounded-lg" onclick="toggleVacMenu({{ v.id }})">⋯</button>
+              <div id="vac-menu-{{ v.id }}" class="hidden absolute right-0 mt-2 w-44 bg-surface border border-white/[0.08] rounded-xl overflow-hidden z-20 shadow-2xl">
+                <button class="w-full text-left px-3 py-2 text-sm hover:bg-white/[0.04] text-slate-300" onclick="openSource({{ v.id }})">Source ↗</button>
+                <button class="w-full text-left px-3 py-2 text-sm hover:bg-white/[0.04] text-slate-300" onclick="reanalyzeVacancy({{ v.id }})">Re-analyze</button>
+                <button class="w-full text-left px-3 py-2 text-sm hover:bg-white/[0.04] text-red-400" onclick="deleteVacancy({{ v.id }})">Delete</button>
               </div>
             </div>
           </div>
@@ -206,17 +259,17 @@
       </div>
       {% endfor %}
       {% if not vacancies %}
-      <div class="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-400 text-sm">
-        No vacancies
+      <div class="card p-10 text-center text-slate-500 text-sm">
+        No vacancies found
       </div>
       {% endif %}
     </div>
   </div>
 
   <!-- Details pane -->
-  <div id="vacPane" class="hidden w-1/2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden overflow-x-hidden h-full flex flex-col min-h-0">
-    <div class="p-4 border-b border-slate-800 flex items-start gap-3 bg-slate-950 flex-none">
-      <img id="pLogo" src="" alt="" class="hidden w-11 h-11 rounded-lg bg-slate-800 object-contain flex-none mt-0.5" onerror="this.classList.add('hidden')"/>
+  <div id="vacPane" class="hidden w-1/2 bg-base border border-white/[0.06] rounded-xl overflow-hidden overflow-x-hidden h-full flex flex-col min-h-0">
+    <div class="p-4 border-b border-white/[0.04] flex items-start gap-3 bg-base flex-none">
+      <img id="pLogo" src="" alt="" class="hidden w-11 h-11 rounded-lg bg-surface object-contain flex-none mt-0.5" onerror="this.classList.add('hidden')"/>
       <div class="min-w-0 flex-1">
         <div class="text-lg font-semibold" id="pTitle">—</div>
         <div class="text-sm text-slate-400 mt-1" id="pCompany"></div>
@@ -226,24 +279,24 @@
         <div class="mt-2 text-xs text-slate-500" id="pMeta"></div>
       </div>
       <div class="flex items-center gap-2 flex-none">
-        <a id="pSource" target="_blank" rel="noreferrer" class="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded transition hidden">
+        <a id="pSource" target="_blank" rel="noreferrer" class="w-9 h-9 flex items-center justify-center btn-ghost rounded-lg hidden">
           <span class="text-lg leading-none" aria-hidden>↗</span>
           <span class="sr-only">Source</span>
         </a>
-        <button class="px-3 py-2 text-sm bg-slate-800 hover:bg-slate-700 rounded transition" onclick="closeVacancyPane()">Close</button>
+        <button class="px-3 py-2 text-sm btn-ghost rounded-lg" onclick="closeVacancyPane()">Close</button>
       </div>
     </div>
     <div class="p-4 space-y-4 flex-1 min-h-0 pr-1 overflow-y-auto">
-      <div id="secSummary" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <div id="secSummary" class="card p-4">
         <div class="text-sm font-semibold mb-2">AI summary</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pSummary"></div>
       </div>
-      <div id="secScoring" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
+      <div id="secScoring" class="card p-4 hidden">
         <!-- Header: circle + summary -->
         <div class="flex items-start gap-4">
           <div class="flex-none relative" style="width:80px;height:80px">
             <svg id="scoreRing" width="80" height="80" viewBox="0 0 80 80" class="transform -rotate-90 absolute inset-0">
-              <circle cx="40" cy="40" r="34" fill="none" stroke="#1e293b" stroke-width="7"/>
+              <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="7"/>
               <circle id="scoreArc" cx="40" cy="40" r="34" fill="none" stroke="#3b82f6" stroke-width="7"
                 stroke-dasharray="213.6" stroke-dashoffset="213.6" stroke-linecap="round"
                 class="transition-all duration-700 ease-out"/>
@@ -264,35 +317,35 @@
           <div id="pScoringCriteria" class="mt-3 space-y-3"></div>
         </details>
       </div>
-      <div id="secCompanyProfile" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
+      <div id="secCompanyProfile" class="card p-4 hidden">
         <div class="text-sm font-semibold mb-2">Company Profile</div>
         <div class="text-xs text-slate-300 leading-relaxed" id="pCompanyProfileSummary"></div>
       </div>
-      <div id="secDesc" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
+      <div id="secDesc" class="card p-4 hidden">
         <div class="text-sm font-semibold mb-2">Description</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pDesc"></div>
       </div>
-      <div id="secResp" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <div id="secResp" class="card p-4">
         <div class="text-sm font-semibold mb-2">Responsibilities</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pResp"></div>
       </div>
-      <div id="secReq" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <div id="secReq" class="card p-4">
         <div class="text-sm font-semibold mb-2">Requirements</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pReq"></div>
       </div>
-      <div id="secCond" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <div id="secCond" class="card p-4">
         <div class="text-sm font-semibold mb-2">What They Offer</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pCond"></div>
       </div>
-      <div id="secContacts" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <div id="secContacts" class="card p-4">
         <div class="text-sm font-semibold mb-2">Contacts</div>
         <div class="space-y-2 text-sm" id="pContacts"></div>
       </div>
-      <div id="secRelated" class="bg-slate-900 border border-slate-800 rounded-lg p-4 hidden">
+      <div id="secRelated" class="card p-4 hidden">
         <div class="text-sm font-semibold mb-2">Other vacancies from this company</div>
         <div class="space-y-1" id="pRelated"></div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <div class="card p-4">
         <div class="text-sm font-semibold mb-2">Original text</div>
         <details class="text-sm text-slate-200">
           <summary class="cursor-pointer select-none text-slate-400">Show</summary>
@@ -304,15 +357,15 @@
   </div>
 </div>
 
-{% set _qs %}{% if search %}&search={{ search }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% for dom in domains_selected %}&domains={{ dom }}{% endfor %}{% if location_type %}&location_type={{ location_type }}{% endif %}{% if salary_min_usd is not none %}&salary_min_usd={{ salary_min_usd }}{% endif %}{% if salary_max_usd is not none %}&salary_max_usd={{ salary_max_usd }}{% endif %}{% if risk_label %}&risk_label={{ risk_label }}{% endif %}{% if seniority %}&seniority={{ seniority }}{% endif %}{% if employment_type %}&employment_type={{ employment_type }}{% endif %}{% if score_min is not none %}&score_min={{ score_min }}{% endif %}{% if score_max is not none %}&score_max={{ score_max }}{% endif %}{% endset %}
+{% set _qs %}{% if search %}&search={{ search }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% for dom in domains_selected %}&domains={{ dom }}{% endfor %}{% if location_type %}&location_type={{ location_type }}{% endif %}{% if salary_min_usd is not none %}&salary_min_usd={{ salary_min_usd }}{% endif %}{% if salary_max_usd is not none %}&salary_max_usd={{ salary_max_usd }}{% endif %}{% if risk_label %}&risk_label={{ risk_label }}{% endif %}{% if seniority %}&seniority={{ seniority }}{% endif %}{% if employment_type %}&employment_type={{ employment_type }}{% endif %}{% if score_min is not none %}&score_min={{ score_min }}{% endif %}{% if score_max is not none %}&score_max={{ score_max }}{% endif %}{% if sort_by and sort_by != 'date_desc' %}&sort_by={{ sort_by }}{% endif %}{% endset %}
 {% if total_pages > 1 %}
 <div class="mt-4 flex justify-center items-center gap-1">
   {% if page > 1 %}
-  <a href="?page={{ page - 1 }}{{ _qs }}" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-xs transition">← Prev</a>
+  <a href="?page={{ page - 1 }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">← Prev</a>
   {% endif %}
   <span class="px-3 py-1 text-xs text-slate-500">{{ page }} / {{ total_pages }}</span>
   {% if page < total_pages %}
-  <a href="?page={{ page + 1 }}{{ _qs }}" class="px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-xs transition">Next →</a>
+  <a href="?page={{ page + 1 }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">Next →</a>
   {% endif %}
 </div>
 {% endif %}
@@ -331,11 +384,11 @@ function ensureToastRoot() {
 function showToast(message, kind = "info", opts = {}) {
   const root = ensureToastRoot();
   const el = document.createElement("div");
-  const base = "flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg text-sm";
+  const base = "flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl text-sm backdrop-blur-sm";
   const styles = {
-    info: "bg-slate-950 border-slate-800 text-slate-200",
-    success: "bg-emerald-950 border-emerald-800 text-emerald-100",
-    error: "bg-red-950 border-red-800 text-red-100",
+    info: "bg-surface/95 border-white/[0.08] text-slate-200",
+    success: "bg-emerald-950/90 border-emerald-500/20 text-emerald-100",
+    error: "bg-red-950/90 border-red-500/20 text-red-100",
   };
   el.className = `${base} ${styles[kind] || styles.info}`;
 
@@ -428,7 +481,7 @@ function buildSegmentBar(score) {
     else if (i <= 5) color = "#f59e0b";
     else if (i <= 7) color = "#3b82f6";
     else color = "#22c55e";
-    const bg = active ? color : "#1e293b";
+    const bg = active ? color : "rgba(255,255,255,0.06)";
     segments.push(`<div style="flex:1;height:6px;border-radius:2px;background:${bg}" class="transition-all duration-300"></div>`);
   }
   return segments.join("");
@@ -454,7 +507,7 @@ function closeVacancyPane() {
   document.getElementById("vacPane").classList.add("hidden");
   document.getElementById("vacList").classList.remove("w-1/2");
   document.getElementById("vacList").classList.add("w-full");
-  document.querySelectorAll("[id^='vac-card-']").forEach((el) => el.classList.remove("ring-2","ring-blue-500/50"));
+  document.querySelectorAll("[id^='vac-card-']").forEach((el) => el.classList.remove("ring-1","ring-accent"));
   document.body.classList.remove("overflow-hidden");
 }
 
@@ -494,9 +547,9 @@ async function openVacancyPane(id) {
   const v = await res.json();
 
   // highlight selected
-  document.querySelectorAll("[id^='vac-card-']").forEach((el) => el.classList.remove("ring-2","ring-blue-500/50"));
+  document.querySelectorAll("[id^='vac-card-']").forEach((el) => el.classList.remove("ring-1","ring-accent"));
   const card = document.getElementById(`vac-card-${id}`);
-  if (card) card.classList.add("ring-2","ring-blue-500/50");
+  if (card) card.classList.add("ring-1","ring-accent");
 
   // open pane
   document.getElementById("vacPane").classList.remove("hidden");
@@ -572,31 +625,31 @@ async function openVacancyPane(id) {
   badges.innerHTML = "";
   if (v.seniority) {
     const sb = document.createElement("span");
-    sb.className = "px-2 py-0.5 text-xs bg-violet-900/30 rounded text-violet-200 border border-violet-700/40";
+    sb.className = "badge badge-grade";
     sb.textContent = v.seniority;
     badges.appendChild(sb);
   }
   if (v.employment_type) {
     const eb = document.createElement("span");
-    eb.className = "px-2 py-0.5 text-xs bg-amber-900/30 rounded text-amber-200 border border-amber-700/40";
+    eb.className = "badge badge-emp";
     eb.textContent = v.employment_type;
     badges.appendChild(eb);
   }
   (v.domains || []).forEach((d) => {
     const s = document.createElement("span");
-    s.className = "px-2 py-0.5 text-xs bg-slate-800 rounded text-slate-200 border border-slate-700";
+    s.className = "badge badge-domain";
     s.textContent = d;
     badges.appendChild(s);
   });
   if (v.risk_label === "high-risk") {
     const s = document.createElement("span");
-    s.className = "px-2 py-0.5 text-xs bg-red-900/30 rounded text-red-300 border border-red-700/50";
+    s.className = "badge badge-risk";
     s.textContent = "high-risk";
     badges.appendChild(s);
   }
   (v.stack || []).slice(0, 10).forEach((t) => {
     const s = document.createElement("span");
-    s.className = "px-2 py-0.5 text-xs bg-blue-900/30 rounded text-slate-200 border border-blue-700/30";
+    s.className = "badge badge-score";
     s.textContent = t;
     badges.appendChild(s);
   });
@@ -608,13 +661,13 @@ async function openVacancyPane(id) {
   if (langReqs && typeof langReqs === "object" && Object.keys(langReqs).length) {
     Object.entries(langReqs).forEach(([lang, level]) => {
       const tag = document.createElement("span");
-      tag.className = "px-2 py-0.5 text-xs bg-cyan-900/30 rounded text-cyan-200 border border-cyan-700/40";
+      tag.className = "badge badge-lang";
       tag.textContent = `${lang.charAt(0).toUpperCase() + lang.slice(1)}: ${(level || "").toUpperCase()}`;
       pLangs.appendChild(tag);
     });
   } else if (v.english_level) {
     const tag = document.createElement("span");
-    tag.className = "px-2 py-0.5 text-xs bg-cyan-900/30 rounded text-cyan-200 border border-cyan-700/40";
+    tag.className = "badge badge-lang";
     tag.textContent = `English: ${v.english_level}`;
     pLangs.appendChild(tag);
   }
@@ -798,7 +851,7 @@ async function openVacancyPane(id) {
     v.related_vacancies.forEach(rv => {
       const row = document.createElement("a");
       row.href = "#";
-      row.className = "block px-3 py-2 rounded bg-slate-800/50 hover:bg-slate-800 transition text-sm flex items-center justify-between gap-2";
+      row.className = "block px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition text-sm flex items-center justify-between gap-2 border border-white/[0.04]";
       row.onclick = (e) => { e.preventDefault(); openVacancyPane(rv.id); };
       const left = document.createElement("span");
       left.className = "truncate text-slate-200";
@@ -870,12 +923,20 @@ async function reanalyzeVacancy(id) {
           // company/meta line
           const metaEl = c.querySelector(".text-xs.text-slate-400.mt-1");
           if (metaEl) {
+            const src = v.source_channel || '';
+            let iconHtml = '';
+            if (src.startsWith('web:')) {
+              iconHtml = `<span class="source-tip inline-flex" data-tip="${escapeHtml(src.slice(4))}"><svg class="w-3 h-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg></span>`;
+            } else if (v.tg_channel_username) {
+              iconHtml = `<span class="source-tip inline-flex" data-tip="@${escapeHtml(v.tg_channel_username)}"><svg class="w-3 h-3 text-sky-400" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg></span>`;
+            }
             const parts = [];
-            if (v.company_name) parts.push(v.company_name);
-            if (v.tg_channel_username) parts.push(`@${v.tg_channel_username}`);
+            if (v.company_name) parts.push(escapeHtml(v.company_name));
+            if (v.tg_channel_username) parts.push(`@${escapeHtml(v.tg_channel_username)}`);
+            else if (src.startsWith('web:')) parts.push(escapeHtml(src.slice(4)));
             if (v.location_type) parts.push(v.location_type);
             if (v.salary_min_usd || v.salary_max_usd) parts.push(`${v.salary_min_usd || "?"}–${v.salary_max_usd || "?"} USD`);
-            metaEl.textContent = parts.join(" · ");
+            metaEl.innerHTML = iconHtml + '<span>' + parts.join(' · ') + '</span>';
           }
           // summary
           const sumEl = c.querySelector(".mt-2.text-sm.text-slate-200");
@@ -902,7 +963,7 @@ async function reanalyzeVacancy(id) {
   // Used by the parser logs page.
   try {
     const params = new URLSearchParams(window.location.search);
-    const openId = params.get("open_id") || params.get("vacancy_id");
+    const openId = params.get("open_id") || params.get("vacancy_id") || params.get("open_vacancy_id");
     if (openId) {
       const id = parseInt(openId, 10);
       if (!Number.isNaN(id)) {
@@ -921,6 +982,24 @@ function toggleAdvanced() {
   const p = document.getElementById("advPanel");
   p.classList.toggle("hidden");
 }
+
+function toggleSortMenu() {
+  document.getElementById("sortMenu").classList.toggle("hidden");
+}
+
+function setSort(val, label) {
+  document.getElementById("hSortBy").value = val;
+  document.getElementById("sortLabel").textContent = label;
+  document.getElementById("sortMenu").classList.add("hidden");
+  document.getElementById("filterForm").submit();
+}
+
+document.addEventListener("click", (e) => {
+  const wrap = document.getElementById("sortWrap");
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById("sortMenu").classList.add("hidden");
+  }
+});
 
 // Auto-submit on chip/checkbox change
 try {
@@ -1024,8 +1103,8 @@ setInterval(refreshTimeago, 30000);
       items.forEach(item => {
         const row = document.createElement("div");
         row.dataset.suggestId = item.id;
-        row.className = "px-3 py-2 cursor-pointer hover:bg-slate-800 transition border-b border-slate-800/50 last:border-0";
-        const domains = (item.domains || []).map(d => `<span class="px-1.5 py-0.5 text-[10px] bg-slate-800 rounded text-slate-400 border border-slate-700">${escapeHtml(d)}</span>`).join(" ");
+        row.className = "px-3 py-2 cursor-pointer hover:bg-white/[0.04] transition border-b border-white/[0.04] last:border-0";
+        const domains = (item.domains || []).map(d => `<span class="badge badge-domain" style="font-size:10px;padding:1px 6px">${escapeHtml(d)}</span>`).join(" ");
         const ago = item.created_at ? timeAgo(new Date(item.created_at)) : "";
         row.innerHTML = `
           <div class="text-sm text-slate-200 truncate">${escapeHtml(item.title)}</div>

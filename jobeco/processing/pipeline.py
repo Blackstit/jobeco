@@ -312,9 +312,9 @@ async def is_duplicate(embedding: list[float]) -> bool:
     return bool(sim is not None and float(sim) >= threshold)
 
 
-async def save_vacancy(payload: dict, embedding: list[float] | None) -> int:
+async def save_vacancy(payload: dict, embedding: list[float] | None) -> int | None:
+  """Save a vacancy. Returns vacancy id, or None if no contacts could be extracted."""
   async with SessionLocal() as s:
-    # postprocess contacts: dedupe + remove obvious footer/channel contacts
     contacts = payload.get("contacts", []) or []
     clean_contacts: list[str] = []
     seen = set()
@@ -326,7 +326,6 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int:
       if not c_str:
         continue
       lc = c_str.lower()
-      # drop generic channel footer links/usernames
       if channel_username and (lc == f"@{channel_username}" or channel_username in lc and "t.me/" in lc):
         continue
       if "subscribe" in lc or "подпис" in lc or "channel" in lc and "t.me/" in lc:
@@ -337,6 +336,10 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int:
         continue
       seen.add(lc)
       clean_contacts.append(c_str)
+
+    if not clean_contacts:
+      log.info("vacancy_skipped_no_contacts", title=payload.get("title"))
+      return None
 
     v = Vacancy(
       tg_message_id=payload.get("tg_message_id"),
@@ -356,7 +359,6 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int:
       raw_text=payload.get("raw_text"),
       metadata_json=payload.get("metadata", {}),
       embedding=embedding,
-      # new fields (if present)
       domains=payload.get("domains", []),
       risk_label=payload.get("risk_label"),
       recruiter=payload.get("recruiter"),
@@ -371,6 +373,8 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int:
       standardized_title=payload.get("standardized_title"),
       language=payload.get("language"),
       company_id=payload.get("company_id"),
+      external_id=payload.get("external_id"),
+      source_channel=payload.get("source_channel"),
     )
     s.add(v)
     await s.flush()
@@ -559,6 +563,16 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "created_at": datetime.utcnow().isoformat(),
   }
   vacancy_id = await save_vacancy(payload, embedding)
+  if vacancy_id is None:
+    await persist_parser_log(
+      level="INFO",
+      event="vacancy_skipped",
+      message_en="Vacancy skipped: no contacts extracted",
+      channel_username=channel_username,
+      tg_message_id=msg_id,
+    )
+    log.info("vacancy_skipped_no_contacts", msg_id=msg.id)
+    return
   await persist_parser_log(
     level="INFO",
     event="vacancy_added",
@@ -722,6 +736,15 @@ async def process_text_message(
     "created_at": datetime.utcnow().isoformat(),
   }
   vacancy_id = await save_vacancy(payload, embedding)
+  if vacancy_id is None:
+    await persist_parser_log(
+      level="INFO",
+      event="vacancy_skipped",
+      message_en="Vacancy skipped: no contacts extracted",
+      channel_username=tg_channel_username,
+      tg_message_id=tg_message_id,
+    )
+    return False
   await persist_parser_log(
     level="INFO",
     event="vacancy_added",

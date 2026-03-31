@@ -13,7 +13,7 @@
 {% endif %}
 
 {% if tab == 'parser' %}
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+  <div class="card p-4 space-y-4">
     <div>
       <div class="text-sm font-semibold mb-1">Парсер</div>
       <div class="text-xs text-slate-400">Влияет на ingest/pipeline (дубликаты, предвалидация и лимиты).</div>
@@ -30,7 +30,7 @@
           max="1"
           required
           value="{{ runtime.parser.dedup_threshold }}"
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         />
       </div>
 
@@ -42,7 +42,7 @@
             type="number"
             required
             value="{{ runtime.limits.prevalidate_max_chars }}"
-            class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+            class="mt-2 w-full px-4 py-2 input-dark text-sm"
           />
         </div>
         <div>
@@ -52,7 +52,7 @@
             type="number"
             required
             value="{{ runtime.limits.analyzer_max_chars }}"
-            class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+            class="mt-2 w-full px-4 py-2 input-dark text-sm"
           />
         </div>
       </div>
@@ -64,12 +64,12 @@
           type="number"
           required
           value="{{ runtime.limits.channel_max_chars }}"
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         />
       </div>
 
       <div class="pt-2">
-        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+        <button type="submit" class="px-5 py-2 btn-accent text-sm">
           Сохранить
         </button>
       </div>
@@ -78,7 +78,7 @@
 {% endif %}
 
 {% if tab == 'openrouter' %}
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+  <div class="card p-4 space-y-4">
     <div>
       <div class="text-sm font-semibold mb-1">OpenRouter</div>
       <div class="text-xs text-slate-400">Модели и лимиты токенов. Ключ хранится в БД (если заполнен).</div>
@@ -91,7 +91,7 @@
           name="api_key"
           type="password"
           placeholder="sk-or-v1..."
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         />
         <div class="text-xs text-slate-500 mt-1">
           Если ключ заполнен — он будет сохранён. Если не заполнен — остаётся текущий.
@@ -106,7 +106,7 @@
             type="text"
             value="{{ runtime.openrouter.model_classifier }}"
             required
-            class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+            class="mt-2 w-full px-4 py-2 input-dark text-sm"
           />
         </div>
         <div>
@@ -116,7 +116,7 @@
             type="text"
             value="{{ runtime.openrouter.model_analyzer }}"
             required
-            class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+            class="mt-2 w-full px-4 py-2 input-dark text-sm"
           />
         </div>
       </div>
@@ -130,12 +130,12 @@
           step="1"
           required
           value="{{ runtime.openrouter.max_tokens_analyzer }}"
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         />
       </div>
 
       <div class="pt-2">
-        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+        <button type="submit" class="px-5 py-2 btn-accent text-sm">
           Сохранить
         </button>
       </div>
@@ -144,7 +144,7 @@
 {% endif %}
 
 {% if tab == 'prompts' %}
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+  <div class="card p-4 space-y-4">
     <div>
       <div class="text-sm font-semibold mb-1">Промпты</div>
       <div class="text-xs text-slate-400">Системные промпты для анализа вакансий, предвалидации и категоризации каналов.</div>
@@ -156,7 +156,7 @@
         <textarea
           name="vacancy_analyzer_system"
           rows="12"
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         >{{ prompts.vacancy_analyzer_system or '' }}</textarea>
         <div class="text-xs text-slate-500 mt-1">Ожидается: строгий JSON, поля соответствуют схеме vacancies.</div>
       </div>
@@ -166,7 +166,7 @@
         <textarea
           name="vacancy_prevalidate_system"
           rows="8"
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         >{{ prompts.vacancy_prevalidate_system or '' }}</textarea>
       </div>
 
@@ -175,12 +175,12 @@
         <textarea
           name="channel_categorizer_system"
           rows="8"
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         >{{ prompts.channel_categorizer_system or '' }}</textarea>
       </div>
 
       <div class="pt-2">
-        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+        <button type="submit" class="px-5 py-2 btn-accent text-sm">
           Сохранить
         </button>
       </div>
@@ -189,7 +189,7 @@
 {% endif %}
 
 {% if tab == 'sessions' %}
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+  <div class="card p-4 space-y-4">
     <div>
       <div class="text-sm font-semibold mb-1">TG сессии</div>
       <div class="text-xs text-slate-400">Здесь показываем параметры, которые влияют на Telethon авторизацию.</div>
@@ -213,7 +213,7 @@ docker compose run --rm -it userbot python -m jobeco.tg.login_cli
 {% endif %}
 
 {% if tab == 'users' %}
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+  <div class="card p-4 space-y-4">
     <div>
       <div class="text-sm font-semibold mb-1">Пользователи</div>
       <div class="text-xs text-slate-400">Создавай пользователей, которые смогут заходить в Admin Web.</div>
@@ -260,11 +260,11 @@ docker compose run --rm -it userbot python -m jobeco.tg.login_cli
                           name="password"
                           type="password"
                           placeholder="••••••••"
-                          class="mt-1 w-64 max-w-[40vw] px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                          class="mt-1 w-64 max-w-[40vw] px-3 py-2 input-dark text-sm"
                         />
                       </div>
 
-                      <button type="submit" class="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-medium transition w-fit">
+                      <button type="submit" class="px-3 py-2 btn-accent text-xs w-fit">
                         Сохранить
                       </button>
                     </form>
@@ -291,7 +291,7 @@ docker compose run --rm -it userbot python -m jobeco.tg.login_cli
           name="email"
           type="email"
           required
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         />
       </div>
 
@@ -301,7 +301,7 @@ docker compose run --rm -it userbot python -m jobeco.tg.login_cli
           name="password"
           type="password"
           required
-          class="mt-2 w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+          class="mt-2 w-full px-4 py-2 input-dark text-sm"
         />
       </div>
 
@@ -318,7 +318,7 @@ docker compose run --rm -it userbot python -m jobeco.tg.login_cli
       </div>
 
       <div class="pt-2">
-        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+        <button type="submit" class="px-5 py-2 btn-accent text-sm">
           Создать пользователя
         </button>
       </div>

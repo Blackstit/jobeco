@@ -1,105 +1,135 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="mb-6">
-  <h2 class="text-2xl font-semibold mb-2">Dashboard</h2>
-  <p class="text-sm text-slate-400">Общая статистика и последние вакансии</p>
-</div>
+<div>
+  <!-- Header -->
+  <div class="mb-8">
+    <h2 class="text-2xl font-semibold text-white tracking-tight">Dashboard</h2>
+    <p class="text-sm text-slate-500 mt-1">Overview and latest vacancies</p>
+  </div>
 
-<!-- Stats -->
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-    <p class="text-xs text-slate-400 mb-1">Всего вакансий</p>
-    <p class="text-2xl font-semibold">{{ total_vacancies }}</p>
-  </div>
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-    <p class="text-xs text-slate-400 mb-1">Каналов</p>
-    <p class="text-2xl font-semibold">{{ total_channels }}</p>
-  </div>
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-    <p class="text-xs text-slate-400 mb-1">Доменов</p>
-    <p class="text-2xl font-semibold">{{ category_stats|length }}</p>
-  </div>
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-    <p class="text-xs text-slate-400 mb-1">Обновлено</p>
-    <p class="text-sm text-slate-300">{{ now.strftime("%H:%M UTC") }}</p>
-  </div>
-</div>
-
-<!-- Domain Stats -->
-{% if category_stats %}
-<div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
-  <h3 class="text-sm font-semibold mb-3">Статистика по доменам</h3>
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-    {% for cat, count in category_stats %}
-    <div class="text-sm">
-      <span class="text-slate-400">{{ cat or "n/a" }}:</span>
-      <span class="font-semibold ml-2">{{ count }}</span>
-    </div>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
-<!-- Latest Vacancies -->
-<div class="bg-slate-900 border border-slate-800 rounded-lg">
-  <div class="p-4 border-b border-slate-800 flex items-center justify-between">
-    <h3 class="text-sm font-semibold">Последние вакансии</h3>
-    <a href="/vacancies" class="text-xs text-blue-400 hover:underline">Все →</a>
-  </div>
-  <div class="divide-y divide-slate-800">
-    {% for v in last_vacancies %}
-    <div class="p-4 hover:bg-slate-800/50 transition">
-      <div class="flex items-start justify-between gap-4">
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 mb-1">
-            <h4 class="font-medium text-sm truncate">
-              {{ v.title or "Без названия" }}
-            </h4>
-            <span class="text-xs text-slate-500">#{{ v.id }}</span>
-          </div>
-          <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-2">
-            {% if v.company_name %}
-            <span>{{ v.company_name }}</span>
-            {% endif %}
-            {% if v.tg_channel_username %}
-            <span>@{{ v.tg_channel_username }}</span>
-            {% endif %}
-            {% if v.domains and v.domains|length > 0 %}
-            <div class="flex flex-wrap gap-1">
-              {% for dom in v.domains[:3] %}
-              <span class="px-2 py-0.5 bg-slate-800 rounded text-slate-300 text-xs">{{ dom }}</span>
-              {% endfor %}
-              {% if v.domains|length > 3 %}
-              <span class="text-slate-500 text-xs">+{{ v.domains|length - 3 }}</span>
-              {% endif %}
-            </div>
-            {% endif %}
-            {% if v.stack %}
-            <div class="flex flex-wrap gap-1">
-              {% for tech in v.stack[:3] %}
-              <span class="px-1.5 py-0.5 bg-blue-900/30 rounded text-xs">{{ tech }}</span>
-              {% endfor %}
-              {% if v.stack|length > 3 %}
-              <span class="text-slate-500">+{{ v.stack|length - 3 }}</span>
-              {% endif %}
-            </div>
-            {% endif %}
-          </div>
+  <!-- Stats cards -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+    <div class="card card-glow p-5">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
+          <svg class="w-4.5 h-4.5 text-accent" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
         </div>
-        {% if v.salary_min_usd or v.salary_max_usd %}
-        <div class="text-right text-xs text-emerald-400 whitespace-nowrap">
-          <div>{{ v.salary_min_usd or "?" }} – {{ v.salary_max_usd or "?" }} $</div>
+        <div>
+          <div class="section-title">Total vacancies</div>
+          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ total_vacancies }}</div>
         </div>
-        {% endif %}
       </div>
     </div>
-    {% endfor %}
-    {% if not last_vacancies %}
-    <div class="p-8 text-center text-slate-400 text-sm">
-      Нет вакансий
+
+    <div class="card card-glow p-5">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+          <svg class="w-4.5 h-4.5 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.789m13.788 0c3.808 3.808 3.808 9.981 0 13.79M12 12.75a.75.75 0 100-1.5.75.75 0 000 1.5z"/></svg>
+        </div>
+        <div>
+          <div class="section-title">Sources</div>
+          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ total_channels }}</div>
+        </div>
+      </div>
     </div>
-    {% endif %}
+
+    <div class="card card-glow p-5">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
+          <svg class="w-4.5 h-4.5 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/></svg>
+        </div>
+        <div>
+          <div class="section-title">Domain tags</div>
+          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ category_stats|length }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card card-glow p-5">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
+          <svg class="w-4.5 h-4.5 text-amber-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div>
+          <div class="section-title">Updated</div>
+          <div class="text-sm text-white mt-1.5 tabular-nums">{{ now.strftime("%H:%M UTC") }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Domains overview -->
+  {% if category_stats %}
+  <div class="card p-5 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <div class="section-title">Vacancies by domain</div>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      {% for cat, count in category_stats %}
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+        <span class="text-sm text-slate-300">{{ cat or "n/a" }}</span>
+        <span class="text-xs font-mono text-accent tabular-nums">{{ count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Latest vacancies -->
+  <div class="card overflow-hidden">
+    <div class="p-4 flex items-center justify-between border-b border-white/[0.04]">
+      <div class="section-title">Latest vacancies</div>
+      <a href="/vacancies" class="text-xs text-accent hover:text-emerald-300 transition">View all &rarr;</a>
+    </div>
+    <div class="divide-y divide-white/[0.04]">
+      {% for v in last_vacancies %}
+      <a href="/vacancies?open_vacancy_id={{ v.id }}" class="block p-4 hover:bg-white/[0.02] transition group">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2.5 mb-1.5">
+              <span class="text-sm font-medium text-white group-hover:text-accent transition truncate">{{ v.title or "Untitled" }}</span>
+              <span class="text-[10px] text-slate-600 font-mono">#{{ v.id }}</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              {% set _src = v.source_channel|default('') %}
+              {% if _src and _src.startswith('web:') %}
+                <svg class="w-3 h-3 text-blue-400 flex-none" title="{{ _src[4:] }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+              {% elif v.tg_channel_username %}
+                <svg class="w-3 h-3 text-sky-400 flex-none" title="@{{ v.tg_channel_username }}" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+              {% endif %}
+              {% if v.company_name %}
+              <span class="text-slate-500">{{ v.company_name }}</span>
+              {% endif %}
+              {% if v.tg_channel_username %}
+              <span class="text-slate-600">@{{ v.tg_channel_username }}</span>
+              {% elif _src and _src.startswith('web:') %}
+              <span class="text-slate-600">{{ _src[4:] }}</span>
+              {% endif %}
+              {% if v.domains and v.domains|length > 0 %}
+                {% for dom in v.domains[:3] %}
+                <span class="badge badge-domain">{{ dom }}</span>
+                {% endfor %}
+                {% if v.domains|length > 3 %}
+                <span class="text-slate-600 text-[10px]">+{{ v.domains|length - 3 }}</span>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
+          {% if v.salary_min_usd or v.salary_max_usd %}
+          <div class="text-xs text-accent font-mono whitespace-nowrap tabular-nums">
+            {{ v.salary_min_usd or "?" }}&ndash;{{ v.salary_max_usd or "?" }} $
+          </div>
+          {% endif %}
+        </div>
+      </a>
+      {% endfor %}
+      {% if not last_vacancies %}
+      <div class="p-10 text-center text-slate-600 text-sm">
+        No vacancies yet
+      </div>
+      {% endif %}
+    </div>
   </div>
 </div>
 {% endblock %}

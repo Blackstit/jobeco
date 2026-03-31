@@ -6,21 +6,21 @@
   <p class="text-sm text-slate-400">Human-friendly workflow events (English)</p>
 </div>
 
-<div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+<div class="card p-4">
   <div class="flex items-center justify-between gap-4 mb-3">
     <div class="text-sm text-slate-300">
       Showing last {{ logs|length }} events (limit={{ limit }})
     </div>
     <div class="flex items-center gap-2">
-      <a href="/logs?limit=100" class="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition">100</a>
-      <a href="/logs?limit=200" class="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition">200</a>
-      <a href="/logs?limit=500" class="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition">500</a>
+      <a href="/logs?limit=100" class="px-3 py-1 text-xs btn-ghost">100</a>
+      <a href="/logs?limit=200" class="px-3 py-1 text-xs btn-ghost">200</a>
+      <a href="/logs?limit=500" class="px-3 py-1 text-xs btn-ghost">500</a>
     </div>
   </div>
 
   <div
     id="logTerminal"
-    class="font-mono text-xs bg-slate-950 border border-slate-800 rounded-lg p-3 h-[72vh] overflow-y-auto overflow-x-hidden"
+    class="font-mono text-xs bg-base border border-white/[0.06] rounded-xl p-3 h-[72vh] overflow-y-auto overflow-x-hidden"
   >
     {% for l in logs %}
       <div class="flex items-center gap-3 py-1 whitespace-nowrap">
@@ -38,7 +38,7 @@
           {% if l.vacancy_id %}
             <a
               href="/vacancies?open_id={{ l.vacancy_id }}"
-              class="shrink-0 px-2 py-0.5 text-[11px] bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-200"
+              class="shrink-0 badge badge-neutral hover:bg-white/[0.06]"
               title="Open vacancy in admin"
             >
               Vacancy #{{ l.vacancy_id }}
@@ -48,7 +48,7 @@
           {% if l.channel_id %}
             <a
               href="/channels?open_channel_id={{ l.channel_id }}"
-              class="shrink-0 px-2 py-0.5 text-[11px] bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-200"
+              class="shrink-0 badge badge-neutral hover:bg-white/[0.06]"
               title="Open channel in admin"
             >
               Channel @{{ l.channel_username }}
@@ -58,7 +58,7 @@
               href="https://t.me/{{ l.channel_username }}"
               target="_blank"
               rel="noreferrer"
-              class="shrink-0 px-2 py-0.5 text-[11px] bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-200"
+              class="shrink-0 badge badge-neutral hover:bg-white/[0.06]"
               title="Open channel on Telegram"
             >
               Channel @{{ l.channel_username }}

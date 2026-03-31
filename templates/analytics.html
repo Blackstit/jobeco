@@ -1,70 +1,269 @@
 {% extends "base.html" %}
 
+{% block title %}Analytics — Job-Eco Admin{% endblock %}
+
 {% block content %}
-<div class="mb-6">
-  <h2 class="text-2xl font-semibold mb-2">Аналитика</h2>
-  <p class="text-sm text-slate-400">Статистика и аналитика по вакансиям</p>
+<div class="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+  <div>
+    <h2 class="text-2xl font-semibold text-white tracking-tight">Analytics</h2>
+    <p class="text-sm text-slate-500 mt-1">Vacancy pipeline: niches, roles, sources, compensation, and quality signals.</p>
+  </div>
+  <span class="text-xs text-slate-600">Rolling window: 30 days for the timeline chart</span>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-    <h3 class="text-sm font-semibold mb-4">Статистика по доменам</h3>
-    <div class="space-y-3">
-      {% for cat, count in category_stats %}
-      <div class="flex items-center justify-between">
-        <span class="text-sm text-slate-300">{{ cat or "n/a" }}</span>
-        <span class="font-semibold">{{ count }}</span>
-      </div>
-      {% endfor %}
-    </div>
+<!-- KPIs -->
+<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+  <div class="card card-glow p-4">
+    <div class="section-title">Total vacancies</div>
+    <div class="text-2xl font-semibold text-white mt-1 tabular-nums">{{ kpis.total_vacancies }}</div>
   </div>
-
-  <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-    <h3 class="text-sm font-semibold mb-4">Топ каналов</h3>
-    <div class="space-y-2 max-h-[400px] overflow-y-auto">
-      {% for ch, count in channel_stats %}
-      <div class="flex items-center justify-between p-2 bg-slate-800/50 rounded text-sm">
-        <span class="text-slate-300">@{{ ch or "unknown" }}</span>
-        <span class="font-semibold">{{ count }}</span>
-      </div>
-      {% endfor %}
-    </div>
+  <div class="card card-glow p-4">
+    <div class="section-title">Sources</div>
+    <div class="text-2xl font-semibold text-white mt-1 tabular-nums">{{ kpis.total_channels }}</div>
   </div>
-</div>
-
-<div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
-  <h3 class="text-sm font-semibold mb-4">Статистика по датам (последние 30 дней)</h3>
-  <div class="space-y-2">
-    {% for date, count in date_stats %}
-    <div class="flex items-center justify-between p-2 bg-slate-800/50 rounded text-sm">
-      <span class="text-slate-300">{{ date.strftime("%Y-%m-%d") if date else "n/a" }}</span>
-      <span class="font-semibold">{{ count }}</span>
-    </div>
-    {% endfor %}
+  <div class="card card-glow p-4">
+    <div class="section-title">Last 7 days</div>
+    <div class="text-2xl font-semibold text-accent mt-1 tabular-nums">{{ kpis.last_7_days }}</div>
+  </div>
+  <div class="card card-glow p-4">
+    <div class="section-title">With salary</div>
+    <div class="text-2xl font-semibold text-amber-300 mt-1 tabular-nums">{{ kpis.with_salary }}</div>
+  </div>
+  <div class="card card-glow p-4">
+    <div class="section-title">High-risk</div>
+    <div class="text-2xl font-semibold text-rose-400 mt-1 tabular-nums">{{ kpis.high_risk }}</div>
+  </div>
+  <div class="card card-glow p-4">
+    <div class="section-title">Company linked</div>
+    <div class="text-2xl font-semibold text-blue-300 mt-1 tabular-nums">{{ kpis.with_company }}</div>
   </div>
 </div>
 
-<div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-  <h3 class="text-sm font-semibold mb-4">Средняя зарплата по доменам</h3>
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-    {% for cat, avg_min, avg_max, count in salary_stats %}
-    <div class="p-3 bg-slate-800/50 rounded-lg border border-slate-800">
-      <p class="font-semibold text-sm mb-1">{{ cat or "n/a" }}</p>
-      <p class="text-xs text-slate-400 mb-1">Средняя зарплата:</p>
-      <p class="text-sm text-emerald-400">
-        {% if avg_min and avg_max %}
-        ${{ "%.0f"|format(avg_min) }} – ${{ "%.0f"|format(avg_max) }}
-        {% elif avg_min %}
-        от ${{ "%.0f"|format(avg_min) }}
-        {% elif avg_max %}
-        до ${{ "%.0f"|format(avg_max) }}
-        {% else %}
-        N/A
-        {% endif %}
-      </p>
-      <p class="text-xs text-slate-500 mt-1">Вакансий: {{ count }}</p>
-    </div>
-    {% endfor %}
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Vacancies by niche (domain)</h3>
+    <p class="text-xs text-slate-500 mb-3">Each job can appear in multiple domains.</p>
+    <div class="h-72 relative"><canvas id="cDomains"></canvas></div>
+  </div>
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">New vacancies over time</h3>
+    <p class="text-xs text-slate-500 mb-3">Daily count, last 30 days.</p>
+    <div class="h-72 relative"><canvas id="cTimeline"></canvas></div>
   </div>
 </div>
+
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Top sources</h3>
+    <p class="text-xs text-slate-500 mb-3">By Telegram username or source channel field.</p>
+    <div class="h-80 relative"><canvas id="cSources"></canvas></div>
+  </div>
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Seniority / grade</h3>
+    <p class="text-xs text-slate-500 mb-3">Extracted from vacancy text.</p>
+    <div class="h-72 relative"><canvas id="cSeniority"></canvas></div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Work location type</h3>
+    <div class="h-64 relative max-w-md mx-auto"><canvas id="cLocation"></canvas></div>
+  </div>
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Employment type</h3>
+    <p class="text-xs text-slate-500 mb-3">From structured metadata (full-time, freelance, etc.).</p>
+    <div class="h-72 relative"><canvas id="cEmployment"></canvas></div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">AI score distribution</h3>
+    <p class="text-xs text-slate-500 mb-3">Uses weighted total from metadata when present, else legacy score.</p>
+    <div class="h-64 relative"><canvas id="cScores"></canvas></div>
+  </div>
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Risk labels</h3>
+    <div class="h-64 relative"><canvas id="cRisk"></canvas></div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">English level (when stated)</h3>
+    <div class="h-72 relative"><canvas id="cEnglish"></canvas></div>
+  </div>
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Top roles / titles</h3>
+    <p class="text-xs text-slate-500 mb-3">Standardized title when available; otherwise truncated raw title.</p>
+    <div class="h-96 relative"><canvas id="cTitles"></canvas></div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-8">
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Salary midpoint by niche</h3>
+    <p class="text-xs text-slate-500 mb-3">Average of min and max USD when both exist; otherwise the single bound. Domains with salary data only.</p>
+    <div class="h-72 relative"><canvas id="cSalary"></canvas></div>
+  </div>
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-3">Salary detail by domain</h3>
+    <div class="overflow-x-auto max-h-80 overflow-y-auto rounded-lg border border-white/[0.06]">
+      <table class="w-full text-sm">
+        <thead class="sticky top-0 bg-base text-left text-xs text-slate-500 uppercase">
+          <tr>
+            <th class="px-3 py-2">Domain</th>
+            <th class="px-3 py-2 text-right">Avg min</th>
+            <th class="px-3 py-2 text-right">Avg max</th>
+            <th class="px-3 py-2 text-right">Jobs</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-white/[0.04]">
+          {% for cat, avg_min, avg_max, count in salary_stats %}
+          <tr class="hover:bg-white/[0.03]">
+            <td class="px-3 py-2 text-slate-200">{{ cat or "—" }}</td>
+            <td class="px-3 py-2 text-right text-slate-300 tabular-nums">{% if avg_min is not none %}${{ "%.0f"|format(avg_min) }}{% else %}—{% endif %}</td>
+            <td class="px-3 py-2 text-right text-slate-300 tabular-nums">{% if avg_max is not none %}${{ "%.0f"|format(avg_max) }}{% else %}—{% endif %}</td>
+            <td class="px-3 py-2 text-right text-slate-400 tabular-nums">{{ count }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="px-3 py-6 text-center text-slate-500 text-sm">No salary data grouped by domain yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  const CHARTS = {{ charts_json }};
+  const accent = '#10b981';
+  const accent2 = '#8b5cf6';
+  const grid = 'rgba(255,255,255,0.04)';
+  Chart.defaults.color = '#64748b';
+  Chart.defaults.borderColor = grid;
+  Chart.defaults.font.family = 'Outfit, system-ui, sans-serif';
+
+  function barV(id, labels, data, color) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    if (!labels.length) { el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No data</p>'; return null; }
+    return new Chart(el, {
+      type: 'bar',
+      data: { labels, datasets: [{ data, backgroundColor: color + 'cc', borderColor: color, borderWidth: 1, borderRadius: 4 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { maxRotation: 45, minRotation: 0 } },
+          y: { beginAtZero: true, grid: { color: grid } },
+        },
+      },
+    });
+  }
+
+  function barH(id, labels, data, color) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    if (!labels.length) { el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No data</p>'; return null; }
+    return new Chart(el, {
+      type: 'bar',
+      data: { labels, datasets: [{ data, backgroundColor: color + 'cc', borderColor: color, borderWidth: 1, borderRadius: 4 }] },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, grid: { color: grid } },
+          y: { grid: { display: false } },
+        },
+      },
+    });
+  }
+
+  function lineChart(id, labels, data) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    if (!labels.length) { el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No data</p>'; return null; }
+    return new Chart(el, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data,
+          fill: true,
+          backgroundColor: 'rgba(16,185,129,0.10)',
+          borderColor: accent,
+          borderWidth: 2,
+          tension: 0.25,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: grid } },
+          y: { beginAtZero: true, grid: { color: grid } },
+        },
+      },
+    });
+  }
+
+  function doughnut(id, labels, data) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    if (!labels.length) { el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No data</p>'; return null; }
+    const palette = ['#10b981', '#8b5cf6', '#3b82f6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+    const colors = labels.map((_, i) => palette[i % palette.length]);
+    return new Chart(el, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data, backgroundColor: colors.map(c => c + 'cc'), borderColor: '#050507', borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 12 } } } },
+    });
+  }
+
+  const d = CHARTS.domains || { labels: [], counts: [] };
+  barV('cDomains', d.labels, d.counts, accent);
+
+  const t = CHARTS.timeline || { labels: [], counts: [] };
+  lineChart('cTimeline', t.labels, t.counts);
+
+  const s = CHARTS.sources || { labels: [], counts: [] };
+  barH('cSources', s.labels, s.counts, '#10b981');
+
+  const sen = CHARTS.seniority || { labels: [], counts: [] };
+  barV('cSeniority', sen.labels, sen.counts, accent2);
+
+  const loc = CHARTS.location || { labels: [], counts: [] };
+  doughnut('cLocation', loc.labels, loc.counts);
+
+  const emp = CHARTS.employment || { labels: [], counts: [] };
+  barV('cEmployment', emp.labels, emp.counts, '#f59e0b');
+
+  const sc = CHARTS.scores || { labels: [], counts: [] };
+  barV('cScores', sc.labels, sc.counts, '#22c55e');
+
+  const r = CHARTS.risk || { labels: [], counts: [] };
+  barV('cRisk', r.labels, r.counts, '#f43f5e');
+
+  const en = CHARTS.english || { labels: [], counts: [] };
+  barV('cEnglish', en.labels, en.counts, '#06b6d4');
+
+  const ti = CHARTS.titles || { labels: [], counts: [] };
+  barH('cTitles', ti.labels, ti.counts, '#a78bfa');
+
+  const sal = CHARTS.salary_domains || { labels: [], avg_mid: [] };
+  if (sal.labels && sal.labels.length) {
+    barV('cSalary', sal.labels, sal.avg_mid.map(v => Math.round(v)), '#eab308');
+  } else {
+    const el = document.getElementById('cSalary');
+    if (el && el.parentElement) el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No salary data by domain</p>';
+  }
+})();
+</script>
 {% endblock %}
