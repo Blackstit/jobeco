@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+{% block title %}Companies — Job-Eco{% endblock %}
+
+{% block extra_css %}
+.comp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.comp-card {
+  background: #0b0b10;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+.comp-card:hover {
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.04);
+  transform: translateY(-1px);
+}
+.comp-card.selected {
+  border-color: rgba(16,185,129,0.30);
+  box-shadow: 0 0 16px rgba(16,185,129,0.06), 0 0 0 1px rgba(16,185,129,0.12);
+}
+
+/* detail pane */
+.comp-pane {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
+  width: 440px; max-width: 94vw;
+  background: rgba(8,8,15,0.97);
+  backdrop-filter: blur(24px);
+  border-left: 1px solid rgba(255,255,255,0.06);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b transparent;
+}
+.comp-pane.open { transform: translateX(0); }
+.comp-pane::-webkit-scrollbar { width: 5px; }
+.comp-pane::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+
+.cp-head {
+  position: sticky; top: 0; z-index: 2;
+  padding: 20px 20px 14px;
+  background: rgba(8,8,15,0.94);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.cp-vac-card {
+  padding: 10px 14px; border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+  margin-bottom: 6px;
+  cursor: pointer; transition: all 0.12s;
+  display: block; text-decoration: none; color: inherit;
+}
+.cp-vac-card:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.08);
+}
+.cp-section { padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.04); }
+.cp-sec-title {
+  font-size: 10px; font-weight: 600; color: #475569;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+.cp-meta-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: #94a3b8; padding: 3px 0;
+}
+.cp-meta-row .label { color: #475569; min-width: 80px; flex-shrink: 0; }
+.cp-meta-row a { color: #10b981; text-decoration: none; }
+.cp-meta-row a:hover { text-decoration: underline; }
+
+.cp-social-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: 6px; font-size: 11px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+  color: #94a3b8; text-decoration: none; transition: all 0.15s;
+}
+.cp-social-link:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+
+/* overlay backdrop */
+.comp-overlay {
+  position: fixed; inset: 0; z-index: 35;
+  background: rgba(0,0,0,0.3);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.3s;
+}
+.comp-overlay.open { opacity: 1; pointer-events: auto; }
+{% endblock %}
+
+{% block content %}
+<form method="get" action="/companies" id="compForm">
+  <div class="flex items-center gap-2 mb-4">
+    <div class="relative flex-1 max-w-md">
+      <input type="text" name="search" value="{{ search or '' }}" placeholder="Search companies..."
+        class="w-full pl-9 pr-3 py-2 input-dark text-sm" />
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+    </div>
+
+    {% if industries %}
+    <select name="industry" onchange="document.getElementById('compForm').submit()"
+      class="input-dark text-xs py-2 px-3 pr-8 appearance-none" style="min-width:140px">
+      <option value="">All industries</option>
+      {% for ind, cnt in industries %}
+      <option value="{{ ind }}" {% if industry == ind %}selected{% endif %}>{{ ind }} ({{ cnt }})</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+
+    <div class="relative" id="sortWrap">
+      <input type="hidden" name="sort_by" id="hSortBy" value="{{ sort_by or 'vacancies_desc' }}" />
+      <button type="button" onclick="toggleSortMenu()"
+        class="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg border transition
+          {% if sort_by and sort_by != 'vacancies_desc' %}pill-active{% else %}btn-ghost{% endif %}"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>
+        <span id="sortLabel">{{ {"vacancies_desc": "Most vacancies", "vacancies_asc": "Fewest vacancies", "name_asc": "Name A-Z", "name_desc": "Name Z-A", "newest": "Newest", "oldest": "Oldest"}.get(sort_by, "Most vacancies") }}</span>
+      </button>
+      <div id="sortMenu" class="hidden absolute right-0 top-full mt-1 w-48 bg-surface border border-white/[0.08] rounded-xl overflow-hidden z-30 shadow-2xl">
+        {% for val, label in [
+          ('vacancies_desc', 'Most vacancies'),
+          ('vacancies_asc', 'Fewest vacancies'),
+          ('name_asc', 'Name A-Z'),
+          ('name_desc', 'Name Z-A'),
+          ('newest', 'Newest first'),
+          ('oldest', 'Oldest first'),
+        ] %}
+        <button type="button" onclick="setSort('{{ val }}', '{{ label }}')"
+          class="w-full text-left px-3 py-2 text-xs hover:bg-white/[0.04] transition
+            {% if sort_by == val %}text-accent{% else %}text-slate-300{% endif %}"
+        >{{ label }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button type="submit" class="px-4 py-2 btn-accent text-xs">Search</button>
+    {% if search or industry %}
+    <a href="/companies" class="px-3 py-2 text-xs text-slate-500 hover:text-slate-300 transition">&times; Clear</a>
+    {% endif %}
+
+    <span class="text-xs text-slate-500 ml-auto">{{ total }} companies{% if total_pages > 1 %} · p.{{ page }}/{{ total_pages }}{% endif %}</span>
+  </div>
+</form>
+
+<div class="comp-grid" id="compGrid">
+  {% for c in companies %}
+  <div class="comp-card" data-id="{{ c.id }}" onclick="openCompanyPane({{ c.id }})">
+    <div class="flex items-start gap-3">
+      {% if c.logo_url %}
+      <img src="{{ c.logo_url }}" alt="" class="w-10 h-10 rounded-lg bg-slate-800 object-contain flex-none" onerror="this.style.display='none'" />
+      {% else %}
+      <div class="w-10 h-10 rounded-lg bg-surface flex items-center justify-center flex-none text-lg font-semibold text-slate-500">
+        {{ c.name[0]|upper if c.name else '?' }}
+      </div>
+      {% endif %}
+      <div class="min-w-0 flex-1">
+        <div class="font-medium text-sm text-white truncate">{{ c.name }}</div>
+        {% if c.industry %}
+        <div class="text-[11px] text-slate-500 mt-0.5">{{ c.industry }}</div>
+        {% endif %}
+        <div class="flex flex-wrap gap-1.5 mt-2">
+          <span class="badge badge-domain">{{ c.vac_count }} {{ 'vacancy' if c.vac_count == 1 else 'vacancies' }}</span>
+          {% if c.size %}
+          <span class="badge badge-neutral">{{ c.size }}</span>
+          {% endif %}
+          {% if c.headquarters %}
+          <span class="badge badge-loc">{{ c.headquarters }}</span>
+          {% endif %}
+        </div>
+        {% if c.domains %}
+        <div class="flex flex-wrap gap-1 mt-2">
+          {% for d in c.domains[:4] %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-500 border border-white/[0.04]">{{ d }}</span>
+          {% endfor %}
+          {% if c.domains|length > 4 %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded text-slate-600">+{{ c.domains|length - 4 }}</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% if c.summary %}
+    <div class="text-xs text-slate-400 mt-3 line-clamp-2">{{ c.summary }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if not companies %}
+  <div class="col-span-full card p-10 text-center text-slate-500 text-sm">No companies found</div>
+  {% endif %}
+</div>
+
+{% set _qs %}{% if search %}&search={{ search }}{% endif %}{% if industry %}&industry={{ industry }}{% endif %}{% if sort_by and sort_by != 'vacancies_desc' %}&sort_by={{ sort_by }}{% endif %}{% endset %}
+{% if total_pages > 1 %}
+<div class="mt-4 flex justify-center items-center gap-1">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">&larr; Prev</a>
+  {% endif %}
+  {% for p in range(1, total_pages + 1) %}
+    {% if p == page %}
+    <span class="px-3 py-1 text-xs pill-active rounded-lg border border-transparent">{{ p }}</span>
+    {% elif (p - page)|abs <= 2 or p == 1 or p == total_pages %}
+    <a href="?page={{ p }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">{{ p }}</a>
+    {% elif (p - page)|abs == 3 %}
+    <span class="text-slate-600 text-xs px-1">&hellip;</span>
+    {% endif %}
+  {% endfor %}
+  {% if page < total_pages %}
+  <a href="?page={{ page + 1 }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">Next &rarr;</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Overlay for pane backdrop -->
+<div class="comp-overlay" id="compOverlay" onclick="closeCompanyPane()"></div>
+
+<!-- Detail pane -->
+<div class="comp-pane" id="compPane">
+  <div class="cp-head">
+    <div class="flex items-start gap-3">
+      <img id="cpLogo" src="" alt="" class="hidden w-12 h-12 rounded-lg bg-surface object-contain flex-none" onerror="this.classList.add('hidden')" />
+      <div id="cpAvatar" class="w-12 h-12 rounded-lg bg-surface flex items-center justify-center flex-none text-xl font-semibold text-slate-500"></div>
+      <div class="min-w-0 flex-1">
+        <div class="text-base font-semibold text-white" id="cpName">—</div>
+        <div class="text-xs text-slate-500 mt-0.5" id="cpIndustry"></div>
+      </div>
+      <button class="w-8 h-8 flex items-center justify-center rounded-lg bg-white/[0.04] border border-white/[0.06] text-slate-500 hover:bg-white/[0.08] hover:text-white transition text-sm" onclick="closeCompanyPane()">&times;</button>
+    </div>
+    <div class="flex flex-wrap gap-1.5 mt-3" id="cpBadges"></div>
+  </div>
+
+  <div id="cpSummarySection" class="cp-section hidden">
+    <div class="cp-sec-title">About</div>
+    <div class="text-xs text-slate-300 leading-relaxed" id="cpSummary"></div>
+  </div>
+
+  <div class="cp-section" id="cpMetaSection">
+    <div class="cp-sec-title">Details</div>
+    <div id="cpMeta"></div>
+  </div>
+
+  <div class="cp-section hidden" id="cpSocialsSection">
+    <div class="cp-sec-title">Links</div>
+    <div class="flex flex-wrap gap-2" id="cpSocials"></div>
+  </div>
+
+  <div class="cp-section hidden" id="cpDomainsSection">
+    <div class="cp-sec-title">Domains</div>
+    <div class="flex flex-wrap gap-1.5" id="cpDomains"></div>
+  </div>
+
+  <div class="cp-section" id="cpVacSection">
+    <div class="cp-sec-title">Vacancies <span class="text-slate-600" id="cpVacCount"></span></div>
+    <div id="cpVacancies"></div>
+  </div>
+</div>
+
+<script>
+function toggleSortMenu() {
+  document.getElementById('sortMenu').classList.toggle('hidden');
+}
+function setSort(val, label) {
+  document.getElementById('hSortBy').value = val;
+  document.getElementById('sortLabel').textContent = label;
+  document.getElementById('sortMenu').classList.add('hidden');
+  document.getElementById('compForm').submit();
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('sortWrap').contains(e.target))
+    document.getElementById('sortMenu').classList.add('hidden');
+});
+
+let activeCardId = null;
+
+function openCompanyPane(id) {
+  document.querySelectorAll('.comp-card.selected').forEach(c => c.classList.remove('selected'));
+  const card = document.querySelector(`.comp-card[data-id="${id}"]`);
+  if (card) card.classList.add('selected');
+  activeCardId = id;
+
+  document.getElementById('compPane').classList.add('open');
+  document.getElementById('compOverlay').classList.add('open');
+
+  fetch(`/api/companies/${id}`)
+    .then(r => r.json())
+    .then(c => renderPane(c))
+    .catch(err => console.error('Failed to load company', err));
+}
+
+function closeCompanyPane() {
+  document.getElementById('compPane').classList.remove('open');
+  document.getElementById('compOverlay').classList.remove('open');
+  document.querySelectorAll('.comp-card.selected').forEach(c => c.classList.remove('selected'));
+  activeCardId = null;
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeCompanyPane();
+});
+
+function renderPane(c) {
+  const logo = document.getElementById('cpLogo');
+  const avatar = document.getElementById('cpAvatar');
+  if (c.logo_url) {
+    logo.src = c.logo_url;
+    logo.classList.remove('hidden');
+    avatar.classList.add('hidden');
+  } else {
+    logo.classList.add('hidden');
+    avatar.classList.remove('hidden');
+    avatar.textContent = (c.name || '?')[0].toUpperCase();
+  }
+
+  document.getElementById('cpName').textContent = c.name || '—';
+  document.getElementById('cpIndustry').textContent = c.industry || '';
+
+  const badges = document.getElementById('cpBadges');
+  badges.innerHTML = '';
+  if (c.size) badges.innerHTML += `<span class="badge badge-neutral">${esc(c.size)} employees</span>`;
+  if (c.headquarters) badges.innerHTML += `<span class="badge badge-loc">${esc(c.headquarters)}</span>`;
+  if (c.founded) badges.innerHTML += `<span class="badge badge-grade">Est. ${esc(c.founded)}</span>`;
+  badges.innerHTML += `<span class="badge badge-domain">${c.vacancies?.length || 0} vacancies</span>`;
+
+  const sumSec = document.getElementById('cpSummarySection');
+  if (c.summary) {
+    document.getElementById('cpSummary').textContent = c.summary;
+    sumSec.classList.remove('hidden');
+  } else {
+    sumSec.classList.add('hidden');
+  }
+
+  const meta = document.getElementById('cpMeta');
+  meta.innerHTML = '';
+  if (c.website) meta.innerHTML += metaRow('Website', `<a href="${esc(c.website)}" target="_blank" rel="noreferrer">${esc(c.website.replace(/^https?:\/\//, ''))}</a>`);
+  if (c.linkedin) meta.innerHTML += metaRow('LinkedIn', `<a href="${esc(c.linkedin)}" target="_blank" rel="noreferrer">${esc(c.linkedin.replace(/^https?:\/\//, ''))}</a>`);
+  if (c.industry) meta.innerHTML += metaRow('Industry', esc(c.industry));
+  if (c.size) meta.innerHTML += metaRow('Size', esc(c.size));
+  if (c.founded) meta.innerHTML += metaRow('Founded', esc(c.founded));
+  if (c.headquarters) meta.innerHTML += metaRow('HQ', esc(c.headquarters));
+  if (!meta.innerHTML) document.getElementById('cpMetaSection').classList.add('hidden');
+  else document.getElementById('cpMetaSection').classList.remove('hidden');
+
+  const socials = c.socials || {};
+  const socialDiv = document.getElementById('cpSocials');
+  socialDiv.innerHTML = '';
+  const socSec = document.getElementById('cpSocialsSection');
+  const socialKeys = Object.keys(socials).filter(k => socials[k]);
+  if (socialKeys.length) {
+    socialKeys.forEach(k => {
+      socialDiv.innerHTML += `<a href="${esc(socials[k])}" target="_blank" rel="noreferrer" class="cp-social-link">${esc(k)}</a>`;
+    });
+    socSec.classList.remove('hidden');
+  } else {
+    socSec.classList.add('hidden');
+  }
+
+  const domSec = document.getElementById('cpDomainsSection');
+  const domDiv = document.getElementById('cpDomains');
+  domDiv.innerHTML = '';
+  if (c.domains && c.domains.length) {
+    c.domains.forEach(d => {
+      domDiv.innerHTML += `<span class="badge badge-domain">${esc(d)}</span>`;
+    });
+    domSec.classList.remove('hidden');
+  } else {
+    domSec.classList.add('hidden');
+  }
+
+  const vacDiv = document.getElementById('cpVacancies');
+  vacDiv.innerHTML = '';
+  document.getElementById('cpVacCount').textContent = `(${c.vacancies?.length || 0})`;
+
+  if (c.vacancies && c.vacancies.length) {
+    c.vacancies.forEach(v => {
+      const sal = formatSalary(v.salary_min_usd, v.salary_max_usd);
+      const score = v.ai_score_value != null ? `<span class="badge badge-score" style="font-size:10px">Score ${v.ai_score_value}/10</span>` : '';
+      const role = v.role ? `<span class="text-slate-500">${esc(v.role)}</span>` : '';
+      const sen = v.seniority ? `<span class="badge badge-grade" style="font-size:10px">${esc(v.seniority)}</span>` : '';
+      const domains = (v.domains || []).map(d => `<span class="text-[10px] px-1 py-0.5 rounded bg-white/[0.04] text-slate-500">${esc(d)}</span>`).join('');
+      const date = v.created_at ? new Date(v.created_at).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
+
+      vacDiv.innerHTML += `
+        <a href="/vacancies?open_id=${v.id}" class="cp-vac-card" target="_blank">
+          <div class="flex items-center justify-between gap-2">
+            <div class="font-medium text-xs text-white truncate">${esc(v.title || 'Untitled')}</div>
+            <div class="text-[10px] text-slate-600 flex-none">${date}</div>
+          </div>
+          <div class="flex items-center flex-wrap gap-1.5 mt-1.5">
+            ${score}${sen}${domains}
+            ${sal ? `<span class="text-[10px] text-emerald-400">${sal}</span>` : ''}
+            ${role}
+          </div>
+        </a>`;
+    });
+    document.getElementById('cpVacSection').classList.remove('hidden');
+  } else {
+    vacDiv.innerHTML = '<div class="text-xs text-slate-600">No vacancies</div>';
+  }
+}
+
+function metaRow(label, value) {
+  return `<div class="cp-meta-row"><span class="label">${label}</span><span>${value}</span></div>`;
+}
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function formatSalary(min, max) {
+  if (!min && !max) return '';
+  const fmt = n => n >= 1000 ? (n/1000).toFixed(n%1000?1:0)+'k' : n;
+  if (min && max) return `$${fmt(min)}–${fmt(max)}`;
+  if (max) return `up to $${fmt(max)}`;
+  return `from $${fmt(min)}`;
+}
+
+const params = new URLSearchParams(window.location.search);
+if (params.get('open_id')) {
+  openCompanyPane(parseInt(params.get('open_id')));
+}
+</script>
+{% endblock %}

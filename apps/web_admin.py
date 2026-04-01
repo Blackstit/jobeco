@@ -3235,3 +3235,133 @@ async def graph_vacancies_data(_: bool = Depends(require_auth)):
     })
 
   return {"nodes": nodes}
+
+
+# ─── Companies page ──────────────────────────────────────────────────────────
+
+@app.get("/companies", response_class=HTMLResponse)
+async def companies_page(
+  request: Request,
+  _: bool = Depends(require_auth),
+  page: int = Query(1, ge=1),
+  per_page: int = Query(60, ge=1, le=200),
+  search: str | None = Query(None),
+  industry: str | None = Query(None),
+  sort_by: str = Query("vacancies_desc"),
+):
+  async with SessionLocal() as s:
+    query = select(
+      Company,
+      func.count(Vacancy.id).label("vac_count"),
+    ).outerjoin(Vacancy, Vacancy.company_id == Company.id).group_by(Company.id)
+
+    if search and search.strip():
+      query = query.where(
+        or_(Company.name.ilike(f"%{search.strip()}%"), Company.industry.ilike(f"%{search.strip()}%"))
+      )
+    if industry and industry.strip():
+      query = query.where(func.lower(Company.industry) == industry.strip().lower())
+
+    total = (await s.execute(
+      select(func.count()).select_from(query.subquery())
+    )).scalar() or 0
+
+    _sort = {
+      "vacancies_desc": [desc("vac_count"), desc(Company.id)],
+      "vacancies_asc": [text("vac_count ASC"), desc(Company.id)],
+      "name_asc": [Company.name, desc(Company.id)],
+      "name_desc": [desc(Company.name), desc(Company.id)],
+      "newest": [desc(Company.created_at)],
+      "oldest": [Company.created_at],
+    }
+    order = _sort.get(sort_by, _sort["vacancies_desc"])
+
+    rows = (await s.execute(
+      query.order_by(*order).offset((page - 1) * per_page).limit(per_page)
+    )).all()
+
+    companies = []
+    for comp, vac_count in rows:
+      companies.append({
+        "id": comp.id,
+        "name": comp.name,
+        "website": comp.website,
+        "linkedin": comp.linkedin,
+        "logo_url": comp.logo_url,
+        "summary": comp.summary,
+        "industry": comp.industry,
+        "size": comp.size,
+        "founded": comp.founded,
+        "headquarters": comp.headquarters,
+        "domains": comp.domains or [],
+        "socials": comp.socials or {},
+        "vac_count": vac_count,
+      })
+
+    industry_rows = (await s.execute(
+      select(Company.industry, func.count(Company.id))
+      .where(Company.industry.isnot(None), Company.industry != "")
+      .group_by(Company.industry)
+      .order_by(desc(func.count(Company.id)))
+    )).all()
+    industries = [(r[0], r[1]) for r in industry_rows]
+
+  return templates.TemplateResponse("companies.html", {
+    "request": request,
+    "companies": companies,
+    "total": total,
+    "page": page,
+    "per_page": per_page,
+    "total_pages": max(1, (total + per_page - 1) // per_page),
+    "search": search,
+    "industry": industry,
+    "sort_by": sort_by,
+    "industries": industries,
+  })
+
+
+@app.get("/api/companies/{company_id}")
+async def api_company_detail(company_id: int, _: bool = Depends(require_auth)):
+  async with SessionLocal() as s:
+    comp = (await s.execute(select(Company).where(Company.id == company_id))).scalar_one_or_none()
+    if not comp:
+      raise HTTPException(404, "Company not found")
+
+    vac_rows = (await s.execute(
+      select(
+        Vacancy.id, Vacancy.title, Vacancy.role, Vacancy.seniority,
+        Vacancy.salary_min_usd, Vacancy.salary_max_usd,
+        Vacancy.ai_score_value, Vacancy.location_type, Vacancy.domains,
+        Vacancy.created_at, Vacancy.source_channel,
+      )
+      .where(Vacancy.company_id == company_id)
+      .order_by(desc(Vacancy.created_at))
+      .limit(50)
+    )).all()
+
+    vacancies = []
+    for r in vac_rows:
+      vacancies.append({
+        "id": r.id, "title": r.title, "role": r.role, "seniority": r.seniority,
+        "salary_min_usd": r.salary_min_usd, "salary_max_usd": r.salary_max_usd,
+        "ai_score_value": r.ai_score_value, "location_type": r.location_type,
+        "domains": list(r.domains or []),
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "source_channel": r.source_channel,
+      })
+
+    return {
+      "id": comp.id,
+      "name": comp.name,
+      "website": comp.website,
+      "linkedin": comp.linkedin,
+      "logo_url": comp.logo_url,
+      "summary": comp.summary,
+      "industry": comp.industry,
+      "size": comp.size,
+      "founded": comp.founded,
+      "headquarters": comp.headquarters,
+      "domains": comp.domains or [],
+      "socials": comp.socials or {},
+      "vacancies": vacancies,
+    }
