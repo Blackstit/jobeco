@@ -37,6 +37,7 @@ from contextlib import asynccontextmanager
 from jobeco.parsers.degencryptojobs import sync_source as degen_sync, ensure_source_record as degen_ensure
 from jobeco.parsers.web3career import sync_source as w3c_sync, ensure_source_record as w3c_ensure
 from jobeco.parsers.cryptojobs import sync_source as cj_sync, ensure_source_record as cj_ensure
+from jobeco.parsers.remocate import sync_source as remo_sync, ensure_source_record as remo_ensure
 from jobeco.db.base import Base as _SABase
 import structlog as _structlog
 
@@ -65,6 +66,8 @@ async def _web_sources_scheduler():
             await w3c_sync(max_pages=src.max_pages, limit=20)
           elif src.parser_type == "cryptojobs":
             await cj_sync(max_pages=src.max_pages, limit=10)
+          elif src.parser_type == "remocate":
+            await remo_sync(max_pages=src.max_pages, limit=15)
         except Exception as e:
           _bg_log.error("web_source_sync_error", slug=src.slug, error=str(e))
     except Exception as e:
@@ -80,6 +83,7 @@ async def lifespan(app):
   await degen_ensure()
   await w3c_ensure()
   await cj_ensure()
+  await remo_ensure()
   task = _asyncio.create_task(_web_sources_scheduler())
   yield
   task.cancel()
@@ -2682,6 +2686,8 @@ async def trigger_web_source_sync(source_id: int, _: bool = Depends(require_auth
     result = await w3c_sync(max_pages=max_pages, limit=20)
   elif parser_type == "cryptojobs":
     result = await cj_sync(max_pages=max_pages, limit=10)
+  elif parser_type == "remocate":
+    result = await remo_sync(max_pages=max_pages, limit=15)
   else:
     raise HTTPException(status_code=400, detail=f"Unknown parser type: {parser_type}")
 

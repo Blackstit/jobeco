@@ -17,6 +17,7 @@ dependencies = [
   "tenacity>=8.2,<10.0",
   "python-dotenv>=1.0,<2.0",
   "structlog>=24.1,<25.0",
+  "beautifulsoup4>=4.12,<5.0",
 ]
 
 [project.scripts]
