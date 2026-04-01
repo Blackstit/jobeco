@@ -34,7 +34,9 @@ from jobeco.auth.passwords import hash_password_pbkdf2, verify_password_pbkdf2
 import asyncio as _asyncio
 from contextlib import asynccontextmanager
 
-from jobeco.parsers.degencryptojobs import sync_source as degen_sync, ensure_source_record
+from jobeco.parsers.degencryptojobs import sync_source as degen_sync, ensure_source_record as degen_ensure
+from jobeco.parsers.web3career import sync_source as w3c_sync, ensure_source_record as w3c_ensure
+from jobeco.parsers.cryptojobs import sync_source as cj_sync, ensure_source_record as cj_ensure
 from jobeco.db.base import Base as _SABase
 import structlog as _structlog
 
@@ -59,6 +61,10 @@ async def _web_sources_scheduler():
         try:
           if src.parser_type == "degencryptojobs":
             await degen_sync(max_pages=src.max_pages, limit=20)
+          elif src.parser_type == "web3career":
+            await w3c_sync(max_pages=src.max_pages, limit=20)
+          elif src.parser_type == "cryptojobs":
+            await cj_sync(max_pages=src.max_pages, limit=10)
         except Exception as e:
           _bg_log.error("web_source_sync_error", slug=src.slug, error=str(e))
     except Exception as e:
@@ -71,7 +77,9 @@ async def lifespan(app):
   # Create web_sources table if missing
   async with engine.begin() as conn:
     await conn.run_sync(lambda c: _SABase.metadata.create_all(c, tables=[WebSource.__table__], checkfirst=True))
-  await ensure_source_record()
+  await degen_ensure()
+  await w3c_ensure()
+  await cj_ensure()
   task = _asyncio.create_task(_web_sources_scheduler())
   yield
   task.cancel()
@@ -579,6 +587,7 @@ async def vacancies_page(
   salary_max_usd: str | None = Query(None),
   risk_label: str | None = Query(None),
   seniority: str | None = Query(None),
+  role: str | None = Query(None),
   employment_type: str | None = Query(None),
   score_min: str | None = Query(None),
   score_max: str | None = Query(None),
@@ -619,6 +628,7 @@ async def vacancies_page(
       score_max_val = None
 
     seniority_val = (seniority or "").strip().lower() or None
+    role_val = (role or "").strip() or None
     employment_type_val = (employment_type or "").strip().lower() or None
 
     effective_mode = search_mode
@@ -668,6 +678,9 @@ async def vacancies_page(
       if seniority_val:
         where.append("lower(v.seniority) = :seniority")
         params["seniority"] = seniority_val
+      if role_val:
+        where.append("v.role = :role")
+        params["role"] = role_val
       if employment_type_val:
         where.append("v.metadata->>'employment_type' = :employment_type")
         params["employment_type"] = employment_type_val
@@ -758,6 +771,8 @@ async def vacancies_page(
 
       if seniority_val:
         query = query.where(func.lower(Vacancy.seniority) == seniority_val)
+      if role_val:
+        query = query.where(Vacancy.role == role_val)
       if employment_type_val:
         query = query.where(Vacancy.metadata_json["employment_type"].as_string() == employment_type_val)
       if score_min_val is not None:
@@ -857,6 +872,7 @@ async def vacancies_page(
       "domain_options": domain_options,
       "channels": channels,
       "seniority": seniority_val,
+      "role": role_val,
       "employment_type": employment_type_val,
       "score_min": score_min_val,
       "score_max": score_max_val,
@@ -1365,6 +1381,7 @@ async def api_public_vacancies(
   domains: list[str] = Query([]),
   location_type: str | None = Query(None),
   seniority: str | None = Query(None),
+  role: str | None = Query(None, description="Canonical role filter, e.g. 'Backend Developer'"),
   employment_type: str | None = Query(None),
   salary_min_usd: str | None = Query(None),
   salary_max_usd: str | None = Query(None),
@@ -1425,6 +1442,10 @@ async def api_public_vacancies(
     q_seniority = (seniority or "").strip().lower() or None
     if q_seniority:
       query = query.where(func.lower(Vacancy.seniority) == q_seniority)
+
+    q_role = (role or "").strip() or None
+    if q_role:
+      query = query.where(Vacancy.role == q_role)
 
     q_employment = (employment_type or "").strip().lower() or None
     if q_employment:
@@ -1554,6 +1575,7 @@ async def api_public_vacancies(
         "salary_max_usd": v.salary_max_usd,
         "currency": getattr(v, "currency", None),
         "seniority": getattr(v, "seniority", None),
+        "role": getattr(v, "role", None),
         "english_level": getattr(v, "english_level", None),
         "employment_type": v_meta.get("employment_type"),
         "language_requirements": v_meta.get("language_requirements"),
@@ -1594,6 +1616,7 @@ async def api_public_vacancies_semantic_search(
   domains: list[str] = Query([]),
   location_type: str | None = Query(None),
   seniority: str | None = Query(None),
+  role: str | None = Query(None, description="Canonical role filter"),
   employment_type: str | None = Query(None),
   salary_min_usd: str | None = Query(None),
   salary_max_usd: str | None = Query(None),
@@ -1669,6 +1692,11 @@ async def api_public_vacancies_semantic_search(
       where.append("lower(v.seniority) = :seniority")
       params["seniority"] = q_sen
 
+    q_role_ss = (role or "").strip() or None
+    if q_role_ss:
+      where.append("v.role = :role")
+      params["role"] = q_role_ss
+
     q_emp = (employment_type or "").strip().lower() or None
     if q_emp:
       where.append("v.metadata->>'employment_type' = :employment_type")
@@ -1730,7 +1758,7 @@ async def api_public_vacancies_semantic_search(
         v.currency, v.recruiter, v.summary_en, v.summary_ru, v.contacts, v.source_url,
         v.source_channel, v.created_at, v.description, v.responsibilities, v.requirements,
         v.conditions, v.raw_text, v.stack, v.tg_channel_username, v.tg_message_id,
-        v.seniority, v.english_level, v.experience_years, v.country_city,
+        v.seniority, v.role, v.english_level, v.experience_years, v.country_city,
         v.metadata AS metadata_json, v.company_id,
         c.logo_url AS company_logo_url, c.website AS company_website,
         c.industry AS company_industry, c.size AS company_size,
@@ -1807,6 +1835,7 @@ async def api_public_vacancies_semantic_search(
         "salary_max_usd": row.get("salary_max_usd"),
         "currency": row.get("currency"),
         "seniority": row.get("seniority"),
+        "role": row.get("role"),
         "english_level": row.get("english_level"),
         "employment_type": v_meta.get("employment_type"),
         "language_requirements": v_meta.get("language_requirements"),
@@ -1986,6 +2015,7 @@ async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
       "company_url_verified": (metadata or {}).get("company_url_verified", False),
       "company_linkedin_verified": (metadata or {}).get("company_linkedin_verified", False),
       "seniority": getattr(v, "seniority", None),
+      "role": getattr(v, "role", None),
       "english_level": getattr(v, "english_level", None),
       "employment_type": (metadata or {}).get("employment_type"),
       "language_requirements": (metadata or {}).get("language_requirements"),
@@ -2296,6 +2326,7 @@ async def get_channel_details(channel_id: int, _: bool = Depends(require_auth)):
       "domains": v.domains or [],
       "location_type": v.location_type,
       "seniority": getattr(v, "seniority", None),
+      "role": getattr(v, "role", None),
       "created_at": v.created_at.isoformat() if v.created_at else None,
     }
 
@@ -2555,6 +2586,7 @@ def _empty_analytics_charts() -> dict:
     "timeline": dict(z),
     "sources": dict(z),
     "seniority": dict(z),
+    "roles": dict(z),
     "location": dict(z),
     "employment": dict(z),
     "titles": dict(z),
@@ -2562,6 +2594,7 @@ def _empty_analytics_charts() -> dict:
     "scores": dict(z),
     "english": dict(z),
     "salary_domains": {"labels": [], "avg_mid": []},
+    "salary_roles": {"labels": [], "avg_min": [], "avg_max": []},
   }
 
 
@@ -2624,6 +2657,10 @@ async def trigger_web_source_sync(source_id: int, _: bool = Depends(require_auth
 
   if parser_type == "degencryptojobs":
     result = await degen_sync(max_pages=max_pages, limit=20)
+  elif parser_type == "web3career":
+    result = await w3c_sync(max_pages=max_pages, limit=20)
+  elif parser_type == "cryptojobs":
+    result = await cj_sync(max_pages=max_pages, limit=10)
   else:
     raise HTTPException(status_code=400, detail=f"Unknown parser type: {parser_type}")
 
@@ -2697,6 +2734,7 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
   date_stats: list[tuple] = []
   salary_stats: list[tuple] = []
   seniority_stats: list[tuple] = []
+  role_stats: list[tuple] = []
   location_stats: list[tuple] = []
   employment_stats: list[tuple] = []
   title_stats: list[tuple] = []
@@ -2869,21 +2907,62 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
     except Exception:
       salary_stats = []
 
+    salary_by_role: list[tuple] = []
+    if "role" in vc:
+      try:
+        sbr_rows = await _exec_text_all(
+          s,
+          """
+          SELECT role,
+                 ROUND(AVG(salary_min_usd))::int AS avg_min,
+                 ROUND(AVG(salary_max_usd))::int AS avg_max,
+                 COUNT(*) AS count
+          FROM vacancies
+          WHERE role IS NOT NULL AND role <> ''
+            AND salary_min_usd IS NOT NULL
+          GROUP BY role
+          HAVING COUNT(*) >= 2
+          ORDER BY avg_max DESC
+          LIMIT 15
+          """,
+        )
+        salary_by_role = [(r.role, r.avg_min, r.avg_max, r.count) for r in sbr_rows]
+      except Exception:
+        salary_by_role = []
+
     if "seniority" in vc:
       try:
-        seniority_rows = (
-          await s.execute(
-            select(Vacancy.seniority, func.count(Vacancy.id).label("count"))
-            .where(Vacancy.seniority.isnot(None))
-            .where(Vacancy.seniority != "")
-            .group_by(Vacancy.seniority)
-            .order_by(desc("count"))
-            .limit(16)
-          )
-        ).all()
-        seniority_stats = [(r.seniority, r.count) for r in seniority_rows]
+        seniority_rows = await _exec_text_all(
+          s,
+          """
+          SELECT lower(btrim(seniority)) AS sen, COUNT(*) AS count
+          FROM vacancies
+          WHERE seniority IS NOT NULL AND btrim(seniority) <> ''
+          GROUP BY 1
+          ORDER BY count DESC
+          LIMIT 16
+          """,
+        )
+        seniority_stats = [(r.sen, r.count) for r in seniority_rows]
       except Exception:
         seniority_stats = []
+
+    if "role" in vc:
+      try:
+        role_rows = await _exec_text_all(
+          s,
+          """
+          SELECT btrim(role) AS r, COUNT(*) AS count
+          FROM vacancies
+          WHERE role IS NOT NULL AND btrim(role) <> ''
+          GROUP BY 1
+          ORDER BY count DESC
+          LIMIT 20
+          """,
+        )
+        role_stats = [(r.r, r.count) for r in role_rows]
+      except Exception:
+        role_stats = []
 
     try:
       location_rows = (
@@ -3054,6 +3133,7 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
       "timeline": {"labels": [_fmt_chart_date(d) for d, _ in date_stats], "counts": [_safe_int_count(n) for _, n in date_stats]},
       "sources": {"labels": [str(s) for s, _ in channel_stats], "counts": [_safe_int_count(n) for _, n in channel_stats]},
       "seniority": {"labels": [str(x) for x, _ in seniority_stats], "counts": [_safe_int_count(n) for _, n in seniority_stats]},
+      "roles": {"labels": [str(x) for x, _ in role_stats], "counts": [_safe_int_count(n) for _, n in role_stats]},
       "location": {"labels": [str(x) for x, _ in location_stats], "counts": [_safe_int_count(n) for _, n in location_stats]},
       "employment": {"labels": [str(x) for x, _ in employment_stats], "counts": [_safe_int_count(n) for _, n in employment_stats]},
       "titles": {"labels": [str(t) for t, _ in title_stats], "counts": [_safe_int_count(n) for _, n in title_stats]},
@@ -3063,6 +3143,11 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
       "salary_domains": {
         "labels": [str(c) for c, _, _, _ in salary_stats],
         "avg_mid": _salary_mid,
+      },
+      "salary_roles": {
+        "labels": [str(r) for r, _, _, _ in salary_by_role],
+        "avg_min": [_safe_chart_float(mn) for _, mn, _, _ in salary_by_role],
+        "avg_max": [_safe_chart_float(mx) for _, _, mx, _ in salary_by_role],
       },
     }
 
@@ -3086,6 +3171,8 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
       "date_stats": date_stats,
       "salary_stats": salary_stats,
       "seniority_stats": seniority_stats,
+      "role_stats": role_stats,
+      "salary_by_role": salary_by_role,
       "location_stats": location_stats,
       "employment_stats": employment_stats,
       "title_stats": title_stats,
@@ -3095,3 +3182,56 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
       "charts": charts,
     },
   )
+
+
+@app.get("/graph", response_class=HTMLResponse)
+async def graph_page(request: Request, _: bool = Depends(require_auth)):
+  return templates.TemplateResponse("graph.html", {"request": request})
+
+
+@app.get("/api/graph/vacancies")
+async def graph_vacancies_data(_: bool = Depends(require_auth)):
+  """Return lightweight vacancy records for the force-directed graph."""
+  async with SessionLocal() as s:
+    rows = (await s.execute(
+      select(
+        Vacancy.id,
+        Vacancy.title,
+        Vacancy.company_name,
+        Vacancy.ai_score_value,
+        Vacancy.salary_min_usd,
+        Vacancy.salary_max_usd,
+        Vacancy.domains,
+        Vacancy.role,
+        Vacancy.seniority,
+        Vacancy.location_type,
+        Vacancy.source_channel,
+      ).order_by(desc(Vacancy.created_at))
+    )).all()
+
+  nodes = []
+  for r in rows:
+    domains = list(r.domains or [])
+    primary_domain = domains[0] if domains else "other"
+    sal_avg = None
+    if r.salary_min_usd and r.salary_max_usd:
+      sal_avg = (r.salary_min_usd + r.salary_max_usd) // 2
+    elif r.salary_max_usd:
+      sal_avg = r.salary_max_usd
+    elif r.salary_min_usd:
+      sal_avg = r.salary_min_usd
+    nodes.append({
+      "id": r.id,
+      "title": r.title or "",
+      "company": r.company_name or "",
+      "score": r.ai_score_value,
+      "salary": sal_avg,
+      "domain": primary_domain,
+      "domains": domains,
+      "role": r.role,
+      "seniority": r.seniority,
+      "location": r.location_type,
+      "source": r.source_channel,
+    })
+
+  return {"nodes": nodes}

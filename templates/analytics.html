@@ -95,9 +95,22 @@
     <div class="h-72 relative"><canvas id="cEnglish"></canvas></div>
   </div>
   <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Top roles / titles</h3>
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Roles distribution</h3>
+    <p class="text-xs text-slate-500 mb-3">Normalized canonical roles across all vacancies.</p>
+    <div class="h-96 relative"><canvas id="cRoles"></canvas></div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Top job titles</h3>
     <p class="text-xs text-slate-500 mb-3">Standardized title when available; otherwise truncated raw title.</p>
     <div class="h-96 relative"><canvas id="cTitles"></canvas></div>
+  </div>
+  <div class="card p-4">
+    <h3 class="text-sm font-semibold text-slate-200 mb-1">Salary range by role</h3>
+    <p class="text-xs text-slate-500 mb-3">Average min–max salary (USD) per canonical role. Roles with 2+ data points.</p>
+    <div class="h-96 relative"><canvas id="cSalaryRoles"></canvas></div>
   </div>
 </div>
 
@@ -254,6 +267,9 @@
   const en = CHARTS.english || { labels: [], counts: [] };
   barV('cEnglish', en.labels, en.counts, '#06b6d4');
 
+  const ro = CHARTS.roles || { labels: [], counts: [] };
+  barH('cRoles', ro.labels, ro.counts, '#f472b6');
+
   const ti = CHARTS.titles || { labels: [], counts: [] };
   barH('cTitles', ti.labels, ti.counts, '#a78bfa');
 
@@ -263,6 +279,52 @@
   } else {
     const el = document.getElementById('cSalary');
     if (el && el.parentElement) el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No salary data by domain</p>';
+  }
+
+  // Salary range by role — floating bar chart (min to max)
+  const sr = CHARTS.salary_roles || { labels: [], avg_min: [], avg_max: [] };
+  if (sr.labels && sr.labels.length) {
+    const ctx = document.getElementById('cSalaryRoles');
+    if (ctx) {
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sr.labels,
+          datasets: [
+            {
+              label: 'Avg Min',
+              data: sr.avg_min.map(v => Math.round(v)),
+              backgroundColor: '#3b82f680',
+              borderColor: '#3b82f6',
+              borderWidth: 1,
+            },
+            {
+              label: 'Avg Max',
+              data: sr.avg_max.map(v => Math.round(v)),
+              backgroundColor: '#10b98180',
+              borderColor: '#10b981',
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: true, labels: { color: '#94a3b8', font: { size: 10 } } } },
+          scales: {
+            x: {
+              ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => '$' + (v/1000).toFixed(0) + 'k' },
+              grid: { color: '#ffffff08' },
+            },
+            y: { ticks: { color: '#e2e8f0', font: { size: 10 } }, grid: { display: false } },
+          },
+        },
+      });
+    }
+  } else {
+    const el = document.getElementById('cSalaryRoles');
+    if (el && el.parentElement) el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No salary data by role</p>';
   }
 })();
 </script>

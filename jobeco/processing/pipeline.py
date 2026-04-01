@@ -12,6 +12,7 @@ from jobeco.db.models import Vacancy, ParserLog, Company
 from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post, score_vacancy_with_openrouter, resolve_company_info, enrich_company_profile
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
+from jobeco.processing.normalization import normalize_vacancy_fields
 
 log = structlog.get_logger()
 
@@ -341,6 +342,13 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int | No
       log.info("vacancy_skipped_no_contacts", title=payload.get("title"))
       return None
 
+    _norm_role, _norm_seniority = normalize_vacancy_fields(
+      role=payload.get("role"),
+      seniority=payload.get("seniority"),
+      title=payload.get("title"),
+      standardized_title=payload.get("standardized_title"),
+    )
+
     v = Vacancy(
       tg_message_id=payload.get("tg_message_id"),
       tg_channel_id=payload.get("tg_channel_id"),
@@ -367,8 +375,8 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int | No
       responsibilities=payload.get("responsibilities"),
       requirements=payload.get("requirements"),
       conditions=payload.get("conditions"),
-      role=payload.get("role"),
-      seniority=payload.get("seniority"),
+      role=_norm_role,
+      seniority=_norm_seniority,
       english_level=payload.get("english_level"),
       standardized_title=payload.get("standardized_title"),
       language=payload.get("language"),

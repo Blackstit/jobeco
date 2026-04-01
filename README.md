@@ -4,17 +4,18 @@ AI-powered job vacancy aggregator that collects postings from Telegram channels 
 
 ## What it does
 
-**Ingest** — A Telethon userbot monitors Telegram channels for new posts. Web parsers (e.g. degencryptojobs.com) fetch listings on a schedule. Both feed into the same processing pipeline.
+**Ingest** — A Telethon userbot monitors Telegram channels for new posts. Web parsers (web3.career, cryptojobs.com, degencryptojobs.com) fetch listings on a configurable schedule. Both feed into the same processing pipeline.
 
 **AI Pipeline** — Each vacancy goes through:
 - Pre-validation (cheap classifier rejects ads/memes/non-vacancies)
-- Structured extraction (title, salary, stack, contacts, location, seniority, responsibilities, requirements)
+- Structured extraction (title, salary, stack, contacts, location, seniority, role, responsibilities, requirements)
+- Role and seniority normalization to canonical forms
 - Multi-domain tagging and risk labeling
 - 5-criterion weighted quality scoring (tasks clarity, compensation, tech stack, requirements logic, company profile)
 - Company enrichment via Perplexity AI (website, industry, size, HQ, socials, logo)
 - Embedding generation for deduplication and semantic search
 
-**Admin Panel** — Dark-themed dashboard with vacancy browser (split-view with filters, sorting, AI scoring breakdown), source management (Telegram channels + web sources), analytics with charts, API key management, and parser logs.
+**Admin Panel** — Dark-themed dashboard with vacancy browser (split-view with filters, sorting, AI scoring breakdown), company directory, interactive market map graph (force-directed visualization with multiple grouping modes, ambient animations, and configurable display settings), source management (Telegram channels + web sources), analytics with charts, API key management, and parser logs.
 
 **Public API** — Two endpoints with API key auth, rate limiting, full filtering, sorting, and semantic vector search.
 
@@ -27,7 +28,7 @@ AI-powered job vacancy aggregator that collects postings from Telegram channels 
 | Telegram | Telethon (userbot), Aiogram v3 (admin bot) |
 | AI/LLM | OpenRouter (GPT-4o, GPT-4o-mini), Perplexity AI |
 | Embeddings | text-embedding-3-small (1536d) |
-| Frontend | Jinja2 templates, Tailwind CSS, Chart.js |
+| Frontend | Jinja2 templates, Tailwind CSS, Chart.js, Canvas API |
 | Infrastructure | Docker Compose |
 
 ## Quick start
@@ -93,7 +94,7 @@ curl -H "X-API-Key: YOUR_TOKEN" \
   "https://host/api/public/vacancies/semantic-search?q=rust+defi+backend&per_page=10"
 ```
 
-**Available filters:** `domains`, `location_type`, `seniority`, `employment_type`, `salary_min_usd`, `salary_max_usd`, `score_min`, `score_max`, `risk_label`, `company_name`, `search`
+**Available filters:** `domains`, `location_type`, `seniority`, `role`, `employment_type`, `salary_min_usd`, `salary_max_usd`, `score_min`, `score_max`, `risk_label`, `company_name`, `search`
 
 **Sort options:** `date_desc` (default), `date_asc`, `salary_desc`, `salary_asc`, `score_desc`, `score_asc`
 
@@ -111,7 +112,7 @@ apps/
 jobeco/
   db/                SQLAlchemy models, session, base
   openrouter/        LLM client, company enrichment
-  parsers/           Web source parsers (degencryptojobs, ...)
+  parsers/           Web source parsers (web3career, cryptojobs, degencryptojobs)
   processing/        Vacancy processing pipeline
   tg/                Telethon session management
   settings.py        Pydantic settings from env

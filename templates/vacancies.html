@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% set _has_filters = search or channel or (domains_selected and domains_selected|length > 0) or location_type or salary_min_usd is not none or salary_max_usd is not none or risk_label or seniority or employment_type or score_min is not none or score_max is not none %}
-{% set _adv_count = ((domains_selected|length if domains_selected else 0) + (1 if channel else 0) + (1 if salary_min_usd is not none or salary_max_usd is not none else 0) + (1 if risk_label else 0) + (1 if seniority else 0) + (1 if employment_type else 0) + (1 if score_min is not none or score_max is not none else 0)) %}
+{% set _has_filters = search or channel or (domains_selected and domains_selected|length > 0) or location_type or salary_min_usd is not none or salary_max_usd is not none or risk_label or seniority or role or employment_type or score_min is not none or score_max is not none %}
+{% set _adv_count = ((domains_selected|length if domains_selected else 0) + (1 if channel else 0) + (1 if salary_min_usd is not none or salary_max_usd is not none else 0) + (1 if risk_label else 0) + (1 if seniority else 0) + (1 if role else 0) + (1 if employment_type else 0) + (1 if score_min is not none or score_max is not none else 0)) %}
 
 {% block content %}
 <style>
@@ -138,6 +138,25 @@
           <option value="">Any</option>
           {% for g in ['trainee','junior','middle','senior','lead','head','c-level'] %}
           <option value="{{ g }}" {% if seniority == g %}selected{% endif %}>{{ g|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <span class="text-[11px] text-slate-500">Role</span>
+        <select name="role" class="ml-1 px-2 py-1 input-dark text-xs">
+          <option value="">Any</option>
+          {% for r in ['Backend Developer','Frontend Developer','Full Stack Developer','Mobile Developer',
+            'Blockchain Developer','DevOps Engineer','QA Engineer','Security Engineer',
+            'Data Analyst','Data Engineer','Data Scientist','ML Engineer',
+            'Product Manager','Project Manager','UI/UX Designer','Graphic Designer',
+            'Motion Designer','3D Artist','Marketing Manager','Media Buyer',
+            'SEO Specialist','SMM Manager','Content Manager','Community Manager',
+            'Traffic Manager','Affiliate Manager','Growth Manager',
+            'Sales Manager','Business Development Manager','Account Manager',
+            'Financial Manager','HR Manager','Recruiter','Customer Support',
+            'Operations Manager','Executive','Other'] %}
+          <option value="{{ r }}" {% if role == r %}selected{% endif %}>{{ r }}</option>
           {% endfor %}
         </select>
       </div>
