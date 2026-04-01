@@ -2,15 +2,14 @@
 
 {% block content %}
 <div>
-  <!-- Header -->
   <div class="mb-8">
     <h2 class="text-2xl font-semibold text-white tracking-tight">Dashboard</h2>
     <p class="text-sm text-slate-500 mt-1">Overview and latest vacancies</p>
   </div>
 
-  <!-- Stats cards -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-    <div class="card card-glow p-5">
+  <!-- Stats cards — row 1 -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+    <a href="/vacancies" class="card card-glow p-5 block">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
           <svg class="w-4.5 h-4.5 text-accent" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
@@ -20,9 +19,21 @@
           <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ total_vacancies }}</div>
         </div>
       </div>
-    </div>
+    </a>
 
-    <div class="card card-glow p-5">
+    <a href="/companies" class="card card-glow p-5 block">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+          <svg class="w-4.5 h-4.5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
+        </div>
+        <div>
+          <div class="section-title">Companies</div>
+          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ total_companies }}</div>
+        </div>
+      </div>
+    </a>
+
+    <a href="/channels" class="card card-glow p-5 block">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
           <svg class="w-4.5 h-4.5 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.789m13.788 0c3.808 3.808 3.808 9.981 0 13.79M12 12.75a.75.75 0 100-1.5.75.75 0 000 1.5z"/></svg>
@@ -32,45 +43,126 @@
           <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ total_channels }}</div>
         </div>
       </div>
-    </div>
+    </a>
 
     <div class="card card-glow p-5">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
-          <svg class="w-4.5 h-4.5 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/></svg>
+          <svg class="w-4.5 h-4.5 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/></svg>
         </div>
         <div>
-          <div class="section-title">Domain tags</div>
-          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ category_stats|length }}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card card-glow p-5">
-      <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
-          <svg class="w-4.5 h-4.5 text-amber-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        </div>
-        <div>
-          <div class="section-title">Updated</div>
-          <div class="text-sm text-white mt-1.5 tabular-nums">{{ now.strftime("%H:%M UTC") }}</div>
+          <div class="section-title">Avg AI score</div>
+          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ avg_score or '—' }}<span class="text-sm text-slate-500 font-normal">/10</span></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Domains overview -->
-  {% if category_stats %}
-  <div class="card p-5 mb-6">
-    <div class="flex items-center justify-between mb-4">
-      <div class="section-title">Vacancies by domain</div>
-    </div>
-    <div class="flex flex-wrap gap-2">
-      {% for cat, count in category_stats %}
-      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
-        <span class="text-sm text-slate-300">{{ cat or "n/a" }}</span>
-        <span class="text-xs font-mono text-accent tabular-nums">{{ count }}</span>
+  <!-- Stats cards — row 2: activity -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+    <div class="card p-4">
+      <div class="flex items-center justify-between">
+        <div class="section-title">Last 24h</div>
+        <span class="text-lg font-semibold text-white tabular-nums">+{{ vacancies_24h }}</span>
       </div>
+      <div class="mt-1 h-1 rounded bg-white/[0.04]">
+        <div class="h-1 rounded bg-accent/60" style="width:{{ [vacancies_24h / [total_vacancies, 1]|max * 100 * 10, 100]|min }}%"></div>
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="flex items-center justify-between">
+        <div class="section-title">Last 7 days</div>
+        <span class="text-lg font-semibold text-white tabular-nums">+{{ vacancies_7d }}</span>
+      </div>
+      <div class="mt-1 h-1 rounded bg-white/[0.04]">
+        <div class="h-1 rounded bg-blue-400/60" style="width:{{ [vacancies_7d / [total_vacancies, 1]|max * 100 * 3, 100]|min }}%"></div>
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="flex items-center justify-between">
+        <div class="section-title">With salary</div>
+        <span class="text-lg font-semibold text-white tabular-nums">{{ salary_pct }}%</span>
+      </div>
+      <div class="mt-1 h-1 rounded bg-white/[0.04]">
+        <div class="h-1 rounded bg-amber-400/60" style="width:{{ salary_pct }}%"></div>
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="flex items-center justify-between">
+        <div class="section-title">Domain tags</div>
+        <span class="text-lg font-semibold text-white tabular-nums">{{ category_stats|length }}</span>
+      </div>
+      <div class="mt-1 h-1 rounded bg-white/[0.04]">
+        <div class="h-1 rounded bg-violet-400/60" style="width:100%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Two-column grid: domains + top roles -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <!-- Domains overview -->
+    {% if category_stats %}
+    <div class="card p-5">
+      <div class="section-title mb-3">Vacancies by domain</div>
+      <div class="flex flex-wrap gap-2">
+        {% for cat, count in category_stats %}
+        <a href="/vacancies?domains={{ cat }}"
+           class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.04] hover:bg-accent/[0.06] hover:border-accent/20 transition cursor-pointer">
+          <span class="text-sm text-slate-300">{{ cat or "n/a" }}</span>
+          <span class="text-xs font-mono text-accent tabular-nums">{{ count }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Top roles -->
+    {% if top_roles %}
+    <div class="card p-5">
+      <div class="section-title mb-3">Top roles</div>
+      <div class="space-y-2">
+        {% for role_row in top_roles %}
+        {% set role_name = role_row[0] %}
+        {% set role_cnt = role_row[1] %}
+        <a href="/vacancies?role={{ role_name }}" class="flex items-center gap-3 group">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="text-xs text-slate-300 truncate group-hover:text-accent transition">{{ role_name }}</span>
+              <span class="text-xs text-slate-500 tabular-nums ml-2">{{ role_cnt }}</span>
+            </div>
+            <div class="h-1 rounded bg-white/[0.04]">
+              {% set max_role = top_roles[0][1] %}
+              <div class="h-1 rounded bg-violet-400/40 transition-all" style="width:{{ (role_cnt / max_role * 100)|round }}%"></div>
+            </div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Top companies -->
+  {% if top_companies %}
+  <div class="card p-5 mb-6">
+    <div class="flex items-center justify-between mb-3">
+      <div class="section-title">Top companies</div>
+      <a href="/companies" class="text-xs text-accent hover:text-emerald-300 transition">View all &rarr;</a>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      {% for tc in top_companies %}
+      <a href="/companies?open_id={{ tc.id }}" class="flex flex-col items-center gap-2 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.05] hover:border-white/[0.08] transition text-center">
+        {% if tc.logo_url %}
+        <img src="{{ tc.logo_url }}" alt="" class="w-10 h-10 rounded-lg bg-slate-800 object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+        <div class="w-10 h-10 rounded-lg bg-surface items-center justify-center text-lg font-semibold text-slate-500 hidden">{{ tc.name[0]|upper }}</div>
+        {% else %}
+        <div class="w-10 h-10 rounded-lg bg-surface flex items-center justify-center text-lg font-semibold text-slate-500">{{ tc.name[0]|upper }}</div>
+        {% endif %}
+        <div class="min-w-0 w-full">
+          <div class="text-xs font-medium text-white truncate">{{ tc.name }}</div>
+          <div class="text-[10px] text-slate-500">{{ tc.cnt }} vac{% if tc.industry %} · {{ tc.industry }}{% endif %}</div>
+        </div>
+      </a>
       {% endfor %}
     </div>
   </div>
@@ -90,6 +182,15 @@
             <div class="flex items-center gap-2.5 mb-1.5">
               <span class="text-sm font-medium text-white group-hover:text-accent transition truncate">{{ v.title or "Untitled" }}</span>
               <span class="text-[10px] text-slate-600 font-mono">#{{ v.id }}</span>
+              {% if v.ai_score_value is not none %}
+              {% if v.ai_score_value <= 3 %}
+              <span class="badge badge-risk" style="font-size:10px">{{ v.ai_score_value }}/10</span>
+              {% elif v.ai_score_value <= 7 %}
+              <span class="badge badge-score" style="font-size:10px">{{ v.ai_score_value }}/10</span>
+              {% else %}
+              <span class="badge badge-domain" style="font-size:10px">{{ v.ai_score_value }}/10</span>
+              {% endif %}
+              {% endif %}
             </div>
             <div class="flex flex-wrap items-center gap-2 text-xs">
               {% set _src = v.source_channel|default('') %}
@@ -105,6 +206,9 @@
               <span class="text-slate-600">@{{ v.tg_channel_username }}</span>
               {% elif _src and _src.startswith('web:') %}
               <span class="text-slate-600">{{ _src[4:] }}</span>
+              {% endif %}
+              {% if v.seniority %}
+              <span class="badge badge-grade">{{ v.seniority }}</span>
               {% endif %}
               {% if v.domains and v.domains|length > 0 %}
                 {% for dom in v.domains[:3] %}

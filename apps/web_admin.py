@@ -529,32 +529,46 @@ async def dashboard(request: Request, _: bool = Depends(require_auth)):
     except Exception:
       pass
     total_channels = tg_channels + web_sources_cnt
-    
-    # Статистика по доменам (domains[] из vacancies)
-    domain_stats_rows = (
-      await s.execute(
-        text(
-          """
-          SELECT lower(btrim(d)) as category, count(*) as count
-          FROM vacancies v
-          CROSS JOIN LATERAL unnest(v.domains) as d
-          WHERE d IS NOT NULL AND btrim(d) <> ''
-          GROUP BY 1
-          ORDER BY count DESC
-          """
-        )
-      )
-    ).all()
+    total_companies = (await s.execute(select(func.count(Company.id)))).scalar() or 0
+
+    domain_stats_rows = (await s.execute(text(
+      """SELECT lower(btrim(d)) as category, count(*) as count
+         FROM vacancies v CROSS JOIN LATERAL unnest(v.domains) as d
+         WHERE d IS NOT NULL AND btrim(d) <> '' GROUP BY 1 ORDER BY count DESC"""
+    ))).all()
     domain_stats = [(r.category, r.count) for r in domain_stats_rows]
-    
-    # Последние 20 вакансий (упрощённые карточки)
-    last_vacancies = (
-      await s.execute(
-        select(Vacancy)
-        .order_by(desc(Vacancy.id))
-        .limit(20)
-      )
-    ).scalars().all()
+
+    vacancies_24h = (await s.execute(select(func.count(Vacancy.id)).where(
+      Vacancy.created_at >= func.now() - text("interval '24 hours'")
+    ))).scalar() or 0
+
+    vacancies_7d = (await s.execute(select(func.count(Vacancy.id)).where(
+      Vacancy.created_at >= func.now() - text("interval '7 days'")
+    ))).scalar() or 0
+
+    avg_score = (await s.execute(select(func.round(func.avg(Vacancy.ai_score_value), 1)).where(
+      Vacancy.ai_score_value.isnot(None)
+    ))).scalar()
+
+    with_salary = (await s.execute(select(func.count(Vacancy.id)).where(
+      Vacancy.salary_min_usd.isnot(None) | Vacancy.salary_max_usd.isnot(None)
+    ))).scalar() or 0
+    salary_pct = round(with_salary / total_vacancies * 100) if total_vacancies else 0
+
+    top_roles = (await s.execute(text(
+      """SELECT role, count(*) as cnt FROM vacancies
+         WHERE role IS NOT NULL AND role <> '' GROUP BY role ORDER BY cnt DESC LIMIT 8"""
+    ))).all()
+
+    top_companies = (await s.execute(text(
+      """SELECT c.id, c.name, c.logo_url, c.industry, count(v.id) as cnt
+         FROM companies c JOIN vacancies v ON v.company_id = c.id
+         GROUP BY c.id ORDER BY cnt DESC LIMIT 6"""
+    ))).all()
+
+    last_vacancies = (await s.execute(
+      select(Vacancy).order_by(desc(Vacancy.id)).limit(15)
+    )).scalars().all()
 
   return templates.TemplateResponse(
     "dashboard.html",
@@ -563,8 +577,15 @@ async def dashboard(request: Request, _: bool = Depends(require_auth)):
       "now": datetime.utcnow(),
       "total_vacancies": total_vacancies,
       "total_channels": total_channels,
+      "total_companies": total_companies,
       "category_stats": domain_stats,
       "last_vacancies": last_vacancies,
+      "vacancies_24h": vacancies_24h,
+      "vacancies_7d": vacancies_7d,
+      "avg_score": avg_score,
+      "salary_pct": salary_pct,
+      "top_roles": top_roles,
+      "top_companies": top_companies,
     },
   )
 
