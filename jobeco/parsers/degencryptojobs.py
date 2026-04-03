@@ -12,6 +12,7 @@ import structlog
 
 from jobeco.db.session import SessionLocal
 from jobeco.db.models import Vacancy, WebSource
+from jobeco.processing.company_branding import pick_corporate_website
 from jobeco.processing.pipeline import (
   save_vacancy,
   persist_parser_log,
@@ -151,6 +152,8 @@ async def process_web_vacancy(job: dict) -> int | None:
     pass
   ai_score = max(0, min(10, ai_score))
 
+  display_company_url = pick_corporate_website(company_info.get("company_url"), company_profile.get("website"))
+
   company_id = await upsert_company(
     company_name=analysis.get("company_name") or job.get("company"),
     company_profile=company_profile,
@@ -170,7 +173,7 @@ async def process_web_vacancy(job: dict) -> int | None:
     "external_id": ext_id,
     "source_channel": SOURCE_CHANNEL,
     "company_name": analysis.get("company_name") or job.get("company"),
-    "company_url": company_info.get("company_url"),
+    "company_url": display_company_url,
     "title": analysis.get("title") or job.get("title"),
     "location_type": analysis.get("location_type"),
     "salary_min_usd": analysis.get("salary_min_usd"),

@@ -181,3 +181,13 @@ def brand_favicon_url(company_website: str | None) -> str | None:
     )
   except Exception:
     return None
+
+def pick_corporate_website(*candidates: str | None) -> str | None:
+  """First non-empty URL whose host is not an ATS/job board/aggregator."""
+  for c in candidates:
+    if not c or not isinstance(c, str):
+      continue
+    u = c.strip()
+    if u and not is_ats_or_job_board_url(u):
+      return u
+  return None

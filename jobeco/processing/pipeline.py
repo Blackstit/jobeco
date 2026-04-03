@@ -13,7 +13,7 @@ from jobeco.openrouter.client import analyze_with_openrouter, embed_text, preval
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
 from jobeco.processing.normalization import normalize_vacancy_fields
-from jobeco.processing.company_branding import brand_favicon_url, sanitize_logo_url
+from jobeco.processing.company_branding import brand_favicon_url, sanitize_logo_url, pick_corporate_website, is_ats_or_job_board_url
 
 log = structlog.get_logger()
 
@@ -152,15 +152,21 @@ async def upsert_company(
           existing.founded = cp["founded"]
         if cp.get("headquarters") and not existing.headquarters:
           existing.headquarters = cp["headquarters"]
+        old_website = existing.website
+        best_web = pick_corporate_website(company_url, cp.get("website"))
+        if best_web:
+          existing.website = best_web
+        elif existing.website and is_ats_or_job_board_url(existing.website):
+          existing.website = None
         new_logo = _resolve_company_logo_url(cp, company_url, existing.website)
-        if existing.logo_url and sanitize_logo_url(existing.logo_url) is None:
+        website_improved = best_web and (old_website != best_web)
+        should_refresh_logo = (
+          website_improved
+          or not existing.logo_url
+          or sanitize_logo_url(existing.logo_url) is None
+        )
+        if should_refresh_logo:
           existing.logo_url = new_logo
-        elif not existing.logo_url:
-          existing.logo_url = new_logo
-        if company_url and not existing.website:
-          existing.website = company_url
-        elif cp.get("website") and not existing.website:
-          existing.website = cp["website"]
         if company_linkedin and not existing.linkedin:
           existing.linkedin = company_linkedin
         # Merge socials
@@ -176,8 +182,8 @@ async def upsert_company(
         await s.commit()
         return int(existing.id)
       else:
-        website_val = company_url or cp.get("website")
-        logo_val = _resolve_company_logo_url(cp, company_url, None)
+        website_val = pick_corporate_website(company_url, cp.get("website"))
+        logo_val = _resolve_company_logo_url(cp, company_url, website_val)
         c = Company(
           name=name,
           name_lower=name_lc,
@@ -208,7 +214,7 @@ def _boost_company_score(scoring: dict, company_profile: dict, company_info: dic
     return scoring
 
   results = scoring.get("scoring_results") or []
-  has_website = bool(company_info.get("company_url") or company_profile.get("website"))
+  has_website = bool(pick_corporate_website(company_info.get("company_url"), company_profile.get("website")))
   has_summary = bool(company_profile.get("summary"))
 
   new_score = 7
@@ -355,6 +361,7 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int | No
       tg_channel_username=payload.get("tg_channel_username"),
       source_url=payload.get("source_url"),
       company_name=payload.get("company_name"),
+      company_url=payload.get("company_url"),
       title=payload.get("title"),
       location_type=payload.get("location_type"),
       salary_min_usd=payload.get("salary_min_usd"),
@@ -530,7 +537,7 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "tg_channel_username": getattr(event.chat, "username", None),
     "source_url": source_url,
     "company_name": analysis.get("company_name"),
-    "company_url": company_info.get("company_url"),
+    "company_url": pick_corporate_website(company_info.get("company_url"), company_profile.get("website")),
     "title": analysis.get("title"),
     "location_type": analysis.get("location_type"),
     "salary_min_usd": analysis.get("salary_min_usd"),
@@ -706,7 +713,7 @@ async def process_text_message(
     "tg_channel_username": tg_channel_username,
     "source_url": source_url,
     "company_name": analysis.get("company_name"),
-    "company_url": company_info.get("company_url"),
+    "company_url": pick_corporate_website(company_info.get("company_url"), company_profile.get("website")),
     "title": analysis.get("title"),
     "location_type": analysis.get("location_type"),
     "salary_min_usd": analysis.get("salary_min_usd"),

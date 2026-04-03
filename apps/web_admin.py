@@ -22,6 +22,7 @@ from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey
 from jobeco.settings import settings
 from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text, score_vacancy_with_openrouter, resolve_company_info, enrich_company_profile
 from jobeco.processing.pipeline import upsert_company, _boost_company_score
+from jobeco.processing.company_branding import pick_corporate_website
 from jobeco.processing.pipeline import process_text_message
 from jobeco.runtime_settings import (
   get_runtime_settings,
@@ -347,7 +348,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 async def login_page(request: Request):
   if request.session.get("authenticated"):
     return RedirectResponse(url="/", status_code=303)
-  return templates.TemplateResponse("login.html", {"request": request})
+  return templates.TemplateResponse(request, "login.html")
 
 
 @app.post("/login")
@@ -355,8 +356,8 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
   email = (email or "").strip().lower()
   if not email or not password:
     return templates.TemplateResponse(
-      "login.html",
-      {"request": request, "error": "Введите email и пароль"},
+      request, "login.html",
+      {"error": "Введите email и пароль"},
       status_code=401,
     )
 
@@ -364,15 +365,15 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     u = (await s.execute(select(AdminUser).where(AdminUser.email == email))).scalar_one_or_none()
     if not u or not u.is_active:
       return templates.TemplateResponse(
-        "login.html",
-        {"request": request, "error": "Неверный email или пароль"},
+        request, "login.html",
+        {"error": "Неверный email или пароль"},
         status_code=401,
       )
 
     if not verify_password_pbkdf2(password, u.password_hash):
       return templates.TemplateResponse(
-        "login.html",
-        {"request": request, "error": "Неверный email или пароль"},
+        request, "login.html",
+        {"error": "Неверный email или пароль"},
         status_code=401,
       )
 
@@ -408,9 +409,8 @@ async def settings_page(
       users = (await s.execute(select(AdminUser).order_by(AdminUser.id.asc()))).scalars().all()
 
   return templates.TemplateResponse(
-    "settings.html",
+    request, "settings.html",
     {
-      "request": request,
       "tab": tab,
       "runtime": runtime,
       "prompts": prompts,
@@ -575,9 +575,8 @@ async def dashboard(request: Request, _: bool = Depends(require_auth)):
     )).scalars().all()
 
   return templates.TemplateResponse(
-    "dashboard.html",
+    request, "dashboard.html",
     {
-      "request": request,
       "now": datetime.utcnow(),
       "total_vacancies": total_vacancies,
       "total_channels": total_channels,
@@ -878,9 +877,8 @@ async def vacancies_page(
     ).all()
 
   return templates.TemplateResponse(
-    "vacancies.html",
+    request, "vacancies.html",
     {
-      "request": request,
       "vacancies": vacancies,
       "total": total,
       "page": page,
@@ -990,9 +988,8 @@ async def logs_page(
   ]
 
   return templates.TemplateResponse(
-    "logs.html",
+    request, "logs.html",
     {
-      "request": request,
       "logs": logs,
       "limit": limit,
     },
@@ -1054,9 +1051,8 @@ async def api_keys_page(
       except Exception:
         expires_period_map[int(k.id)] = "custom"
   return templates.TemplateResponse(
-    "api_keys.html",
+    request, "api_keys.html",
     {
-      "request": request,
       "keys": keys,
       "usage_map": usage_map,
       "admin_users": admin_users,
@@ -1074,7 +1070,7 @@ async def api_docs_page(
   request: Request,
   _: bool = Depends(require_auth),
 ):
-  return templates.TemplateResponse("api_docs.html", {"request": request})
+  return templates.TemplateResponse(request, "api_docs.html")
 
 
 @app.post("/api/keys/create", response_class=HTMLResponse)
@@ -1183,9 +1179,8 @@ async def api_keys_create(
         expires_period_map[int(k.id)] = "custom"
 
   return templates.TemplateResponse(
-    "api_keys.html",
+    request, "api_keys.html",
     {
-      "request": request,
       "keys": keys,
       "usage_map": usage_map,
       "admin_users": admin_users,
@@ -1262,9 +1257,8 @@ async def api_keys_regenerate(
         expires_period_map[int(k.id)] = "custom"
 
   return templates.TemplateResponse(
-    "api_keys.html",
+    request, "api_keys.html",
     {
-      "request": request,
       "keys": keys,
       "usage_map": usage_map,
       "admin_users": admin_users,
@@ -1382,9 +1376,8 @@ async def api_keys_update(
         expires_period_map[int(k.id)] = "custom"
 
   return templates.TemplateResponse(
-    "api_keys.html",
+    request, "api_keys.html",
     {
-      "request": request,
       "keys": keys,
       "usage_map": usage_map,
       "admin_users": admin_users,
@@ -1395,6 +1388,134 @@ async def api_keys_update(
       "created": "0",
     },
   )
+
+
+@app.get("/api/public/landing")
+async def api_public_landing(request: Request):
+  """Return data for the landing page: stats, companies with logos, recent job titles."""
+  api_key_token = (request.headers.get("X-API-Key") or "").strip()
+  if not api_key_token:
+    raise HTTPException(status_code=401, detail="Missing X-API-Key header")
+
+  token_hash = _hash_api_key_token(api_key_token)
+  now = datetime.utcnow()
+  async with SessionLocal() as s:
+    api_key = (
+      await s.execute(
+        select(ApiKey).where(
+          ApiKey.api_key_hash == token_hash,
+          ApiKey.is_active == True,  # noqa: E712
+          or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
+        )
+      )
+    ).scalar_one_or_none()
+    if not api_key:
+      raise HTTPException(status_code=401, detail="Invalid API key")
+
+    await _enforce_api_key_limits_and_log(
+      s=s, api_key=api_key, endpoint="/api/public/landing", status_code=200,
+    )
+
+    total_vacancies = (await s.execute(text("SELECT count(*) FROM vacancies"))).scalar() or 0
+
+    companies_rows = (await s.execute(text(
+      """SELECT c.name, c.logo_url, c.industry, count(v.id) AS job_count
+         FROM companies c
+         JOIN vacancies v ON v.company_id = c.id
+         WHERE c.logo_url IS NOT NULL AND c.logo_url != ''
+         GROUP BY c.id, c.name, c.logo_url, c.industry
+         ORDER BY job_count DESC
+         LIMIT 40"""
+    ))).mappings().all()
+
+    total_companies = (await s.execute(text(
+      "SELECT count(DISTINCT company_name) FROM vacancies WHERE company_name IS NOT NULL AND company_name != ''"
+    ))).scalar() or 0
+
+    recent_jobs = (await s.execute(text(
+      """SELECT v.title, v.company_name, v.salary_min_usd, v.salary_max_usd, v.location_type, v.ai_score_value, v.id
+         FROM vacancies v
+         ORDER BY v.created_at DESC
+         LIMIT 20"""
+    ))).mappings().all()
+
+    return {
+      "stats": {
+        "total_vacancies": total_vacancies,
+        "total_companies": total_companies,
+      },
+      "companies": [
+        {"name": r["name"], "logo_url": r["logo_url"], "industry": r["industry"], "job_count": r["job_count"]}
+        for r in companies_rows
+      ],
+      "recent_jobs": [
+        {
+          "id": r["id"],
+          "title": r["title"],
+          "company_name": r["company_name"],
+          "salary_min": r["salary_min_usd"],
+          "salary_max": r["salary_max_usd"],
+          "location_type": r["location_type"],
+          "ai_score": r["ai_score_value"],
+        }
+        for r in recent_jobs
+      ],
+    }
+
+
+@app.get("/api/public/facets")
+async def api_public_facets(request: Request):
+  """Return distinct filter values: skills, roles, countries, seniority, domains."""
+  api_key_token = (request.headers.get("X-API-Key") or "").strip()
+  if not api_key_token:
+    raise HTTPException(status_code=401, detail="Missing X-API-Key header")
+
+  token_hash = _hash_api_key_token(api_key_token)
+  now = datetime.utcnow()
+  async with SessionLocal() as s:
+    api_key = (
+      await s.execute(
+        select(ApiKey).where(
+          ApiKey.api_key_hash == token_hash,
+          ApiKey.is_active == True,  # noqa: E712
+          or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
+        )
+      )
+    ).scalar_one_or_none()
+    if not api_key:
+      raise HTTPException(status_code=401, detail="Invalid API key")
+
+    await _enforce_api_key_limits_and_log(
+      s=s, api_key=api_key, endpoint="/api/public/facets", status_code=200,
+    )
+
+    skills_rows = (await s.execute(text(
+      "SELECT skill, count(*) AS cnt FROM (SELECT unnest(stack) AS skill FROM vacancies) t WHERE skill IS NOT NULL AND skill != '' GROUP BY skill ORDER BY cnt DESC LIMIT 100"
+    ))).mappings().all()
+
+    roles_rows = (await s.execute(text(
+      "SELECT role, count(*) AS cnt FROM vacancies WHERE role IS NOT NULL AND role != '' GROUP BY role ORDER BY cnt DESC LIMIT 100"
+    ))).mappings().all()
+
+    countries_rows = (await s.execute(text(
+      "SELECT country_city, count(*) AS cnt FROM vacancies WHERE country_city IS NOT NULL AND country_city != '' GROUP BY country_city ORDER BY cnt DESC LIMIT 100"
+    ))).mappings().all()
+
+    seniority_rows = (await s.execute(text(
+      "SELECT seniority, count(*) AS cnt FROM vacancies WHERE seniority IS NOT NULL AND seniority != '' GROUP BY seniority ORDER BY cnt DESC"
+    ))).mappings().all()
+
+    domains_rows = (await s.execute(text(
+      "SELECT domain, count(*) AS cnt FROM (SELECT unnest(domains) AS domain FROM vacancies) t WHERE domain IS NOT NULL AND domain != '' GROUP BY domain ORDER BY cnt DESC LIMIT 50"
+    ))).mappings().all()
+
+    return {
+      "skills": [{"name": r["skill"], "count": r["cnt"]} for r in skills_rows],
+      "roles": [{"name": r["role"], "count": r["cnt"]} for r in roles_rows],
+      "countries": [{"name": r["country_city"], "count": r["cnt"]} for r in countries_rows],
+      "seniority": [{"name": r["seniority"], "count": r["cnt"]} for r in seniority_rows],
+      "domains": [{"name": r["domain"], "count": r["cnt"]} for r in domains_rows],
+    }
 
 
 @app.get("/api/public/vacancies")
@@ -1892,6 +2013,139 @@ async def api_public_vacancies_semantic_search(
   return {"page": page, "per_page": per_page, "total": total, "items": items, "q": q}
 
 
+@app.get("/api/public/vacancies/{vacancy_id}")
+async def api_public_vacancy_detail(
+  request: Request,
+  vacancy_id: int,
+):
+  api_key_token = (request.headers.get("X-API-Key") or "").strip()
+  if not api_key_token:
+    raise HTTPException(status_code=401, detail="Missing X-API-Key header")
+
+  token_hash = _hash_api_key_token(api_key_token)
+  now = datetime.utcnow()
+  async with SessionLocal() as s:
+    api_key = (
+      await s.execute(
+        select(ApiKey).where(
+          ApiKey.api_key_hash == token_hash,
+          ApiKey.is_active == True,  # noqa: E712
+          or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
+        )
+      )
+    ).scalar_one_or_none()
+    if not api_key:
+      raise HTTPException(status_code=401, detail="Invalid API key")
+
+    await _enforce_api_key_limits_and_log(
+      s=s, api_key=api_key, endpoint=f"/api/public/vacancies/{vacancy_id}", status_code=200,
+    )
+
+    cfg = api_key.config or {}
+    out_lang = (cfg.get("output") or {}).get("language") or "en"
+
+    row = (
+      await s.execute(
+        select(Vacancy, Company.logo_url, Company.website.label("company_website_enriched"),
+               Company.industry, Company.size.label("company_size_enriched"),
+               Company.founded, Company.headquarters, Company.summary.label("company_summary"),
+               Company.socials.label("company_socials"), Company.domains.label("company_domains"))
+        .select_from(Vacancy)
+        .outerjoin(Company, Company.id == Vacancy.company_id)
+        .where(Vacancy.id == vacancy_id)
+      )
+    ).one_or_none()
+
+    if not row:
+      raise HTTPException(status_code=404, detail="Vacancy not found")
+
+    v = row[0]
+    logo_url = row[1]
+    v_meta = getattr(v, "metadata_json", {}) or {}
+    scoring = v_meta.get("scoring") or {}
+    summary = v.summary_en if out_lang == "en" else (v.summary_ru or v.summary_en)
+    contacts_dict = _contacts_list_to_dict(getattr(v, "contacts", None))
+
+    derived_source_url = None
+    try:
+      tg_user = (getattr(v, "tg_channel_username", None) or "").lstrip("@")
+      tg_msg_id = getattr(v, "tg_message_id", None)
+      if tg_user and tg_msg_id:
+        derived_source_url = f"https://t.me/{tg_user}/{tg_msg_id}"
+    except Exception:
+      pass
+
+    company_data = None
+    if v.company_id and row[2]:
+      company_data = {
+        "name": v.company_name,
+        "website": row[2],
+        "logo_url": logo_url,
+        "industry": row[3],
+        "size": row[4],
+        "founded": row[5],
+        "headquarters": row[6],
+        "summary": row[7],
+        "socials": row[8] or {},
+        "domains": row[9] or [],
+      }
+    elif not company_data:
+      cp = v_meta.get("company_profile")
+      if cp and isinstance(cp, dict) and cp.get("summary"):
+        company_data = {
+          "name": v.company_name,
+          "website": cp.get("website"),
+          "logo_url": cp.get("logo_url") or logo_url,
+          "industry": cp.get("industry"),
+          "size": cp.get("size"),
+          "founded": cp.get("founded"),
+          "headquarters": cp.get("headquarters"),
+          "summary": cp.get("summary"),
+          "socials": {},
+          "domains": [],
+        }
+
+    return {
+      "id": v.id,
+      "title": v.title,
+      "company_name": v.company_name,
+      "role": getattr(v, "role", None),
+      "domains": v.domains or [],
+      "risk_label": v.risk_label,
+      "ai_score_value": getattr(v, "ai_score_value", None),
+      "location_type": v.location_type,
+      "salary_min_usd": v.salary_min_usd,
+      "salary_max_usd": v.salary_max_usd,
+      "currency": getattr(v, "currency", None),
+      "seniority": getattr(v, "seniority", None),
+      "english_level": getattr(v, "english_level", None),
+      "employment_type": v_meta.get("employment_type"),
+      "language_requirements": v_meta.get("language_requirements"),
+      "experience_years": getattr(v, "experience_years", None),
+      "country_city": getattr(v, "country_city", None),
+      "recruiter": v.recruiter,
+      "summary": summary,
+      "skills": v.stack or [],
+      "stack": v.stack or [],
+      "contacts": contacts_dict,
+      "source_url": v.source_url or derived_source_url,
+      "source_channel": getattr(v, "source_channel", None),
+      "created_at": v.created_at.isoformat() if v.created_at else None,
+      "scoring": {
+        "total_score": scoring.get("total_score"),
+        "overall_summary": scoring.get("overall_summary"),
+        "red_flags": scoring.get("red_flags") or [],
+        "scoring_results": scoring.get("scoring_results") or [],
+      } if scoring else None,
+      "company": company_data,
+      "description": v.description,
+      "responsibilities": v.responsibilities,
+      "requirements": v.requirements,
+      "conditions": v.conditions,
+      "raw_text": v.raw_text,
+    }
+
+
 @app.get("/api/vacancies/suggest")
 async def vacancy_suggest(
   q: str = Query("", min_length=0),
@@ -2127,6 +2381,8 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
     pass
   ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
 
+  display_company_url = pick_corporate_website(_ci.get("company_url"), company_profile.get("website"))
+
   company_id = await upsert_company(
     company_name=analysis.get("company_name"),
     company_profile=company_profile,
@@ -2166,7 +2422,7 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
       .where(Vacancy.id == vacancy_id)
       .values(
         company_name=analysis.get("company_name"),
-        company_url=_ci.get("company_url"),
+        company_url=display_company_url,
         title=analysis.get("title"),
         location_type=analysis.get("location_type"),
         salary_min_usd=analysis.get("salary_min_usd"),
@@ -2283,9 +2539,8 @@ async def channels_page(
       })
 
   return templates.TemplateResponse(
-    "channels.html",
+    request, "channels.html",
     {
-      "request": request,
       "channels": channels,
       "web_sources": web_sources,
       "filters": {
@@ -3181,9 +3436,8 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
     charts_json = _charts_json_for_template(charts)
 
   return templates.TemplateResponse(
-    "analytics.html",
+    request, "analytics.html",
     {
-      "request": request,
       "charts_json": charts_json,
       "kpis": {
         "total_vacancies": total_vac,
@@ -3213,7 +3467,7 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
 
 @app.get("/graph", response_class=HTMLResponse)
 async def graph_page(request: Request, _: bool = Depends(require_auth)):
-  return templates.TemplateResponse("graph.html", {"request": request})
+  return templates.TemplateResponse(request, "graph.html")
 
 
 @app.get("/api/graph/vacancies")
@@ -3333,8 +3587,7 @@ async def companies_page(
     )).all()
     industries = [(r[0], r[1]) for r in industry_rows]
 
-  return templates.TemplateResponse("companies.html", {
-    "request": request,
+  return templates.TemplateResponse(request, "companies.html", {
     "companies": companies,
     "total": total,
     "page": page,
