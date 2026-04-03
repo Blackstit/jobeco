@@ -11,6 +11,7 @@ import structlog
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
 from jobeco.openrouter._enrich_company import enrich_company_profile  # noqa: F401
+from jobeco.processing.company_branding import is_ats_or_job_board_url
 
 _log = structlog.get_logger()
 
@@ -71,6 +72,8 @@ def _is_company_site_candidate(url: str) -> bool:
   if "google.com" in base or "typeform.com" in base or "jotform.com" in base:
     return False
   if "surveymonkey.com" in base or "airtable.com" in base or "tally.so" in base:
+    return False
+  if is_ats_or_job_board_url(url):
     return False
   return True
 

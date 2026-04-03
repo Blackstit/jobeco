@@ -13,6 +13,7 @@ from jobeco.openrouter.client import analyze_with_openrouter, embed_text, preval
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
 from jobeco.processing.normalization import normalize_vacancy_fields
+from jobeco.processing.company_branding import brand_favicon_url, sanitize_logo_url
 
 log = structlog.get_logger()
 
@@ -83,20 +84,16 @@ def _enrich_contacts_with_forms(contacts: list[str], raw_text: str | None) -> li
   return contacts
 
 
-def _logo_from_url(url: str | None) -> str | None:
-  if not url:
-    return None
-  try:
-    from urllib.parse import urlparse
-    u = url.strip()
-    if not u.startswith("http"):
-      u = "https://" + u
-    domain = urlparse(u).netloc.replace("www.", "", 1)
-    if domain and "." in domain:
-      return f"https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=128"
-  except Exception:
-    pass
-  return None
+def _resolve_company_logo_url(
+  company_profile: dict,
+  company_url: str | None,
+  existing_website: str | None = None,
+) -> str | None:
+  """Prefer explicit/sanitized profile logo, then favicon from a non-ATS corporate website."""
+  explicit = sanitize_logo_url((company_profile or {}).get("logo_url"))
+  if explicit:
+    return explicit
+  return brand_favicon_url(company_url or (company_profile or {}).get("website") or existing_website)
 
 
 _INDUSTRY_TO_DOMAIN_INDUSTRY = {
@@ -155,8 +152,11 @@ async def upsert_company(
           existing.founded = cp["founded"]
         if cp.get("headquarters") and not existing.headquarters:
           existing.headquarters = cp["headquarters"]
-        if not existing.logo_url:
-          existing.logo_url = cp.get("logo_url") or _logo_from_url(company_url or cp.get("website") or existing.website)
+        new_logo = _resolve_company_logo_url(cp, company_url, existing.website)
+        if existing.logo_url and sanitize_logo_url(existing.logo_url) is None:
+          existing.logo_url = new_logo
+        elif not existing.logo_url:
+          existing.logo_url = new_logo
         if company_url and not existing.website:
           existing.website = company_url
         elif cp.get("website") and not existing.website:
@@ -177,7 +177,7 @@ async def upsert_company(
         return int(existing.id)
       else:
         website_val = company_url or cp.get("website")
-        logo_val = cp.get("logo_url") or _logo_from_url(website_val)
+        logo_val = _resolve_company_logo_url(cp, company_url, None)
         c = Company(
           name=name,
           name_lower=name_lc,

@@ -328,6 +328,11 @@ async def process_remocate_vacancy(
     except Exception:
         pass
 
+    # Job page often has the real employer logo (CDN); prefer over favicon-from-ATS.
+    page_logo = detail.get("logo_url")
+    if page_logo:
+        company_profile = {**company_profile, "logo_url": page_logo}
+
     scoring = _boost_company_score(scoring, company_profile, company_info)
     total_score = scoring.get("total_score")
     try:

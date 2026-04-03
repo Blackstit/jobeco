@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import json as _json
 import re
-from urllib.parse import urlparse
 
 import httpx
 import structlog
 
 from jobeco.runtime_settings import get_runtime_settings
+from jobeco.processing.company_branding import brand_favicon_url
 
 _log = structlog.get_logger()
 
@@ -109,20 +109,14 @@ async def enrich_company_profile(
       if clean_socials:
         result["socials"] = clean_socials
 
-    logo_domain = None
-    if company_url:
-      try:
-        logo_domain = urlparse(company_url).netloc.replace("www.", "", 1)
-      except Exception:
-        pass
-    if not logo_domain and result.get("website"):
-      try:
-        logo_domain = urlparse(result["website"]).netloc.replace("www.", "", 1)
-      except Exception:
-        pass
-
-    if logo_domain:
-      result["logo_url"] = f"https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{logo_domain}&size=128"
+    # Favicon only from a real corporate domain (not ATS / job boards).
+    logo_url = None
+    if result.get("website"):
+      logo_url = brand_favicon_url(result["website"])
+    if not logo_url and company_url:
+      logo_url = brand_favicon_url(company_url)
+    if logo_url:
+      result["logo_url"] = logo_url
 
     return result
   except Exception as exc:
