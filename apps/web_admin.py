@@ -39,6 +39,8 @@ from jobeco.parsers.degencryptojobs import sync_source as degen_sync, ensure_sou
 from jobeco.parsers.web3career import sync_source as w3c_sync, ensure_source_record as w3c_ensure
 from jobeco.parsers.cryptojobs import sync_source as cj_sync, ensure_source_record as cj_ensure
 from jobeco.parsers.remocate import sync_source as remo_sync, ensure_source_record as remo_ensure
+from jobeco.parsers.cryptocurrencyjobs_co import sync_source as ccj_sync, ensure_source_record as ccj_ensure
+from jobeco.parsers.sailonchain import sync_source as sail_sync, ensure_source_record as sail_ensure
 from jobeco.db.base import Base as _SABase
 import structlog as _structlog
 
@@ -69,6 +71,10 @@ async def _web_sources_scheduler():
             await cj_sync(max_pages=src.max_pages, limit=10)
           elif src.parser_type == "remocate":
             await remo_sync(max_pages=src.max_pages, limit=15)
+          elif src.parser_type == "cryptocurrencyjobs_co":
+            await ccj_sync(max_pages=src.max_pages, limit=25)
+          elif src.parser_type == "sailonchain":
+            await sail_sync(max_pages=src.max_pages, limit=20)
         except Exception as e:
           _bg_log.error("web_source_sync_error", slug=src.slug, error=str(e))
     except Exception as e:
@@ -85,6 +91,8 @@ async def lifespan(app):
   await w3c_ensure()
   await cj_ensure()
   await remo_ensure()
+  await ccj_ensure()
+  await sail_ensure()
   task = _asyncio.create_task(_web_sources_scheduler())
   yield
   task.cancel()
@@ -96,6 +104,12 @@ _session_secret = settings.session_secret_key or settings.openrouter_api_key or 
 app.add_middleware(SessionMiddleware, secret_key=_session_secret)
 
 templates = Jinja2Templates(directory="templates")
+
+from starlette.staticfiles import StaticFiles
+import os as _os
+_static_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "static")
+if _os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 async def require_auth(request: Request):
   """Проверка авторизации."""
@@ -111,6 +125,11 @@ async def require_auth(request: Request):
     if not u:
       raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
   return True
+
+
+def _is_authenticated(request: Request) -> bool:
+  """Check if current session is authenticated (non-blocking)."""
+  return bool(request.session.get("authenticated") and request.session.get("user_id"))
 
 
 def _hash_api_key_token(token: str) -> str:
@@ -522,8 +541,141 @@ async def settings_save(
   return RedirectResponse(url=f"/settings?tab={tab}&saved=1", status_code=303)
 
 
+@app.get("/landing", response_class=HTMLResponse)
+async def landing_page(request: Request):
+  """Public landing page for HireLens."""
+  async with SessionLocal() as s:
+    total_vacancies = (await s.execute(select(func.count(Vacancy.id)))).scalar() or 0
+    tg_channels = (await s.execute(select(func.count(Channel.id)))).scalar() or 0
+    web_sources_cnt = 0
+    try:
+      web_sources_cnt = (await s.execute(select(func.count(WebSource.id)))).scalar() or 0
+    except Exception:
+      pass
+    total_sources = tg_channels + web_sources_cnt
+    total_companies = (await s.execute(select(func.count(Company.id)))).scalar() or 0
+    avg_score = (await s.execute(select(func.round(func.avg(Vacancy.ai_score_value), 1)).where(
+      Vacancy.ai_score_value.isnot(None)
+    ))).scalar()
+    domain_stats_rows = (await s.execute(text(
+      """SELECT lower(btrim(d)) as category, count(*) as count
+         FROM vacancies v CROSS JOIN LATERAL unnest(v.domains) as d
+         WHERE d IS NOT NULL AND btrim(d) <> ''  GROUP BY 1 ORDER BY count DESC LIMIT 15"""
+    ))).all()
+    domains = [(r.category, r.count) for r in domain_stats_rows]
+  return templates.TemplateResponse(
+    request, "landing.html",
+    {
+      "stats": {
+        "total_vacancies": f"{total_vacancies:,}",
+        "total_companies": f"{total_companies:,}",
+        "total_sources": total_sources,
+        "avg_score": avg_score or "—",
+        "tg_channels": tg_channels,
+        "domains": domains,
+      },
+    },
+  )
+
+
+@app.get("/api/landing/search")
+async def landing_search(
+  q: str = Query("", min_length=0),
+  limit: int = Query(12, ge=1, le=30),
+):
+  """Fast vacancy search for the landing page — semantic + keyword, no API key."""
+  term = (q or "").strip()
+  if len(term) < 2:
+    return {"items": []}
+
+  results = []
+  async with SessionLocal() as s:
+    embedding = None
+    try:
+      embedding = await embed_text(term)
+    except Exception:
+      pass
+
+    if embedding:
+      vec = "[" + ",".join(f"{x:.6f}" for x in embedding) + "]"
+      sql = text("""
+        SELECT v.id, v.title, v.company_name, v.domains, v.role, v.seniority,
+               v.salary_min_usd, v.salary_max_usd, v.ai_score_value,
+               v.location_type, v.created_at, v.source_url, v.company_url,
+               c.logo_url,
+               1 - (v.embedding <=> (:vec)::vector) AS similarity
+        FROM vacancies v
+        LEFT JOIN companies c ON c.id = v.company_id
+        WHERE v.embedding IS NOT NULL
+        ORDER BY v.embedding <=> (:vec)::vector
+        LIMIT :lim
+      """)
+      rows = (await s.execute(sql, {"vec": vec, "lim": limit})).mappings().all()
+      for r in rows:
+        results.append({
+          "id": r["id"], "title": r["title"], "company_name": r["company_name"],
+          "domains": r["domains"] or [], "role": r["role"], "seniority": r["seniority"],
+          "salary_min": r["salary_min_usd"], "salary_max": r["salary_max_usd"],
+          "score": float(r["ai_score_value"]) if r["ai_score_value"] else None,
+          "location_type": r["location_type"],
+          "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+          "source_url": r["source_url"], "company_url": r["company_url"],
+          "logo_url": r["logo_url"],
+          "similarity": round(float(r["similarity"]), 3) if r["similarity"] else None,
+        })
+    else:
+      like = f"%{term}%"
+      rows = (await s.execute(
+        select(
+          Vacancy.id, Vacancy.title, Vacancy.company_name, Vacancy.domains,
+          Vacancy.role, Vacancy.seniority,
+          Vacancy.salary_min_usd, Vacancy.salary_max_usd, Vacancy.ai_score_value,
+          Vacancy.location_type, Vacancy.created_at, Vacancy.source_url, Vacancy.company_url,
+        )
+        .where(or_(Vacancy.title.ilike(like), Vacancy.company_name.ilike(like), Vacancy.raw_text.ilike(like)))
+        .order_by(desc(Vacancy.id))
+        .limit(limit)
+      )).all()
+      for r in rows:
+        results.append({
+          "id": r.id, "title": r.title, "company_name": r.company_name,
+          "domains": r.domains or [], "role": r.role, "seniority": r.seniority,
+          "salary_min": r.salary_min_usd, "salary_max": r.salary_max_usd,
+          "score": float(r.ai_score_value) if r.ai_score_value else None,
+          "location_type": r.location_type,
+          "created_at": r.created_at.isoformat() if r.created_at else None,
+          "source_url": r.source_url, "company_url": r.company_url,
+          "logo_url": None,
+        })
+
+  return {"items": results}
+
+
+
+@app.get("/favicon.svg", include_in_schema=False)
+async def favicon():
+    import os
+    fpath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "favicon.svg")
+    from starlette.responses import FileResponse
+    return FileResponse(fpath, media_type="image/svg+xml")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon_ico():
+    import os
+    fpath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "favicon.svg")
+    from starlette.responses import FileResponse
+    return FileResponse(fpath, media_type="image/svg+xml")
+
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, _: bool = Depends(require_auth)):
+async def root_page(request: Request):
+  """Serve landing or redirect to dashboard if authenticated."""
+  if request.session.get("authenticated") and request.session.get("user_id"):
+    return RedirectResponse(url="/dashboard", status_code=302)
+  return await landing_page(request)
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
   async with SessionLocal() as s:
     total_vacancies = (await s.execute(select(func.count(Vacancy.id)))).scalar() or 0
     tg_channels = (await s.execute(select(func.count(Channel.id)))).scalar() or 0
@@ -596,7 +748,6 @@ async def dashboard(request: Request, _: bool = Depends(require_auth)):
 @app.get("/vacancies", response_class=HTMLResponse)
 async def vacancies_page(
   request: Request,
-  _: bool = Depends(require_auth),
   page: int = Query(1, ge=1),
   per_page: int = Query(50, ge=1, le=200),
   category: str | None = Query(None),  # backward compat (mapped to domain)
@@ -2149,7 +2300,6 @@ async def api_public_vacancy_detail(
 @app.get("/api/vacancies/suggest")
 async def vacancy_suggest(
   q: str = Query("", min_length=0),
-  _: bool = Depends(require_auth),
 ):
   """Fast autocomplete: return up to 7 matches by title/company_name."""
   term = (q or "").strip()
@@ -2183,7 +2333,7 @@ async def vacancy_suggest(
 
 
 @app.get("/api/vacancies/{vacancy_id}")
-async def get_vacancy_details(vacancy_id: int, _: bool = Depends(require_auth)):
+async def get_vacancy_details(vacancy_id: int):
   async with SessionLocal() as s:
     v = (await s.execute(select(Vacancy).where(Vacancy.id == vacancy_id))).scalar_one_or_none()
     if not v:
@@ -2943,6 +3093,10 @@ async def trigger_web_source_sync(source_id: int, _: bool = Depends(require_auth
     result = await cj_sync(max_pages=max_pages, limit=10)
   elif parser_type == "remocate":
     result = await remo_sync(max_pages=max_pages, limit=15)
+  elif parser_type == "cryptocurrencyjobs_co":
+    result = await ccj_sync(max_pages=max_pages, limit=25)
+  elif parser_type == "sailonchain":
+    result = await sail_sync(max_pages=max_pages, limit=20)
   else:
     raise HTTPException(status_code=400, detail=f"Unknown parser type: {parser_type}")
 
@@ -3010,7 +3164,7 @@ async def web_source_vacancies(
 
 
 @app.get("/analytics", response_class=HTMLResponse)
-async def analytics_page(request: Request, _: bool = Depends(require_auth)):
+async def analytics_page(request: Request):
   category_stats: list[tuple] = []
   channel_stats: list[tuple] = []
   date_stats: list[tuple] = []
@@ -3466,12 +3620,12 @@ async def analytics_page(request: Request, _: bool = Depends(require_auth)):
 
 
 @app.get("/graph", response_class=HTMLResponse)
-async def graph_page(request: Request, _: bool = Depends(require_auth)):
+async def graph_page(request: Request):
   return templates.TemplateResponse(request, "graph.html")
 
 
 @app.get("/api/graph/vacancies")
-async def graph_vacancies_data(_: bool = Depends(require_auth)):
+async def graph_vacancies_data():
   """Return lightweight vacancy records for the force-directed graph."""
   async with SessionLocal() as s:
     rows = (await s.execute(
@@ -3523,7 +3677,6 @@ async def graph_vacancies_data(_: bool = Depends(require_auth)):
 @app.get("/companies", response_class=HTMLResponse)
 async def companies_page(
   request: Request,
-  _: bool = Depends(require_auth),
   page: int = Query(1, ge=1),
   per_page: int = Query(60, ge=1, le=200),
   search: str | None = Query(None),
@@ -3601,7 +3754,7 @@ async def companies_page(
 
 
 @app.get("/api/companies/{company_id}")
-async def api_company_detail(company_id: int, _: bool = Depends(require_auth)):
+async def api_company_detail(company_id: int):
   async with SessionLocal() as s:
     comp = (await s.execute(select(Company).where(Company.id == company_id))).scalar_one_or_none()
     if not comp:

@@ -1,6 +1,7 @@
 """
-Parser for web3.career — fetches job listings, loads individual pages
-for structured JSON-LD data, then processes through the standard pipeline.
+Parser for cryptocurrencyjobs.co — fetches the main listing page,
+follows individual job links, extracts JSON-LD JobPosting data
+and external apply URLs, then processes through the standard pipeline.
 """
 from __future__ import annotations
 
@@ -35,9 +36,9 @@ from sqlalchemy import select, func as sqla_func
 
 log = structlog.get_logger()
 
-SOURCE_SLUG = "web3career"
-SOURCE_CHANNEL = "web:web3career"
-BASE_URL = "https://web3.career"
+SOURCE_SLUG = "cryptocurrencyjobs_co"
+SOURCE_CHANNEL = "web:cryptocurrencyjobs_co"
+BASE_URL = "https://cryptocurrencyjobs.co"
 
 _HEADERS = {
     "accept": "text/html,application/xhtml+xml",
@@ -52,18 +53,24 @@ _HEADERS = {
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
-_PAID_MARKERS = {"paid_job", "border-paid-table"}
-
-_TR_PAT = re.compile(
-    r"<tr[^>]*data-jobid=(\d+)[^>]*"
-    r"onclick=\"tableTurboRowClick\(event,\s*'(/[^']+)'\)\""
-    r"[^>]*class=\"([^\"]*)\"",
+_CATEGORIES = (
+    "engineering", "sales", "marketing", "operations", "design",
+    "other", "customer-support", "non-tech", "community",
 )
+_CAT_PAT = "|".join(_CATEGORIES)
+_JOB_HREF_RE = re.compile(
+    rf"href=(?:\"|\x27)?(/(?:{_CAT_PAT})/[a-z0-9][a-z0-9-]+/)(?:\"|\x27)?",
+)
+
 _LD_PAT = re.compile(
-    r'<script[^>]*type=["\']?application/ld\+json["\']?[^>]*>(.*?)</script>',
+    r"<script[^>]*type=[\"']?application/ld\+json[\"']?[^>]*>(.*?)</script>",
     re.S,
 )
-_APPLY_PAT = re.compile(r'href="(/i/[^"]+)"')
+
+_SOCIAL_DOMAINS = (
+    "twitter.com", "facebook.com", "linkedin.com", "instagram.com",
+    "youtube.com", "t.me", "sharer.", "intent/tweet",
+)
 
 
 def _strip_html(raw: str) -> str:
@@ -74,36 +81,31 @@ async def _get_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=30, follow_redirects=True)
 
 
-async def fetch_listing(page: int = 1) -> list[dict]:
-    """
-    Fetch one listing page of web3.career.
-    Returns list of dicts: {id, href, paid} for each job card.
-    """
-    url = BASE_URL + "/" if page <= 1 else f"{BASE_URL}/?page={page}"
+async def fetch_listing() -> list[str]:
+    """Fetch main listing page and return unique job URLs."""
     async with await _get_client() as client:
-        resp = await client.get(url, headers=_HEADERS)
+        resp = await client.get(BASE_URL, headers=_HEADERS)
         resp.raise_for_status()
         html = resp.text
 
-    results = []
-    seen_ids = set()
-    for m in _TR_PAT.finditer(html):
-        jid, href, cls = m.group(1), m.group(2), m.group(3)
-        if jid in seen_ids:
+    seen: set[str] = set()
+    result: list[str] = []
+    for m in _JOB_HREF_RE.finditer(html):
+        path = m.group(1)
+        if path in seen:
             continue
-        seen_ids.add(jid)
-        cls_tokens = set(cls.split())
-        is_paid = bool(cls_tokens & _PAID_MARKERS)
-        results.append({"id": jid, "href": href, "paid": is_paid})
+        seen.add(path)
+        result.append(BASE_URL + path)
 
-    return results
+    return result
 
 
-async def fetch_job_page(href: str) -> tuple[dict | None, str | None]:
+async def fetch_job_page(url: str) -> tuple[dict | None, str | None]:
     """
-    Fetch an individual job page and return (first_json_ld, apply_url).
+    Fetch an individual job page and return (json_ld_dict, apply_url).
+    JSON-LD on this site uses unquoted type attribute and may contain
+    raw newlines in the description field.
     """
-    url = BASE_URL + href
     async with await _get_client() as client:
         resp = await client.get(url, headers=_HEADERS)
         resp.raise_for_status()
@@ -121,9 +123,27 @@ async def fetch_job_page(href: str) -> tuple[dict | None, str | None]:
             break
 
     apply_url = None
-    am = _APPLY_PAT.search(html)
-    if am:
-        apply_url = BASE_URL + am.group(1)
+    ref_links = re.findall(
+        r'href="(https?://[^"]+\?ref=cryptocurrencyjobs\.co[^"]*)"',
+        html,
+    )
+    for link in ref_links:
+        if any(s in link for s in _SOCIAL_DOMAINS):
+            continue
+        apply_url = link
+        break
+
+    if not apply_url:
+        ext_links = re.findall(
+            r'href="(https?://(?!cryptocurrencyjobs\.co|cdn\.|fonts\.|cdnjs\.)[^"]+)"',
+            html,
+        )
+        for link in ext_links:
+            if any(s in link for s in _SOCIAL_DOMAINS):
+                continue
+            if re.search(r"/apply|/career|/jobs?/|/recruit|/hiring|/position", link, re.I):
+                apply_url = link
+                break
 
     return ld, apply_url
 
@@ -133,8 +153,7 @@ def _compose_raw_text(
     apply_url: str | None,
     page_url: str | None,
 ) -> str:
-    """Build raw text for LLM analysis from the JSON-LD data."""
-    parts = []
+    parts: list[str] = []
 
     title = ld.get("title", "")
     if title:
@@ -159,6 +178,8 @@ def _compose_raw_text(
 
     emp = ld.get("employmentType")
     if emp:
+        if isinstance(emp, list):
+            emp = ", ".join(emp)
         parts.append(f"Employment type: {emp}")
 
     sal = ld.get("baseSalary", {})
@@ -181,14 +202,19 @@ def _compose_raw_text(
 
     if page_url:
         parts.append(f"\nSource: {page_url}")
-    if apply_url and "/i/" not in apply_url:
+    if apply_url:
         parts.append(f"Apply: {apply_url}")
 
     return "\n".join(parts)
 
 
-def _external_id(job_id: str) -> str:
-    return f"w3c:{job_id}"
+def _slug_from_url(url: str) -> str:
+    path = url.rstrip("/").rsplit("/", 1)[-1]
+    return path
+
+
+def _external_id(slug: str) -> str:
+    return f"ccj:{slug}"
 
 
 async def _already_exists(external_id: str) -> bool:
@@ -199,18 +225,17 @@ async def _already_exists(external_id: str) -> bool:
         return row.scalar() is not None
 
 
-async def process_web3career_vacancy(
-    job_id: str,
+async def process_vacancy(
+    job_url: str,
     ld: dict,
     apply_url: str | None,
-    page_url: str,
 ) -> int | None:
-    """Process a single web3.career job through the full pipeline."""
-    ext_id = _external_id(job_id)
+    slug = _slug_from_url(job_url)
+    ext_id = _external_id(slug)
     if await _already_exists(ext_id):
         return None
 
-    raw_text = _compose_raw_text(ld, apply_url, page_url)
+    raw_text = _compose_raw_text(ld, apply_url, job_url)
     if not raw_text.strip():
         return None
 
@@ -248,7 +273,7 @@ async def process_web3career_vacancy(
         ai_score = int(analysis.get("ai_score_value") or 5)
     ai_score = max(0, min(10, ai_score))
 
-    company_profile = {}
+    company_profile: dict = {}
     try:
         company_profile = await enrich_company_profile(
             company_name=company_name,
@@ -256,6 +281,12 @@ async def process_web3career_vacancy(
         )
     except Exception:
         pass
+
+    org_logo = org.get("logo")
+    if org_logo and not org_logo.startswith("http"):
+        org_logo = BASE_URL + org_logo if org_logo.startswith("/") else None
+    if org_logo:
+        company_profile = {**company_profile, "logo_url": org_logo}
 
     scoring = _boost_company_score(scoring, company_profile, company_info)
     total_score = scoring.get("total_score")
@@ -265,7 +296,19 @@ async def process_web3career_vacancy(
         pass
     ai_score = max(0, min(10, ai_score))
 
-    display_company_url = pick_corporate_website(company_info.get("company_url"), company_profile.get("website"))
+    org_websites = org.get("sameAs", [])
+    org_website = None
+    if isinstance(org_websites, list):
+        for u in org_websites:
+            if isinstance(u, str) and "twitter.com" not in u and "t.me" not in u:
+                org_website = u
+                break
+
+    display_company_url = pick_corporate_website(
+        company_info.get("company_url"),
+        company_profile.get("website"),
+        org_website,
+    )
 
     company_id = await upsert_company(
         company_name=company_name,
@@ -280,10 +323,11 @@ async def process_web3career_vacancy(
         if str(x).strip()
     ]
 
-    contacts = list(analysis.get("contacts") or [])
-    # /i/ links on web3.career are tracking redirects back to the same page — skip them
-    if page_url:
-        contacts.append(page_url)
+    contacts: list[str] = list(analysis.get("contacts") or [])
+    if apply_url:
+        contacts.append(apply_url)
+    elif job_url:
+        contacts.append(job_url)
     contacts = _enrich_contacts_with_forms(contacts, raw_text)
 
     sal = ld.get("baseSalary", {})
@@ -302,7 +346,7 @@ async def process_web3career_vacancy(
             pass
 
     payload = {
-        "source_url": page_url,
+        "source_url": job_url,
         "external_id": ext_id,
         "source_channel": SOURCE_CHANNEL,
         "company_name": company_name,
@@ -358,75 +402,55 @@ async def process_web3career_vacancy(
     return vacancy_id
 
 
-async def sync_source(max_pages: int = 1, limit: int = 20) -> dict:
-    """Sync jobs from web3.career. Returns a summary dict."""
-    result = {"added": 0, "skipped": 0, "errors": [], "total_fetched": 0}
+async def sync_source(max_pages: int = 1, limit: int = 25) -> dict:
+    """Sync jobs from cryptocurrencyjobs.co. Returns a summary dict."""
+    result: dict = {"added": 0, "skipped": 0, "errors": [], "total_fetched": 0}
     processed = 0
 
-    for page in range(1, max_pages + 1):
-        try:
-            cards = await fetch_listing(page)
-        except Exception as e:
-            result["errors"].append(f"Page {page}: {e}")
-            break
+    try:
+        job_urls = await fetch_listing()
+    except Exception as e:
+        result["errors"].append(f"Listing: {e}")
+        return result
 
-        if not cards:
-            break
+    result["total_fetched"] = len(job_urls)
+    log.info("ccj_listing", total=len(job_urls))
 
-        non_paid = [c for c in cards if not c["paid"]]
-        result["total_fetched"] += len(non_paid)
-        log.info(
-            "w3c_listing",
-            page=page,
-            total=len(cards),
-            paid=len(cards) - len(non_paid),
-            non_paid=len(non_paid),
-        )
-
-        for card in non_paid:
-            if processed >= limit:
-                break
-
-            job_id = card["id"]
-            href = card["href"]
-            page_url = BASE_URL + href
-
-            try:
-                ld, apply_url = await fetch_job_page(href)
-            except Exception as e:
-                result["errors"].append(f"Fetch {href}: {e}")
-                processed += 1
-                continue
-
-            if not ld:
-                result["skipped"] += 1
-                processed += 1
-                continue
-
-            try:
-                vid = await process_web3career_vacancy(
-                    job_id=job_id,
-                    ld=ld,
-                    apply_url=apply_url,
-                    page_url=page_url,
-                )
-                if vid:
-                    result["added"] += 1
-                else:
-                    result["skipped"] += 1
-                processed += 1
-            except Exception as e:
-                title = ld.get("title", "?")
-                err = f"Job '{title}' ({job_id}): {e}"
-                log.error("web_vacancy_error", source=SOURCE_SLUG, error=str(e))
-                result["errors"].append(err)
-                processed += 1
-
-            await asyncio.sleep(0.5)
-
+    for job_url in job_urls:
         if processed >= limit:
             break
-        await asyncio.sleep(1)
+
+        try:
+            ld, apply_url = await fetch_job_page(job_url)
+        except Exception as e:
+            result["errors"].append(f"Fetch {job_url}: {e}")
+            processed += 1
+            continue
+
+        if not ld:
+            result["skipped"] += 1
+            processed += 1
+            continue
+
+        try:
+            vid = await process_vacancy(
+                job_url=job_url,
+                ld=ld,
+                apply_url=apply_url,
+            )
+            if vid:
+                result["added"] += 1
+            else:
+                result["skipped"] += 1
+            processed += 1
+        except Exception as e:
+            title = ld.get("title", "?")
+            err = f"Job '{title}': {e}"
+            log.error("web_vacancy_error", source=SOURCE_SLUG, error=str(e))
+            result["errors"].append(err)
+            processed += 1
+
+        await asyncio.sleep(0.5)
 
     try:
         async with SessionLocal() as s:
@@ -462,7 +486,7 @@ async def sync_source(max_pages: int = 1, limit: int = 20) -> dict:
 
 
 async def ensure_source_record():
-    """Create the web_sources row for web3career if it doesn't exist."""
+    """Create the web_sources row for cryptocurrencyjobs_co if it doesn't exist."""
     async with SessionLocal() as s:
         existing = (
             await s.execute(
@@ -472,9 +496,9 @@ async def ensure_source_record():
         if not existing:
             ws = WebSource(
                 slug=SOURCE_SLUG,
-                name="Web3.Career",
-                url="https://web3.career",
-                parser_type="web3career",
+                name="CryptocurrencyJobs.co",
+                url="https://cryptocurrencyjobs.co",
+                parser_type="cryptocurrencyjobs_co",
                 enabled=True,
                 sync_interval_minutes=360,
                 max_pages=1,

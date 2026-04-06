@@ -19,6 +19,7 @@ _ATS_AND_BOARD_EXACT = frozenset({
   "wantapply.com",
   "workatastartup.com",
   "cryptocurrencyjobs.co",
+  "sailonchain.com",
   "jaabz.com",
   "indeed.com",
   "glassdoor.com",
