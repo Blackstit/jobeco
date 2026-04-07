@@ -713,9 +713,7 @@ async def sitemap_xml():
 
 @app.get("/", response_class=HTMLResponse)
 async def root_page(request: Request):
-  """Serve landing or redirect to dashboard if authenticated."""
-  if request.session.get("authenticated") and request.session.get("user_id"):
-    return RedirectResponse(url="/dashboard", status_code=302)
+  """Always serve landing page at root."""
   return await landing_page(request)
 
 
