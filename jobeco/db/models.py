@@ -216,3 +216,17 @@ class ParserLog(Base):
   vacancy_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
   extra: Mapped[dict] = mapped_column(JSONB(astext_type=Text()), nullable=False, server_default="{}")
+
+
+class DocArticle(Base):
+  __tablename__ = "doc_articles"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  section: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+  title: Mapped[str] = mapped_column(String(256), nullable=False)
+  slug: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+  content: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+  sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+  is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+  created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

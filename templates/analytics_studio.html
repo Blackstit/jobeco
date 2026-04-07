@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Analytics Studio — HireLens{% endblock %}
+
+{% block extra_css %}
+.studio-wrap { display:flex; flex-direction:column; height:calc(100vh - 48px); gap:0; }
+.studio-top  { display:flex; flex:1; min-height:0; gap:0; }
+.palette { width:220px; flex:none; border-right:1px solid rgba(255,255,255,.04); overflow-y:auto; padding:12px 8px; }
+.palette-cat { margin-bottom:14px; }
+.palette-cat-title { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#475569; font-weight:600; padding:0 6px; margin-bottom:6px; }
+.palette-node { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; cursor:grab; font-size:12px; color:#cbd5e1; border:1px solid transparent; transition:all .15s; }
+.palette-node:hover { background:rgba(255,255,255,.03); border-color:rgba(255,255,255,.06); }
+.palette-node .pn-icon { width:22px; height:22px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; flex:none; }
+.cat-source .pn-icon { background:rgba(16,185,129,.15); color:#6ee7b7; }
+.cat-filter .pn-icon { background:rgba(59,130,246,.15); color:#93c5fd; }
+.cat-agg .pn-icon { background:rgba(139,92,246,.15); color:#c4b5fd; }
+.cat-output .pn-icon { background:rgba(245,158,11,.15); color:#fcd34d; }
+.canvas-area { flex:1; position:relative; overflow:auto; background: radial-gradient(circle at 50% 50%,rgba(16,185,129,.02) 0%,transparent 70%), repeating-linear-gradient(0deg,transparent,transparent 23px,rgba(255,255,255,.015) 23px,rgba(255,255,255,.015) 24px), repeating-linear-gradient(90deg,transparent,transparent 23px,rgba(255,255,255,.015) 23px,rgba(255,255,255,.015) 24px); }
+.canvas-inner { position:relative; width:3000px; height:2000px; }
+.c-node { position:absolute; width:180px; background:#0d0d14; border:1px solid rgba(255,255,255,.08); border-radius:10px; cursor:move; z-index:2; user-select:none; transition:box-shadow .15s,border-color .15s; }
+.c-node:hover { border-color:rgba(255,255,255,.14); box-shadow:0 0 20px rgba(0,0,0,.4); }
+.c-node.selected { border-color:#10b981; box-shadow:0 0 0 2px rgba(16,185,129,.25); }
+.c-node-head { display:flex; align-items:center; gap:7px; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.04); }
+.c-node-head .cn-color { width:4px; height:20px; border-radius:2px; flex:none; }
+.c-node-head .cn-title { font-size:11px; font-weight:600; color:#e2e8f0; flex:1; }
+.c-node-head .cn-del { opacity:0; width:18px; height:18px; display:flex; align-items:center; justify-content:center; border-radius:4px; font-size:10px; color:#94a3b8; cursor:pointer; }
+.c-node:hover .cn-del { opacity:1; }
+.c-node-head .cn-del:hover { background:rgba(239,68,68,.2); color:#fca5a5; }
+.c-node-body { padding:6px 10px 8px; font-size:10px; color:#64748b; line-height:1.5; min-height:18px; }
+.port { position:absolute; width:14px; height:14px; border-radius:50%; border:2px solid #1e293b; z-index:3; cursor:crosshair; transition:all .15s; }
+.port::after { content:''; position:absolute; inset:-8px; border-radius:50%; }
+.port:hover { transform:translateY(-50%) scale(1.5); box-shadow:0 0 8px currentColor; }
+.port-in { left:-7px; top:50%; transform:translateY(-50%); }
+.port-out { right:-7px; top:50%; transform:translateY(-50%); }
+.port.cat-source { background:#10b981; } .port.cat-filter { background:#3b82f6; }
+.port.cat-agg { background:#8b5cf6; } .port.cat-output { background:#f59e0b; }
+.conn-svg { position:absolute; top:0; left:0; width:100%; height:100%; z-index:1; pointer-events:none; }
+.conn-svg path { fill:none; stroke:rgba(255,255,255,.12); stroke-width:2; pointer-events:visibleStroke; cursor:pointer; }
+.conn-svg path.hit-area { stroke:transparent; stroke-width:16; pointer-events:stroke; cursor:pointer; }
+.conn-svg path.active { stroke:#10b981; stroke-width:2.5; }
+.conn-svg path.selected-edge { stroke:#ef4444; stroke-width:3; stroke-dasharray:8 4; animation:edgePulse 1s ease-in-out infinite alternate; }
+@keyframes edgePulse { from{opacity:.6} to{opacity:1} }
+.config-panel { width:280px; flex:none; border-left:1px solid rgba(255,255,255,.04); overflow-y:auto; padding:14px; display:none; }
+.config-panel.open { display:block; }
+.config-panel h3 { font-size:13px; font-weight:600; color:#e2e8f0; margin-bottom:12px; }
+.cfg-group { margin-bottom:14px; }
+.cfg-label { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#475569; font-weight:500; margin-bottom:5px; }
+.cfg-select,.cfg-input { width:100%; background:#0b0b10; border:1px solid rgba(255,255,255,.08); border-radius:6px; color:#e2e8f0; font-size:12px; padding:6px 8px; outline:none; }
+.cfg-select:focus,.cfg-input:focus { border-color:#10b981; }
+.cfg-chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+.cfg-chip { display:inline-flex; align-items:center; gap:3px; padding:2px 7px; font-size:10px; border-radius:5px; background:rgba(16,185,129,.1); color:#6ee7b7; border:1px solid rgba(16,185,129,.2); cursor:pointer; }
+.cfg-chip .chip-x:hover { color:#fca5a5; }
+.cfg-multi-sel { max-height:140px; overflow-y:auto; border:1px solid rgba(255,255,255,.06); border-radius:6px; margin-top:4px; background:#08080c; }
+.cfg-multi-sel label { display:flex; align-items:center; gap:6px; padding:4px 8px; font-size:11px; color:#cbd5e1; cursor:pointer; }
+.cfg-multi-sel label:hover { background:rgba(255,255,255,.03); }
+.cfg-multi-sel input[type=checkbox] { accent-color:#10b981; }
+.results-panel { border-top:1px solid rgba(255,255,255,.04); background:#08080c; max-height:50vh; overflow:auto; }
+.results-panel.collapsed { max-height:36px; overflow:hidden; }
+.results-bar { display:flex; align-items:center; justify-content:space-between; padding:8px 14px; font-size:11px; color:#64748b; cursor:pointer; user-select:none; position:sticky; top:0; background:#08080c; z-index:5; }
+.results-content { padding:0 14px 14px; }
+.results-table { width:100%; border-collapse:collapse; font-size:11px; }
+.results-table th { text-align:left; padding:6px 8px; color:#475569; font-weight:500; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid rgba(255,255,255,.06); font-size:10px; }
+.results-table td { padding:5px 8px; color:#cbd5e1; border-bottom:1px solid rgba(255,255,255,.03); }
+.results-table tr:hover td { background:rgba(255,255,255,.02); }
+.results-chart { height:320px; position:relative; margin-bottom:12px; }
+.studio-toolbar { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid rgba(255,255,255,.04); background:rgba(5,5,7,.8); flex:none; }
+.tb-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:6px; font-size:11px; font-weight:500; cursor:pointer; transition:all .15s; border:none; }
+.tb-run { background:#10b981; color:#050507; }
+.tb-run:hover { background:#34d399; box-shadow:0 0 12px rgba(16,185,129,.3); }
+.tb-run:disabled { opacity:.5; cursor:not-allowed; }
+.tb-ghost { background:transparent; color:#94a3b8; border:1px solid rgba(255,255,255,.08); }
+.tb-ghost:hover { background:rgba(255,255,255,.04); color:#e2e8f0; }
+.tb-sep { width:1px; height:20px; background:rgba(255,255,255,.06); }
+.tb-title { font-size:14px; font-weight:600; color:#e2e8f0; margin-right:auto; display:flex; align-items:center; gap:8px; }
+.tb-title span { font-size:10px; color:#475569; font-weight:400; text-transform:uppercase; letter-spacing:.08em; }
+.tpl-dropdown { position:relative; }
+.tpl-menu { display:none; position:absolute; top:100%; left:0; margin-top:4px; background:#0d0d14; border:1px solid rgba(255,255,255,.08); border-radius:8px; min-width:240px; z-index:20; box-shadow:0 8px 32px rgba(0,0,0,.5); }
+.tpl-menu.open { display:block; }
+.tpl-item { display:block; width:100%; text-align:left; padding:8px 12px; font-size:11px; color:#cbd5e1; cursor:pointer; border:none; background:none; }
+.tpl-item:hover { background:rgba(255,255,255,.04); }
+.tpl-item small { display:block; color:#475569; font-size:10px; margin-top:1px; }
+.studio-toast { position:fixed; bottom:20px; right:20px; padding:8px 16px; border-radius:8px; font-size:12px; z-index:100; animation:stFadeIn .2s; }
+@keyframes stFadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+.toast-ok { background:rgba(16,185,129,.15); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
+.toast-err { background:rgba(239,68,68,.15); color:#fca5a5; border:1px solid rgba(239,68,68,.3); }
+.toast-info { background:rgba(59,130,246,.15); color:#93c5fd; border:1px solid rgba(59,130,246,.3); }
+.sql-preview { font-family:'JetBrains Mono',monospace; font-size:10px; color:#64748b; background:#08080c; border:1px solid rgba(255,255,255,.04); border-radius:6px; padding:8px; margin-top:8px; white-space:pre-wrap; word-break:break-all; max-height:60px; overflow-y:auto; }
+{% endblock %}
+
+{% block content %}
+<div class="studio-wrap">
+  <div class="studio-toolbar">
+    <div class="tb-title">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Analytics Studio <span>Pipeline Builder</span>
+    </div>
+    <div class="tpl-dropdown">
+      <button class="tb-btn tb-ghost" onclick="toggleTemplates()">Templates</button>
+      <div id="tplMenu" class="tpl-menu">
+        <button class="tpl-item" onclick="loadTemplate('salary_by_role')"><strong>Salary by Role</strong><small>Average salary range per role</small></button>
+        <button class="tpl-item" onclick="loadTemplate('hiring_trends')"><strong>Hiring Trends</strong><small>New vacancies per week</small></button>
+        <button class="tpl-item" onclick="loadTemplate('top_companies')"><strong>Top Companies</strong><small>Companies with most vacancies</small></button>
+        <button class="tpl-item" onclick="loadTemplate('skills_demand')"><strong>Skills Demand</strong><small>Most requested roles</small></button>
+        <button class="tpl-item" onclick="loadTemplate('remote_analysis')"><strong>Remote vs Office</strong><small>Location breakdown</small></button>
+        <button class="tpl-item" onclick="loadTemplate('seniority_salary')"><strong>Seniority x Salary</strong><small>Avg salary by level</small></button>
+        <button class="tpl-item" onclick="loadTemplate('domain_overview')"><strong>Domain Overview</strong><small>Count and salary by domain</small></button>
+      </div>
+    </div>
+    <button class="tb-btn tb-ghost" onclick="clearCanvas()">Clear</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn tb-run" id="btnRun" onclick="runPipeline()">&#9654; Run Pipeline</button>
+    <div style="font-size:9px;color:#334155;margin-left:8px;">Del=remove &middot; Esc=deselect &middot; Click edge to select</div>
+  </div>
+  <div class="studio-top">
+    <div class="palette">
+      <div class="palette-cat cat-source"><div class="palette-cat-title">Sources</div>
+        <div class="palette-node" draggable="true" data-type="vacancies_source"><div class="pn-icon">&#x1F4CB;</div> Vacancies</div>
+        <div class="palette-node" draggable="true" data-type="companies_source"><div class="pn-icon">&#x1F3E2;</div> Companies</div>
+      </div>
+      <div class="palette-cat cat-filter"><div class="palette-cat-title">Filters</div>
+        <div class="palette-node" draggable="true" data-type="filter_role"><div class="pn-icon">&#x1F464;</div> By Role</div>
+        <div class="palette-node" draggable="true" data-type="filter_domain"><div class="pn-icon">&#x1F310;</div> By Domain</div>
+        <div class="palette-node" draggable="true" data-type="filter_seniority"><div class="pn-icon">&#x1F4CA;</div> By Seniority</div>
+        <div class="palette-node" draggable="true" data-type="filter_salary"><div class="pn-icon">&#x1F4B0;</div> By Salary</div>
+        <div class="palette-node" draggable="true" data-type="filter_location"><div class="pn-icon">&#x1F4CD;</div> By Location</div>
+        <div class="palette-node" draggable="true" data-type="filter_employment"><div class="pn-icon">&#x23F0;</div> By Employment</div>
+        <div class="palette-node" draggable="true" data-type="filter_source"><div class="pn-icon">&#x1F4E1;</div> By Source</div>
+        <div class="palette-node" draggable="true" data-type="filter_skill"><div class="pn-icon">&#x26A1;</div> By Skill</div>
+        <div class="palette-node" draggable="true" data-type="filter_risk"><div class="pn-icon">&#x26A0;</div> By Risk</div>
+        <div class="palette-node" draggable="true" data-type="filter_score"><div class="pn-icon">&#x2B50;</div> By Score</div>
+        <div class="palette-node" draggable="true" data-type="filter_company"><div class="pn-icon">&#x1F3F7;</div> By Company</div>
+        <div class="palette-node" draggable="true" data-type="filter_date_range"><div class="pn-icon">&#x1F4C5;</div> Date Range</div>
+      </div>
+      <div class="palette-cat cat-agg"><div class="palette-cat-title">Aggregation</div>
+        <div class="palette-node" draggable="true" data-type="group_by"><div class="pn-icon">&#x1F4C2;</div> Group By</div>
+        <div class="palette-node" draggable="true" data-type="aggregate"><div class="pn-icon">&Sigma;</div> Aggregate</div>
+        <div class="palette-node" draggable="true" data-type="sort"><div class="pn-icon">&#x2195;</div> Sort</div>
+        <div class="palette-node" draggable="true" data-type="limit"><div class="pn-icon">&#x1F522;</div> Limit</div>
+      </div>
+      <div class="palette-cat cat-output"><div class="palette-cat-title">Output</div>
+        <div class="palette-node" draggable="true" data-type="chart"><div class="pn-icon">&#x1F4C8;</div> Chart</div>
+        <div class="palette-node" draggable="true" data-type="table_view"><div class="pn-icon">&#x1F4CB;</div> Table View</div>
+        <div class="palette-node" draggable="true" data-type="export_csv"><div class="pn-icon">&#x1F4BE;</div> Export CSV</div>
+      </div>
+    </div>
+    <div class="canvas-area" id="canvasArea">
+      <div class="canvas-inner" id="canvasInner"><svg class="conn-svg" id="connSvg"></svg></div>
+      <div id="emptyState" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+        <div style="text-align:center;max-width:340px;">
+          <div style="font-size:36px;margin-bottom:12px;opacity:.4;">&#x26A1;</div>
+          <div style="font-size:14px;font-weight:600;color:#475569;margin-bottom:6px;">Drag nodes to build a pipeline</div>
+          <div style="font-size:11px;color:#334155;line-height:1.6;">Start with a <strong style="color:#10b981">Source</strong>, add <strong style="color:#3b82f6">Filters</strong>, then <strong style="color:#8b5cf6">Aggregate</strong> and pick an <strong style="color:#f59e0b">Output</strong>. Or choose a template.</div>
+        </div>
+      </div>
+    </div>
+    <div class="config-panel" id="configPanel"><h3 id="cfgTitle">Node Settings</h3><div id="cfgBody"></div></div>
+  </div>
+  <div class="results-panel collapsed" id="resultsPanel">
+    <div class="results-bar" onclick="toggleResults()"><span id="resultsTitle">Results</span><span>&#x25B2;</span></div>
+    <div class="results-content" id="resultsContent"></div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="/static/analytics_studio.js?v=4"></script>
+{% endblock %}

@@ -23,6 +23,7 @@ from jobeco.processing.pipeline import (
     upsert_company,
     _enrich_contacts_with_forms,
     _boost_company_score,
+    try_enrich_from_ats,
 )
 from jobeco.openrouter.client import (
     analyze_with_openrouter,
@@ -244,6 +245,7 @@ async def process_vacancy(
         log.info("web_dedup_skip", source=SOURCE_SLUG, title=ld.get("title"))
         return None
 
+    raw_text = await try_enrich_from_ats(raw_text, apply_url)
     analysis = await analyze_with_openrouter(raw_text)
 
     org = ld.get("hiringOrganization", {})

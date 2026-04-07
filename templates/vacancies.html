@@ -3,30 +3,64 @@
 {% set _has_filters = search or channel or (domains_selected and domains_selected|length > 0) or location_type or salary_min_usd is not none or salary_max_usd is not none or risk_label or seniority or role or employment_type or score_min is not none or score_max is not none %}
 {% set _adv_count = ((domains_selected|length if domains_selected else 0) + (1 if channel else 0) + (1 if salary_min_usd is not none or salary_max_usd is not none else 0) + (1 if risk_label else 0) + (1 if seniority else 0) + (1 if role else 0) + (1 if employment_type else 0) + (1 if score_min is not none or score_max is not none else 0)) %}
 
+{% block extra_css %}
+.vac-page-head { position:relative; margin-bottom:20px; }
+.vac-page-title { font-family:'Rajdhani','Outfit',sans-serif; font-size:24px; font-weight:700; color:#fff; letter-spacing:-.01em; }
+.vac-page-title em { font-style:normal; background:linear-gradient(90deg,#10b981,#6ee7b7,#38bdf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.vac-page-sub { font-size:13px; color:#475569; margin-top:4px; }
+
+.vac-toolbar { display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+.vac-search { position:relative; flex:1; max-width:400px; }
+.vac-search input { width:100%; padding:9px 12px 9px 36px; background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:10px; color:#e2e8f0; font-size:13px; transition:border-color .2s, box-shadow .2s; }
+.vac-search input:focus { outline:none; border-color:rgba(16,185,129,.4); box-shadow:0 0 0 3px rgba(16,185,129,.08); }
+.vac-search input::placeholder { color:#334155; }
+.vac-search svg { position:absolute; left:11px; top:50%; transform:translateY(-50%); }
+
+.vac-pill { display:inline-flex; align-items:center; gap:4px; padding:7px 14px; font-size:12px; font-weight:500; border-radius:8px; border:1px solid rgba(255,255,255,.06); color:#64748b; background:transparent; cursor:pointer; transition:all .15s; }
+.vac-pill:hover { color:#94a3b8; border-color:rgba(255,255,255,.1); background:rgba(255,255,255,.03); }
+.vac-pill.active { background:rgba(16,185,129,.1); border-color:rgba(16,185,129,.25); color:#6ee7b7; }
+.vac-pill svg { width:14px; height:14px; }
+
+.vac-count { font-family:'JetBrains Mono',monospace; font-size:12px; color:#475569; margin-left:auto; }
+
+.vac-adv { background:#0b0b10; border:1px solid rgba(255,255,255,.04); border-radius:12px; padding:16px; margin-bottom:12px; }
+.vac-adv-label { font-family:'Rajdhani',sans-serif; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:#475569; margin-bottom:6px; }
+
+.vac-card-item { background:#0b0b10; border:1px solid rgba(255,255,255,.05); border-radius:12px; padding:16px; cursor:pointer; transition:all .2s; position:relative; overflow:hidden; }
+.vac-card-item::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,#10b981,#6ee7b7); opacity:0; transition:opacity .2s; border-radius:12px 12px 0 0; }
+.vac-card-item:hover { border-color:rgba(255,255,255,.1); box-shadow:0 4px 16px rgba(0,0,0,.25); transform:translateY(-1px); }
+.vac-card-item:hover::before { opacity:1; }
+.vac-card-item.ring-1 { border-color:rgba(16,185,129,.3); box-shadow:0 0 20px rgba(16,185,129,.06); }
+
+.vac-detail-pane { background:#08080e; border:1px solid rgba(255,255,255,.05); border-radius:14px; overflow:hidden; }
+.vac-detail-head { padding:18px; border-bottom:1px solid rgba(255,255,255,.04); background:linear-gradient(180deg,rgba(16,185,129,.02),transparent); }
+.vac-detail-body { padding:18px; }
+.vac-detail-section { background:#0b0b10; border:1px solid rgba(255,255,255,.04); border-radius:10px; padding:14px; margin-bottom:10px; transition:border-color .2s; }
+.vac-detail-section:hover { border-color:rgba(255,255,255,.08); }
+.vac-detail-sec-title { font-family:'Rajdhani',sans-serif; font-size:13px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
+
+.vac-pager { display:flex; justify-content:center; align-items:center; gap:4px; margin-top:16px; }
+.vac-pager a, .vac-pager span { padding:6px 12px; font-size:12px; border-radius:8px; transition:all .15s; }
+
+.source-tip { position: relative; cursor: help; }
+.source-tip::after { content: attr(data-tip); position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px; font-size: 10px; white-space: nowrap; background: rgba(0,0,0,0.85); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.08); opacity: 0; pointer-events: none; transition: opacity .15s; margin-bottom: 4px; z-index: 10; }
+.source-tip:hover::after { opacity: 1; }
+{% endblock %}
+
 {% block content %}
-<style>
-  .source-tip { position: relative; cursor: help; }
-  .source-tip::after {
-    content: attr(data-tip);
-    position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
-    padding: 3px 8px; border-radius: 6px; font-size: 10px; white-space: nowrap;
-    background: rgba(0,0,0,0.85); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.08);
-    opacity: 0; pointer-events: none; transition: opacity .15s;
-    margin-bottom: 4px; z-index: 10;
-  }
-  .source-tip:hover::after { opacity: 1; }
-</style>
+<div class="vac-page-head">
+  <h1 class="vac-page-title"><em>Signals</em> Explorer</h1>
+  <p class="vac-page-sub">Browse, filter and analyze {{ total }} hiring signals across all sources</p>
+</div>
+
 <form method="get" action="/vacancies" id="filterForm">
-  <!-- Compact search bar -->
-  <div class="flex items-center gap-2 mb-3">
-    <div class="relative flex-1 max-w-md" id="searchWrap">
+  <div class="vac-toolbar">
+    <div class="vac-search" id="searchWrap">
       <input
-        type="text" name="search" id="searchInput" value="{{ search or '' }}" placeholder="Search vacancies..."
+        type="text" name="search" id="searchInput" value="{{ search or '' }}" placeholder="Search signals..."
         autocomplete="off"
-        class="w-full pl-9 pr-3 py-2 input-dark text-sm"
       />
-      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-      <!-- Live suggest dropdown -->
+      <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
       <div id="suggestBox" class="hidden absolute left-0 right-0 top-full mt-1 bg-surface border border-white/[0.08] rounded-xl shadow-2xl z-30 overflow-hidden max-h-80"></div>
     </div>
 
@@ -39,10 +73,8 @@
     {% endfor %}
     <input type="hidden" name="location_type" id="hLocType" value="{{ location_type or '' }}" />
 
-    <!-- Advanced toggle -->
     <button type="button" onclick="toggleAdvanced()" id="advToggle"
-      class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition
-        {% if _adv_count > 0 %}pill-active{% else %}btn-ghost{% endif %}"
+      class="vac-pill {% if _adv_count > 0 %}active{% endif %}"
     >
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
       Filters{% if _adv_count > 0 %} <span class="px-1.5 py-0.5 text-[10px] bg-accent rounded-full leading-none text-black font-medium">{{ _adv_count }}</span>{% endif %}
@@ -52,8 +84,7 @@
     <div class="relative" id="sortWrap">
       <input type="hidden" name="sort_by" id="hSortBy" value="{{ sort_by or 'date_desc' }}" />
       <button type="button" onclick="toggleSortMenu()" id="sortToggle"
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition
-          {% if sort_by and sort_by != 'date_desc' %}pill-active{% else %}btn-ghost{% endif %}"
+        class="vac-pill {% if sort_by and sort_by != 'date_desc' %}active{% endif %}"
       >
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>
         <span id="sortLabel">{{ {"date_desc": "Newest", "date_asc": "Oldest", "salary_desc": "Salary ↓", "salary_asc": "Salary ↑", "score_desc": "Score ↓", "score_asc": "Score ↑"}.get(sort_by, "Newest") }}</span>
@@ -78,17 +109,16 @@
       </div>
     </div>
 
-    <button type="submit" class="px-4 py-1.5 btn-accent text-xs">Search</button>
+    <button type="submit" class="vac-pill active" style="background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.3);color:#6ee7b7">Search</button>
 
     {% if _has_filters %}
     <a href="/vacancies" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition" title="Clear all filters">&times; Clear</a>
     {% endif %}
 
-    <span class="text-xs text-slate-500 ml-auto">{{ total }} found{% if total_pages > 1 %} · p.{{ page }}/{{ total_pages }}{% endif %}</span>
+    <span class="vac-count">{{ total }} found{% if total_pages > 1 %} · p.{{ page }}/{{ total_pages }}{% endif %}</span>
   </div>
 
-  <!-- Advanced filters panel (collapsed by default unless active) -->
-  <div id="advPanel" class="{% if _adv_count == 0 %}hidden{% endif %} card p-4 mb-3 space-y-3">
+  <div id="advPanel" class="{% if _adv_count == 0 %}hidden{% endif %} vac-adv space-y-3">
     <!-- Row 1: Domains -->
     <div>
       <div class="text-[11px] text-slate-500 uppercase tracking-wider mb-1.5">Domains</div>
@@ -189,7 +219,7 @@
     <div class="space-y-3">
       {% for v in vacancies %}
       <div id="vac-card-{{ v.id }}"
-           class="card card-hover p-4 cursor-pointer"
+           class="vac-card-item"
            onclick="openVacancyPane({{ v.id }})">
         <div class="flex items-start justify-between gap-4">
           {% if v is mapping %}
@@ -266,11 +296,13 @@
 
           <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation();">
             <div class="relative">
-              <button class="px-3 py-1 text-xs btn-ghost rounded-lg" onclick="toggleVacMenu({{ v.id }})">⋯</button>
+              <button class="vac-pill" style="padding:4px 10px;font-size:14px" onclick="toggleVacMenu({{ v.id }})">⋯</button>
               <div id="vac-menu-{{ v.id }}" class="hidden absolute right-0 mt-2 w-44 bg-surface border border-white/[0.08] rounded-xl overflow-hidden z-20 shadow-2xl">
                 <button class="w-full text-left px-3 py-2 text-sm hover:bg-white/[0.04] text-slate-300" onclick="openSource({{ v.id }})">Source ↗</button>
+                {% if request.session.get("authenticated") %}
                 <button class="w-full text-left px-3 py-2 text-sm hover:bg-white/[0.04] text-slate-300" onclick="reanalyzeVacancy({{ v.id }})">Re-analyze</button>
                 <button class="w-full text-left px-3 py-2 text-sm hover:bg-white/[0.04] text-red-400" onclick="deleteVacancy({{ v.id }})">Delete</button>
+                {% endif %}
               </div>
             </div>
           </div>
@@ -286,8 +318,8 @@
   </div>
 
   <!-- Details pane -->
-  <div id="vacPane" class="hidden w-1/2 bg-base border border-white/[0.06] rounded-xl overflow-hidden overflow-x-hidden h-full flex flex-col min-h-0">
-    <div class="p-4 border-b border-white/[0.04] flex items-start gap-3 bg-base flex-none">
+  <div id="vacPane" class="hidden w-1/2 vac-detail-pane overflow-x-hidden h-full flex flex-col min-h-0">
+    <div class="vac-detail-head flex items-start gap-3 flex-none">
       <img id="pLogo" src="" alt="" class="hidden w-11 h-11 rounded-lg bg-surface object-contain flex-none mt-0.5" onerror="this.classList.add('hidden')"/>
       <div class="min-w-0 flex-1">
         <div class="text-lg font-semibold" id="pTitle">—</div>
@@ -298,19 +330,19 @@
         <div class="mt-2 text-xs text-slate-500" id="pMeta"></div>
       </div>
       <div class="flex items-center gap-2 flex-none">
-        <a id="pSource" target="_blank" rel="noreferrer" class="w-9 h-9 flex items-center justify-center btn-ghost rounded-lg hidden">
+        <a id="pSource" target="_blank" rel="noreferrer" class="vac-pill hidden" style="width:36px;height:36px;padding:0;justify-content:center">
           <span class="text-lg leading-none" aria-hidden>↗</span>
           <span class="sr-only">Source</span>
         </a>
-        <button class="px-3 py-2 text-sm btn-ghost rounded-lg" onclick="closeVacancyPane()">Close</button>
+        <button class="vac-pill" onclick="closeVacancyPane()" style="padding:6px 14px">Close</button>
       </div>
     </div>
-    <div class="p-4 space-y-4 flex-1 min-h-0 pr-1 overflow-y-auto">
-      <div id="secSummary" class="card p-4">
-        <div class="text-sm font-semibold mb-2">AI summary</div>
+    <div class="vac-detail-body space-y-0 flex-1 min-h-0 pr-1 overflow-y-auto">
+      <div id="secSummary" class="vac-detail-section">
+        <div class="vac-detail-sec-title">AI summary</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pSummary"></div>
       </div>
-      <div id="secScoring" class="card p-4 hidden">
+      <div id="secScoring" class="vac-detail-section hidden">
         <!-- Header: circle + summary -->
         <div class="flex items-start gap-4">
           <div class="flex-none relative" style="width:80px;height:80px">
@@ -336,36 +368,36 @@
           <div id="pScoringCriteria" class="mt-3 space-y-3"></div>
         </details>
       </div>
-      <div id="secCompanyProfile" class="card p-4 hidden">
-        <div class="text-sm font-semibold mb-2">Company Profile</div>
+      <div id="secCompanyProfile" class="vac-detail-section hidden">
+        <div class="vac-detail-sec-title">Company Profile</div>
         <div class="text-xs text-slate-300 leading-relaxed" id="pCompanyProfileSummary"></div>
       </div>
-      <div id="secDesc" class="card p-4 hidden">
-        <div class="text-sm font-semibold mb-2">Description</div>
+      <div id="secDesc" class="vac-detail-section hidden">
+        <div class="vac-detail-sec-title">Description</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pDesc"></div>
       </div>
-      <div id="secResp" class="card p-4">
-        <div class="text-sm font-semibold mb-2">Responsibilities</div>
+      <div id="secResp" class="vac-detail-section">
+        <div class="vac-detail-sec-title">Responsibilities</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pResp"></div>
       </div>
-      <div id="secReq" class="card p-4">
-        <div class="text-sm font-semibold mb-2">Requirements</div>
+      <div id="secReq" class="vac-detail-section">
+        <div class="vac-detail-sec-title">Requirements</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pReq"></div>
       </div>
-      <div id="secCond" class="card p-4">
-        <div class="text-sm font-semibold mb-2">What They Offer</div>
+      <div id="secCond" class="vac-detail-section">
+        <div class="vac-detail-sec-title">What They Offer</div>
         <div class="text-sm text-slate-200 whitespace-pre-wrap" id="pCond"></div>
       </div>
-      <div id="secContacts" class="card p-4">
-        <div class="text-sm font-semibold mb-2">Contacts</div>
+      <div id="secContacts" class="vac-detail-section">
+        <div class="vac-detail-sec-title">Contacts</div>
         <div class="space-y-2 text-sm" id="pContacts"></div>
       </div>
-      <div id="secRelated" class="card p-4 hidden">
-        <div class="text-sm font-semibold mb-2">Other vacancies from this company</div>
+      <div id="secRelated" class="vac-detail-section hidden">
+        <div class="vac-detail-sec-title">Other vacancies from this company</div>
         <div class="space-y-1" id="pRelated"></div>
       </div>
-      <div class="card p-4">
-        <div class="text-sm font-semibold mb-2">Original text</div>
+      <div class="vac-detail-section">
+        <div class="vac-detail-sec-title">Original text</div>
         <details class="text-sm text-slate-200">
           <summary class="cursor-pointer select-none text-slate-400">Show</summary>
           <!-- Let the parent details pane handle scrolling (no nested max-height). -->
@@ -378,13 +410,13 @@
 
 {% set _qs %}{% if search %}&search={{ search }}{% endif %}{% if search_mode == 'semantic' %}&search_mode=semantic{% endif %}{% if channel %}&channel={{ channel }}{% endif %}{% for dom in domains_selected %}&domains={{ dom }}{% endfor %}{% if location_type %}&location_type={{ location_type }}{% endif %}{% if salary_min_usd is not none %}&salary_min_usd={{ salary_min_usd }}{% endif %}{% if salary_max_usd is not none %}&salary_max_usd={{ salary_max_usd }}{% endif %}{% if risk_label %}&risk_label={{ risk_label }}{% endif %}{% if seniority %}&seniority={{ seniority }}{% endif %}{% if employment_type %}&employment_type={{ employment_type }}{% endif %}{% if score_min is not none %}&score_min={{ score_min }}{% endif %}{% if score_max is not none %}&score_max={{ score_max }}{% endif %}{% if sort_by and sort_by != 'date_desc' %}&sort_by={{ sort_by }}{% endif %}{% endset %}
 {% if total_pages > 1 %}
-<div class="mt-4 flex justify-center items-center gap-1">
+<div class="vac-pager">
   {% if page > 1 %}
-  <a href="?page={{ page - 1 }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">← Prev</a>
+  <a href="?page={{ page - 1 }}{{ _qs }}" class="vac-pill">← Prev</a>
   {% endif %}
-  <span class="px-3 py-1 text-xs text-slate-500">{{ page }} / {{ total_pages }}</span>
+  <span style="padding:6px 12px;font-size:12px;color:#475569;font-family:JetBrains Mono,monospace">{{ page }} / {{ total_pages }}</span>
   {% if page < total_pages %}
-  <a href="?page={{ page + 1 }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">Next →</a>
+  <a href="?page={{ page + 1 }}{{ _qs }}" class="vac-pill">Next →</a>
   {% endif %}
 </div>
 {% endif %}
@@ -557,7 +589,9 @@ function setScoreBadgeInCard(vacancyId, sc, totalScore) {
 async function deleteVacancy(id) {
   if (!confirm("Delete vacancy?")) return;
   const res = await fetch(`/api/vacancies/${id}/delete`, { method: "POST" });
+  if (res.status === 401) { showToast("Admin login required", "error"); return; }
   if (res.ok) location.reload();
+  else showToast("Delete failed: " + res.status, "error");
 }
 
 async function openVacancyPane(id) {
@@ -915,6 +949,7 @@ async function reanalyzeVacancy(id) {
   const toast = showToast("Re-analyzing vacancy…", "info", { spinner: true, timeoutMs: 60000 });
   try {
     const res = await fetch(`/api/vacancies/${id}/reanalyze`, { method: "POST" });
+    if (res.status === 401) { showToast("Admin login required", "error"); return; }
     if (!res.ok) {
       let t = "";
       try {

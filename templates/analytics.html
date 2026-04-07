@@ -1,147 +1,408 @@
 {% extends "base.html" %}
 
-{% block title %}Analytics — Job-Eco Admin{% endblock %}
+{% block title %}Analytics — HireLens{% endblock %}
+
+{% block extra_css %}
+.an-hero { position:relative; margin-bottom:24px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.an-title { font-family:'Rajdhani','Outfit',sans-serif; font-size:24px; font-weight:700; color:#fff; letter-spacing:-.01em; }
+.an-title em { font-style:normal; background:linear-gradient(90deg,#8b5cf6,#c4b5fd,#38bdf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.an-sub { font-size:13px; color:#475569; margin-top:4px; max-width:500px; }
+.an-badge { font-family:'JetBrains Mono',monospace; font-size:11px; color:#334155; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.04); padding:4px 10px; border-radius:6px; white-space:nowrap; }
+
+.kpi-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; margin-bottom:20px; }
+@media(max-width:1280px){ .kpi-grid { grid-template-columns:repeat(3,1fr); } }
+@media(max-width:768px){ .kpi-grid { grid-template-columns:repeat(2,1fr); } }
+.kpi-card { position:relative; background:#0b0b10; border:1px solid rgba(255,255,255,.05); border-radius:12px; padding:16px; overflow:hidden; transition:all .25s; }
+.kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; border-radius:12px 12px 0 0; opacity:0; transition:opacity .25s; }
+.kpi-card:hover { border-color:rgba(255,255,255,.1); transform:translateY(-1px); box-shadow:0 4px 16px rgba(0,0,0,.25); }
+.kpi-card:hover::before { opacity:1; }
+.kpi-card.c-emerald::before { background:linear-gradient(90deg,#10b981,#6ee7b7); }
+.kpi-card.c-blue::before { background:linear-gradient(90deg,#3b82f6,#93c5fd); }
+.kpi-card.c-violet::before { background:linear-gradient(90deg,#8b5cf6,#c4b5fd); }
+.kpi-card.c-amber::before { background:linear-gradient(90deg,#f59e0b,#fcd34d); }
+.kpi-card.c-rose::before { background:linear-gradient(90deg,#f43f5e,#fda4af); }
+.kpi-card.c-cyan::before { background:linear-gradient(90deg,#06b6d4,#67e8f9); }
+.kpi-label { font-family:'Rajdhani',sans-serif; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#475569; font-weight:600; }
+.kpi-val { font-family:'Rajdhani',sans-serif; font-size:28px; font-weight:700; line-height:1.1; margin-top:4px; }
+
+.chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
+@media(max-width:1280px){ .chart-grid { grid-template-columns:1fr; } }
+.chart-card { position:relative; background:#0b0b10; border:1px solid rgba(255,255,255,.04); border-radius:14px; padding:18px; overflow:hidden; transition:all .25s; }
+.chart-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; border-radius:14px 14px 0 0; opacity:0; transition:opacity .3s; }
+.chart-card:hover { border-color:rgba(255,255,255,.08); box-shadow:0 4px 20px rgba(0,0,0,.2); }
+.chart-card:hover::before { opacity:1; }
+.chart-card.g-emerald::before { background:linear-gradient(90deg,#10b981,#6ee7b7); }
+.chart-card.g-violet::before { background:linear-gradient(90deg,#8b5cf6,#c4b5fd); }
+.chart-card.g-blue::before { background:linear-gradient(90deg,#3b82f6,#93c5fd); }
+.chart-card.g-amber::before { background:linear-gradient(90deg,#f59e0b,#fcd34d); }
+.chart-card.g-rose::before { background:linear-gradient(90deg,#f43f5e,#fda4af); }
+.chart-card.g-cyan::before { background:linear-gradient(90deg,#06b6d4,#67e8f9); }
+.chart-card.g-pink::before { background:linear-gradient(90deg,#ec4899,#f9a8d4); }
+.chart-title { font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:600; color:#e2e8f0; text-transform:uppercase; letter-spacing:.03em; }
+.chart-desc { font-size:11px; color:#475569; margin-top:2px; margin-bottom:12px; }
+
+.sal-table { width:100%; font-size:13px; border-collapse:collapse; }
+.sal-table thead { position:sticky; top:0; z-index:2; }
+.sal-table th { font-family:'Rajdhani',sans-serif; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:#475569; padding:8px 12px; text-align:left; background:#0b0b10; border-bottom:1px solid rgba(255,255,255,.06); }
+.sal-table th.r { text-align:right; }
+.sal-table td { padding:8px 12px; color:#94a3b8; border-bottom:1px solid rgba(255,255,255,.03); transition:background .15s; }
+.sal-table td.r { text-align:right; font-family:'JetBrains Mono',monospace; font-size:12px; }
+.sal-table tr:hover td { background:rgba(255,255,255,.02); }
+.sal-table td:first-child { color:#e2e8f0; font-weight:500; }
+
+.sec-divider { font-family:'Rajdhani',sans-serif; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#334155; font-weight:600; margin:24px 0 14px; display:flex; align-items:center; gap:10px; }
+.sec-divider::after { content:''; flex:1; height:1px; background:rgba(255,255,255,.04); }
+
+.an-filters { background:#0b0b10; border:1px solid rgba(255,255,255,.05); border-radius:14px; padding:16px 18px; margin-bottom:20px; }
+.an-filters-row { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-start; }
+.an-dd { position:relative; flex:1; min-width:150px; }
+.an-dd-label { font-family:'Rajdhani',sans-serif; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#475569; font-weight:600; margin-bottom:4px; }
+.an-dd-trigger { display:flex; align-items:center; justify-content:space-between; gap:6px; width:100%; background:#050507; border:1px solid rgba(255,255,255,.08); border-radius:8px; color:#94a3b8; font-size:12px; padding:8px 10px; font-family:'Outfit',sans-serif; cursor:pointer; transition:all .2s; user-select:none; min-height:36px; }
+.an-dd-trigger:hover { border-color:rgba(139,92,246,.3); }
+.an-dd-trigger.active { border-color:rgba(139,92,246,.5); box-shadow:0 0 0 1px rgba(139,92,246,.2); }
+.an-dd-trigger .count-badge { background:rgba(139,92,246,.2); color:#c4b5fd; font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; }
+.an-dd-trigger svg { width:12px; height:12px; opacity:.4; transition:transform .2s; flex-shrink:0; }
+.an-dd-trigger.active svg { transform:rotate(180deg); }
+.an-dd-panel { display:none; position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:50; background:#0d0d14; border:1px solid rgba(255,255,255,.08); border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,.5); overflow:hidden; min-width:200px; }
+.an-dd-panel.open { display:block; }
+.an-dd-search { width:100%; background:transparent; border:none; border-bottom:1px solid rgba(255,255,255,.06); color:#e2e8f0; font-size:12px; padding:9px 12px; font-family:'Outfit',sans-serif; outline:none; }
+.an-dd-search::placeholder { color:#334155; }
+.an-dd-list { max-height:200px; overflow-y:auto; padding:4px 0; }
+.an-dd-list::-webkit-scrollbar { width:4px; }
+.an-dd-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,.1); border-radius:2px; }
+.an-dd-item { display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; font-size:12px; color:#94a3b8; transition:background .12s; }
+.an-dd-item:hover { background:rgba(255,255,255,.04); }
+.an-dd-item.hidden { display:none; }
+.an-dd-check { width:14px; height:14px; border:1.5px solid rgba(255,255,255,.15); border-radius:3px; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all .15s; }
+.an-dd-item.selected .an-dd-check { background:#8b5cf6; border-color:#8b5cf6; }
+.an-dd-item.selected .an-dd-check::after { content:'\2713'; color:#fff; font-size:10px; font-weight:700; }
+.an-dd-item.selected { color:#e2e8f0; }
+.an-score-inputs { display:flex; gap:6px; min-width:100px; flex:0 0 auto; }
+.an-score-input { width:56px; background:#050507; border:1px solid rgba(255,255,255,.08); border-radius:8px; color:#e2e8f0; font-size:12px; padding:8px 8px; font-family:'JetBrains Mono',monospace; outline:none; text-align:center; transition:border-color .2s; }
+.an-score-input:focus { border-color:rgba(139,92,246,.4); }
+.an-filter-actions { display:flex; gap:6px; align-items:flex-end; flex:0 0 auto; padding-top:16px; }
+.an-btn { font-family:'Rajdhani',sans-serif; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:9px 18px; border-radius:8px; border:none; cursor:pointer; transition:all .2s; }
+.an-btn-apply { background:linear-gradient(135deg,#8b5cf6,#6d28d9); color:#fff; }
+.an-btn-apply:hover { box-shadow:0 0 16px rgba(139,92,246,.35); transform:translateY(-1px); }
+.an-btn-reset { background:rgba(255,255,255,.03); color:#64748b; border:1px solid rgba(255,255,255,.06); text-decoration:none; display:inline-block; line-height:1; }
+.an-btn-reset:hover { background:rgba(255,255,255,.06); color:#94a3b8; }
+.an-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }
+.an-tag { font-family:'JetBrains Mono',monospace; font-size:10px; color:#c4b5fd; background:rgba(139,92,246,.1); border:1px solid rgba(139,92,246,.15); padding:3px 8px; border-radius:5px; display:inline-flex; align-items:center; gap:4px; }
+.an-tag-x { cursor:pointer; opacity:.5; font-size:12px; line-height:1; }
+.an-tag-x:hover { opacity:1; color:#f43f5e; }
+{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+<div class="an-hero">
   <div>
-    <h2 class="text-2xl font-semibold text-white tracking-tight">Analytics</h2>
-    <p class="text-sm text-slate-500 mt-1">Vacancy pipeline: niches, roles, sources, compensation, and quality signals.</p>
+    <h1 class="an-title">Market <em>Analytics</em></h1>
+    <p class="an-sub">Pipeline metrics: niches, roles, sources, compensation, and quality signals across all tracked markets.</p>
   </div>
-  <span class="text-xs text-slate-600">Rolling window: 30 days for the timeline chart</span>
+  <span class="an-badge">Rolling window: 30 days</span>
+</div>
+
+<!-- Filters -->
+<div class="an-filters">
+  <div class="an-filters-row">
+    <div class="an-dd" data-name="domains">
+      <div class="an-dd-label">Domains</div>
+      <div class="an-dd-trigger" onclick="toggleDD(this)">
+        <span class="an-dd-text">{% if active_filters.domains %}<span class="count-badge">{{ active_filters.domains|length }}</span> selected{% else %}All domains{% endif %}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="an-dd-panel">
+        <input class="an-dd-search" placeholder="Search domains..." oninput="filterDD(this)">
+        <div class="an-dd-list">
+          {% for d in filter_options.domains %}
+          <div class="an-dd-item{% if d in active_filters.domains %} selected{% endif %}" data-val="{{ d }}" onclick="toggleItem(this)">
+            <span class="an-dd-check"></span><span>{{ d }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="an-dd" data-name="companies">
+      <div class="an-dd-label">Company</div>
+      <div class="an-dd-trigger" onclick="toggleDD(this)">
+        <span class="an-dd-text">{% if active_filters.companies %}<span class="count-badge">{{ active_filters.companies|length }}</span> selected{% else %}All companies{% endif %}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="an-dd-panel">
+        <input class="an-dd-search" placeholder="Search companies..." oninput="filterDD(this)">
+        <div class="an-dd-list">
+          {% for c in filter_options.companies %}
+          <div class="an-dd-item{% if c in active_filters.companies %} selected{% endif %}" data-val="{{ c }}" onclick="toggleItem(this)">
+            <span class="an-dd-check"></span><span>{{ c }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="an-dd" data-name="roles">
+      <div class="an-dd-label">Role</div>
+      <div class="an-dd-trigger" onclick="toggleDD(this)">
+        <span class="an-dd-text">{% if active_filters.roles %}<span class="count-badge">{{ active_filters.roles|length }}</span> selected{% else %}All roles{% endif %}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="an-dd-panel">
+        <input class="an-dd-search" placeholder="Search roles..." oninput="filterDD(this)">
+        <div class="an-dd-list">
+          {% for r in filter_options.roles %}
+          <div class="an-dd-item{% if r in active_filters.roles %} selected{% endif %}" data-val="{{ r }}" onclick="toggleItem(this)">
+            <span class="an-dd-check"></span><span>{{ r }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="an-dd" data-name="skills">
+      <div class="an-dd-label">Skills</div>
+      <div class="an-dd-trigger" onclick="toggleDD(this)">
+        <span class="an-dd-text">{% if active_filters.skills %}<span class="count-badge">{{ active_filters.skills|length }}</span> selected{% else %}All skills{% endif %}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="an-dd-panel">
+        <input class="an-dd-search" placeholder="Search skills..." oninput="filterDD(this)">
+        <div class="an-dd-list">
+          {% for sk in filter_options.skills %}
+          <div class="an-dd-item{% if sk in active_filters.skills %} selected{% endif %}" data-val="{{ sk }}" onclick="toggleItem(this)">
+            <span class="an-dd-check"></span><span>{{ sk }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="an-dd" data-name="locations">
+      <div class="an-dd-label">Location</div>
+      <div class="an-dd-trigger" onclick="toggleDD(this)">
+        <span class="an-dd-text">{% if active_filters.locations %}<span class="count-badge">{{ active_filters.locations|length }}</span> selected{% else %}All locations{% endif %}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="an-dd-panel">
+        <input class="an-dd-search" placeholder="Search..." oninput="filterDD(this)">
+        <div class="an-dd-list">
+          {% for l in filter_options.locations %}
+          <div class="an-dd-item{% if l in active_filters.locations %} selected{% endif %}" data-val="{{ l }}" onclick="toggleItem(this)">
+            <span class="an-dd-check"></span><span>{{ l }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="an-dd" data-name="seniorities">
+      <div class="an-dd-label">Seniority</div>
+      <div class="an-dd-trigger" onclick="toggleDD(this)">
+        <span class="an-dd-text">{% if active_filters.seniorities %}<span class="count-badge">{{ active_filters.seniorities|length }}</span> selected{% else %}All levels{% endif %}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="an-dd-panel">
+        <input class="an-dd-search" placeholder="Search..." oninput="filterDD(this)">
+        <div class="an-dd-list">
+          {% for s in filter_options.seniorities %}
+          <div class="an-dd-item{% if s in active_filters.seniorities %} selected{% endif %}" data-val="{{ s }}" onclick="toggleItem(this)">
+            <span class="an-dd-check"></span><span>{{ s }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="an-filters-row" style="margin-top:8px">
+    <div style="flex:0 0 auto">
+      <div class="an-dd-label">AI Score</div>
+      <div class="an-score-inputs">
+        <input type="number" id="fScoreMin" class="an-score-input" min="0" max="10" placeholder="0" value="{{ active_filters.score_min if active_filters.score_min is not none else '' }}">
+        <span style="color:#334155;line-height:36px;font-size:11px">–</span>
+        <input type="number" id="fScoreMax" class="an-score-input" min="0" max="10" placeholder="10" value="{{ active_filters.score_max if active_filters.score_max is not none else '' }}">
+      </div>
+    </div>
+    <div style="flex:0 0 auto">
+      <div class="an-dd-label">Salary (USD)</div>
+      <div class="an-score-inputs">
+        <input type="number" id="fSalaryMin" class="an-score-input" style="width:72px" min="0" placeholder="min" value="{{ active_filters.salary_min if active_filters.salary_min is not none else '' }}">
+        <span style="color:#334155;line-height:36px;font-size:11px">–</span>
+        <input type="number" id="fSalaryMax" class="an-score-input" style="width:72px" min="0" placeholder="max" value="{{ active_filters.salary_max if active_filters.salary_max is not none else '' }}">
+      </div>
+    </div>
+    <div class="an-filter-actions" style="padding-top:0;margin-top:auto">
+      <button class="an-btn an-btn-apply" onclick="applyFilters()">Apply</button>
+      <a href="/analytics" class="an-btn an-btn-reset">Reset</a>
+    </div>
+  </div>
+  {% if active_filters.domains or active_filters.companies or active_filters.roles or active_filters.skills or active_filters.locations or active_filters.seniorities or active_filters.score_min is not none or active_filters.score_max is not none or active_filters.salary_min is not none or active_filters.salary_max is not none %}
+  <div class="an-tags">
+    {% for d in active_filters.domains %}<span class="an-tag">{{ d }} <span class="an-tag-x" onclick="removeFilter('domains','{{ d }}')">&times;</span></span>{% endfor %}
+    {% for c in active_filters.companies %}<span class="an-tag">{{ c }} <span class="an-tag-x" onclick="removeFilter('companies','{{ c }}')">&times;</span></span>{% endfor %}
+    {% for r in active_filters.roles %}<span class="an-tag">{{ r }} <span class="an-tag-x" onclick="removeFilter('roles','{{ r }}')">&times;</span></span>{% endfor %}
+    {% for sk in active_filters.skills %}<span class="an-tag">{{ sk }} <span class="an-tag-x" onclick="removeFilter('skills','{{ sk }}')">&times;</span></span>{% endfor %}
+    {% for l in active_filters.locations %}<span class="an-tag">{{ l }} <span class="an-tag-x" onclick="removeFilter('locations','{{ l }}')">&times;</span></span>{% endfor %}
+    {% for s in active_filters.seniorities %}<span class="an-tag">{{ s }} <span class="an-tag-x" onclick="removeFilter('seniorities','{{ s }}')">&times;</span></span>{% endfor %}
+    {% if active_filters.score_min is not none %}<span class="an-tag">score≥{{ active_filters.score_min }} <span class="an-tag-x" onclick="removeFilter('score_min','')">&times;</span></span>{% endif %}
+    {% if active_filters.score_max is not none %}<span class="an-tag">score≤{{ active_filters.score_max }} <span class="an-tag-x" onclick="removeFilter('score_max','')">&times;</span></span>{% endif %}
+    {% if active_filters.salary_min is not none %}<span class="an-tag">salary≥${{ active_filters.salary_min }} <span class="an-tag-x" onclick="removeFilter('salary_min','')">&times;</span></span>{% endif %}
+    {% if active_filters.salary_max is not none %}<span class="an-tag">salary≤${{ active_filters.salary_max }} <span class="an-tag-x" onclick="removeFilter('salary_max','')">&times;</span></span>{% endif %}
+  </div>
+  {% endif %}
 </div>
 
 <!-- KPIs -->
-<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
-  <div class="card card-glow p-4">
-    <div class="section-title">Total vacancies</div>
-    <div class="text-2xl font-semibold text-white mt-1 tabular-nums">{{ kpis.total_vacancies }}</div>
+<div class="kpi-grid">
+  <div class="kpi-card c-emerald">
+    <div class="kpi-label">Total Signals</div>
+    <div class="kpi-val text-emerald-400">{{ kpis.total_vacancies }}</div>
   </div>
-  <div class="card card-glow p-4">
-    <div class="section-title">Sources</div>
-    <div class="text-2xl font-semibold text-white mt-1 tabular-nums">{{ kpis.total_channels }}</div>
+  <div class="kpi-card c-cyan">
+    <div class="kpi-label">Live Sources</div>
+    <div class="kpi-val text-cyan-400">{{ kpis.total_channels }}</div>
   </div>
-  <div class="card card-glow p-4">
-    <div class="section-title">Last 7 days</div>
-    <div class="text-2xl font-semibold text-accent mt-1 tabular-nums">{{ kpis.last_7_days }}</div>
+  <div class="kpi-card c-violet">
+    <div class="kpi-label">Last 7 Days</div>
+    <div class="kpi-val text-violet-400">{{ kpis.last_7_days }}</div>
   </div>
-  <div class="card card-glow p-4">
-    <div class="section-title">With salary</div>
-    <div class="text-2xl font-semibold text-amber-300 mt-1 tabular-nums">{{ kpis.with_salary }}</div>
+  <div class="kpi-card c-amber">
+    <div class="kpi-label">With Salary</div>
+    <div class="kpi-val text-amber-300">{{ kpis.with_salary }}</div>
   </div>
-  <div class="card card-glow p-4">
-    <div class="section-title">High-risk</div>
-    <div class="text-2xl font-semibold text-rose-400 mt-1 tabular-nums">{{ kpis.high_risk }}</div>
+  <div class="kpi-card c-rose">
+    <div class="kpi-label">High-Risk</div>
+    <div class="kpi-val text-rose-400">{{ kpis.high_risk }}</div>
   </div>
-  <div class="card card-glow p-4">
-    <div class="section-title">Company linked</div>
-    <div class="text-2xl font-semibold text-blue-300 mt-1 tabular-nums">{{ kpis.with_company }}</div>
+  <div class="kpi-card c-blue">
+    <div class="kpi-label">Company Linked</div>
+    <div class="kpi-val text-blue-300">{{ kpis.with_company }}</div>
   </div>
 </div>
 
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Vacancies by niche (domain)</h3>
-    <p class="text-xs text-slate-500 mb-3">Each job can appear in multiple domains.</p>
+<div class="sec-divider">Market Overview</div>
+
+<div class="chart-grid">
+  <div class="chart-card g-emerald">
+    <div class="chart-title">Vacancies by Niche</div>
+    <div class="chart-desc">Each job can appear in multiple domains</div>
     <div class="h-72 relative"><canvas id="cDomains"></canvas></div>
   </div>
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">New vacancies over time</h3>
-    <p class="text-xs text-slate-500 mb-3">Daily count, last 30 days.</p>
+  <div class="chart-card g-emerald">
+    <div class="chart-title">New Vacancies Over Time</div>
+    <div class="chart-desc">Daily count, last 30 days</div>
     <div class="h-72 relative"><canvas id="cTimeline"></canvas></div>
   </div>
 </div>
 
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Top sources</h3>
-    <p class="text-xs text-slate-500 mb-3">By Telegram username or source channel field.</p>
+<div class="chart-grid">
+  <div class="chart-card g-violet">
+    <div class="chart-title">Average AI Score Over Time</div>
+    <div class="chart-desc">Daily average quality score, last 30 days</div>
+    <div class="h-72 relative"><canvas id="cAvgScore"></canvas></div>
+  </div>
+  <div class="chart-card g-emerald">
+    <div class="chart-title">AI Score Distribution</div>
+    <div class="chart-desc">Weighted total from metadata when present</div>
+    <div class="h-64 relative"><canvas id="cScores"></canvas></div>
+  </div>
+</div>
+
+<div class="sec-divider">Sources &amp; Roles</div>
+
+<div class="chart-grid">
+  <div class="chart-card g-cyan">
+    <div class="chart-title">Top Sources</div>
+    <div class="chart-desc">By Telegram username or source channel</div>
     <div class="h-80 relative"><canvas id="cSources"></canvas></div>
   </div>
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Seniority / grade</h3>
-    <p class="text-xs text-slate-500 mb-3">Extracted from vacancy text.</p>
+  <div class="chart-card g-violet">
+    <div class="chart-title">Seniority / Grade</div>
+    <div class="chart-desc">Extracted from vacancy text</div>
     <div class="h-72 relative"><canvas id="cSeniority"></canvas></div>
   </div>
 </div>
 
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Work location type</h3>
+<div class="chart-grid">
+  <div class="chart-card g-blue">
+    <div class="chart-title">Work Location Type</div>
+    <div class="chart-desc">&nbsp;</div>
     <div class="h-64 relative max-w-md mx-auto"><canvas id="cLocation"></canvas></div>
   </div>
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Employment type</h3>
-    <p class="text-xs text-slate-500 mb-3">From structured metadata (full-time, freelance, etc.).</p>
+  <div class="chart-card g-amber">
+    <div class="chart-title">Employment Type</div>
+    <div class="chart-desc">Full-time, freelance, project, etc.</div>
     <div class="h-72 relative"><canvas id="cEmployment"></canvas></div>
   </div>
 </div>
 
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">AI score distribution</h3>
-    <p class="text-xs text-slate-500 mb-3">Uses weighted total from metadata when present, else legacy score.</p>
-    <div class="h-64 relative"><canvas id="cScores"></canvas></div>
+<div class="sec-divider">Quality &amp; Risk</div>
+
+<div class="chart-grid">
+  <div class="chart-card g-cyan">
+    <div class="chart-title">Top Hiring Companies</div>
+    <div class="chart-desc">Companies with most open positions</div>
+    <div class="h-80 relative"><canvas id="cTopCompanies"></canvas></div>
   </div>
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Risk labels</h3>
+  <div class="chart-card g-rose">
+    <div class="chart-title">Risk Labels</div>
+    <div class="chart-desc">&nbsp;</div>
     <div class="h-64 relative"><canvas id="cRisk"></canvas></div>
   </div>
 </div>
 
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">English level (when stated)</h3>
-    <div class="h-72 relative"><canvas id="cEnglish"></canvas></div>
+<div class="sec-divider">Talent Landscape</div>
+
+<div class="chart-grid">
+  <div class="chart-card g-cyan">
+    <div class="chart-title">Required Languages</div>
+    <div class="chart-desc">Languages mentioned in vacancy requirements</div>
+    <div class="h-72 relative"><canvas id="cLangReq"></canvas></div>
   </div>
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Roles distribution</h3>
-    <p class="text-xs text-slate-500 mb-3">Normalized canonical roles across all vacancies.</p>
+  <div class="chart-card g-pink">
+    <div class="chart-title">Roles Distribution</div>
+    <div class="chart-desc">Normalized canonical roles across all vacancies</div>
     <div class="h-96 relative"><canvas id="cRoles"></canvas></div>
   </div>
 </div>
 
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Top job titles</h3>
-    <p class="text-xs text-slate-500 mb-3">Standardized title when available; otherwise truncated raw title.</p>
+<div class="chart-grid">
+  <div class="chart-card g-violet">
+    <div class="chart-title">Top Job Titles</div>
+    <div class="chart-desc">Standardized title when available</div>
     <div class="h-96 relative"><canvas id="cTitles"></canvas></div>
   </div>
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Salary range by role</h3>
-    <p class="text-xs text-slate-500 mb-3">Average min–max salary (USD) per canonical role. Roles with 2+ data points.</p>
+  <div class="chart-card g-blue">
+    <div class="chart-title">Salary Range by Role</div>
+    <div class="chart-desc">Average min–max salary (USD) per role. Roles with 2+ data points.</div>
     <div class="h-96 relative"><canvas id="cSalaryRoles"></canvas></div>
   </div>
 </div>
 
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-8">
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-1">Salary midpoint by niche</h3>
-    <p class="text-xs text-slate-500 mb-3">Average of min and max USD when both exist; otherwise the single bound. Domains with salary data only.</p>
+<div class="sec-divider">Compensation</div>
+
+<div class="chart-grid" style="margin-bottom:24px">
+  <div class="chart-card g-amber">
+    <div class="chart-title">Salary Midpoint by Niche</div>
+    <div class="chart-desc">Average of min and max USD. Domains with salary data only.</div>
     <div class="h-72 relative"><canvas id="cSalary"></canvas></div>
   </div>
-  <div class="card p-4">
-    <h3 class="text-sm font-semibold text-slate-200 mb-3">Salary detail by domain</h3>
-    <div class="overflow-x-auto max-h-80 overflow-y-auto rounded-lg border border-white/[0.06]">
-      <table class="w-full text-sm">
-        <thead class="sticky top-0 bg-base text-left text-xs text-slate-500 uppercase">
+  <div class="chart-card g-amber">
+    <div class="chart-title">Salary Detail by Domain</div>
+    <div class="chart-desc">&nbsp;</div>
+    <div class="overflow-x-auto max-h-80 overflow-y-auto rounded-lg" style="border:1px solid rgba(255,255,255,.04)">
+      <table class="sal-table">
+        <thead>
           <tr>
-            <th class="px-3 py-2">Domain</th>
-            <th class="px-3 py-2 text-right">Avg min</th>
-            <th class="px-3 py-2 text-right">Avg max</th>
-            <th class="px-3 py-2 text-right">Jobs</th>
+            <th>Domain</th>
+            <th class="r">Avg Min</th>
+            <th class="r">Avg Max</th>
+            <th class="r">Jobs</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-white/[0.04]">
+        <tbody>
           {% for cat, avg_min, avg_max, count in salary_stats %}
-          <tr class="hover:bg-white/[0.03]">
-            <td class="px-3 py-2 text-slate-200">{{ cat or "—" }}</td>
-            <td class="px-3 py-2 text-right text-slate-300 tabular-nums">{% if avg_min is not none %}${{ "%.0f"|format(avg_min) }}{% else %}—{% endif %}</td>
-            <td class="px-3 py-2 text-right text-slate-300 tabular-nums">{% if avg_max is not none %}${{ "%.0f"|format(avg_max) }}{% else %}—{% endif %}</td>
-            <td class="px-3 py-2 text-right text-slate-400 tabular-nums">{{ count }}</td>
+          <tr>
+            <td>{{ cat or "—" }}</td>
+            <td class="r">{% if avg_min is not none %}${{ "%.0f"|format(avg_min) }}{% else %}—{% endif %}</td>
+            <td class="r">{% if avg_max is not none %}${{ "%.0f"|format(avg_max) }}{% else %}—{% endif %}</td>
+            <td class="r">{{ count }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="4" class="px-3 py-6 text-center text-slate-500 text-sm">No salary data grouped by domain yet.</td></tr>
+          <tr><td colspan="4" style="padding:24px;text-align:center;color:#475569;font-size:13px">No salary data grouped by domain yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -158,7 +419,7 @@
   const grid = 'rgba(255,255,255,0.04)';
   Chart.defaults.color = '#64748b';
   Chart.defaults.borderColor = grid;
-  Chart.defaults.font.family = 'Outfit, system-ui, sans-serif';
+  Chart.defaults.font.family = 'Rajdhani, Outfit, system-ui, sans-serif';
 
   function barV(id, labels, data, color) {
     const el = document.getElementById(id);
@@ -264,8 +525,8 @@
   const r = CHARTS.risk || { labels: [], counts: [] };
   barV('cRisk', r.labels, r.counts, '#f43f5e');
 
-  const en = CHARTS.english || { labels: [], counts: [] };
-  barV('cEnglish', en.labels, en.counts, '#06b6d4');
+  const lr = CHARTS.required_languages || { labels: [], counts: [] };
+  barH('cLangReq', lr.labels, lr.counts, '#06b6d4');
 
   const ro = CHARTS.roles || { labels: [], counts: [] };
   barH('cRoles', ro.labels, ro.counts, '#f472b6');
@@ -281,7 +542,6 @@
     if (el && el.parentElement) el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No salary data by domain</p>';
   }
 
-  // Salary range by role — floating bar chart (min to max)
   const sr = CHARTS.salary_roles || { labels: [], avg_min: [], avg_max: [] };
   if (sr.labels && sr.labels.length) {
     const ctx = document.getElementById('cSalaryRoles');
@@ -326,6 +586,119 @@
     const el = document.getElementById('cSalaryRoles');
     if (el && el.parentElement) el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No salary data by role</p>';
   }
+  // ── Average AI Score Timeline ──
+  const avgSc = CHARTS.avg_score_timeline || { labels: [], scores: [], counts: [] };
+  if (avgSc.labels && avgSc.labels.length) {
+    const ctx = document.getElementById('cAvgScore');
+    if (ctx) {
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: avgSc.labels,
+          datasets: [{
+            label: 'Avg Score',
+            data: avgSc.scores,
+            fill: true,
+            backgroundColor: 'rgba(139,92,246,0.10)',
+            borderColor: '#8b5cf6',
+            borderWidth: 2,
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#8b5cf6',
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false },
+            tooltip: {
+              callbacks: {
+                afterLabel: function(ctx) {
+                  const i = ctx.dataIndex;
+                  return 'Vacancies: ' + (avgSc.counts[i] || 0);
+                }
+              }
+            }
+          },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.04)' } },
+            y: { min: 0, max: 10, grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { stepSize: 1 } },
+          },
+        },
+      });
+    }
+  } else {
+    const el = document.getElementById('cAvgScore');
+    if (el && el.parentElement) el.parentElement.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">No score data</p>';
+  }
+
+  // ── Top Companies chart ──
+  const tc = CHARTS.top_companies || { labels: [], counts: [] };
+  barH('cTopCompanies', tc.labels, tc.counts, '#06b6d4');
+
 })();
+
+// ── Dropdown multi-select ──
+function toggleDD(trigger) {
+  const panel = trigger.nextElementSibling;
+  const isOpen = panel.classList.contains('open');
+  document.querySelectorAll('.an-dd-panel.open').forEach(p => { p.classList.remove('open'); p.previousElementSibling.classList.remove('active'); });
+  if (!isOpen) {
+    panel.classList.add('open');
+    trigger.classList.add('active');
+    const search = panel.querySelector('.an-dd-search');
+    if (search) { search.value = ''; filterDD(search); search.focus(); }
+  }
+}
+function filterDD(input) {
+  const q = input.value.toLowerCase();
+  input.closest('.an-dd-panel').querySelectorAll('.an-dd-item').forEach(item => {
+    item.classList.toggle('hidden', q && !item.dataset.val.toLowerCase().includes(q));
+  });
+}
+function toggleItem(el) {
+  el.classList.toggle('selected');
+  const dd = el.closest('.an-dd');
+  const count = dd.querySelectorAll('.an-dd-item.selected').length;
+  const textEl = dd.querySelector('.an-dd-text');
+  textEl.innerHTML = count ? '<span class="count-badge">' + count + '</span> selected' : 'All ' + dd.dataset.name;
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.an-dd')) {
+    document.querySelectorAll('.an-dd-panel.open').forEach(p => { p.classList.remove('open'); p.previousElementSibling.classList.remove('active'); });
+  }
+});
+
+function applyFilters() {
+  const params = new URLSearchParams();
+  document.querySelectorAll('.an-dd').forEach(dd => {
+    const name = dd.dataset.name;
+    const vals = Array.from(dd.querySelectorAll('.an-dd-item.selected')).map(i => i.dataset.val);
+    if (vals.length) params.set(name, vals.join(','));
+  });
+  const sMin = document.getElementById('fScoreMin');
+  const sMax = document.getElementById('fScoreMax');
+  if (sMin && sMin.value !== '') params.set('score_min', sMin.value);
+  if (sMax && sMax.value !== '') params.set('score_max', sMax.value);
+  const salMin = document.getElementById('fSalaryMin');
+  const salMax = document.getElementById('fSalaryMax');
+  if (salMin && salMin.value !== '') params.set('salary_min', salMin.value);
+  if (salMax && salMax.value !== '') params.set('salary_max', salMax.value);
+  window.location.href = '/analytics' + (params.toString() ? '?' + params.toString() : '');
+}
+
+function removeFilter(key, value) {
+  const params = new URLSearchParams(window.location.search);
+  if (key === 'score_min' || key === 'score_max' || key === 'salary_min' || key === 'salary_max') {
+    params.delete(key);
+  } else {
+    const current = (params.get(key) || '').split(',').filter(Boolean);
+    const updated = current.filter(v => v !== value);
+    if (updated.length) params.set(key, updated.join(','));
+    else params.delete(key);
+  }
+  window.location.href = '/analytics' + (params.toString() ? '?' + params.toString() : '');
+}
 </script>
 {% endblock %}

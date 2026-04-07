@@ -46,7 +46,7 @@ async def enrich_company_profile(
     "Return JSON:\n"
     "{\n"
     '  "summary": "2-3 sentence description of what the company does, their product/market.",\n'
-    '  "industry": "primary industry/vertical, e.g. iGaming, FinTech, AI, GameDev, Marketing, Web3, Crypto, Design, E-commerce, SaaS, etc. String or null.",\n'
+    '  "industry": "primary industry/vertical, e.g. iGaming, FinTech, AI, GameDev, Marketing, Web3, Crypto, DeFi, NFT, DAO, GameFi, RWA, L1/L2, Design, E-commerce, SaaS, etc. String or null.",\n'
     '  "size": "approximate employee count like 10-50, 50-200, 200-1000, 1000+ or null",\n'
     '  "founded": "year as string or null",\n'
     '  "website": "official website URL or null (only if different from known)",\n'

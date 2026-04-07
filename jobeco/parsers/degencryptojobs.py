@@ -20,6 +20,7 @@ from jobeco.processing.pipeline import (
   upsert_company,
   _enrich_contacts_with_forms,
   _boost_company_score,
+  try_enrich_from_ats,
 )
 from jobeco.openrouter.client import (
   analyze_with_openrouter,
@@ -114,6 +115,7 @@ async def process_web_vacancy(job: dict) -> int | None:
     log.info("web_dedup_skip", source=SOURCE_SLUG, title=job.get("title"))
     return None
 
+  raw_text = await try_enrich_from_ats(raw_text, job.get("link"))
   analysis = await analyze_with_openrouter(raw_text)
 
   company_info = await resolve_company_info(

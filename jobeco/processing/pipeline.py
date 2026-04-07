@@ -14,8 +14,34 @@ from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
 from jobeco.processing.normalization import normalize_vacancy_fields
 from jobeco.processing.company_branding import brand_favicon_url, sanitize_logo_url, pick_corporate_website, is_ats_or_job_board_url
+from jobeco.processing.ats_enricher import fetch_ats_description
 
 log = structlog.get_logger()
+
+
+
+async def try_enrich_from_ats(raw_text: str, apply_url: str | None) -> str:
+  """
+  If the raw_text is short and apply_url points to a known ATS,
+  fetch the full job description and return enriched text.
+  Falls back to original raw_text on any failure.
+  """
+  if not apply_url or not apply_url.startswith("http"):
+    return raw_text
+  if len(raw_text) > 2000:
+    return raw_text
+  try:
+    ats_text = await fetch_ats_description(apply_url)
+    if ats_text and len(ats_text) > len(raw_text) * 0.5:
+      split_desc = "\nDescription:\n"
+      split_full = "\nFull Job Description"
+      enriched = raw_text.split(split_desc)[0].split(split_full)[0]
+      enriched = enriched.rstrip() + "\n\nFull Job Description (from company ATS):\n" + ats_text
+      log.info("ats_enriched_pipeline", url=apply_url[:80], original_len=len(raw_text), enriched_len=len(enriched))
+      return enriched
+  except Exception as exc:
+    log.debug("ats_enrich_failed", url=apply_url[:80], error=str(exc))
+  return raw_text
 
 
 def _extract_entity_urls(msg) -> list[str]:
@@ -99,7 +125,13 @@ def _resolve_company_logo_url(
 _INDUSTRY_TO_DOMAIN_INDUSTRY = {
   "igaming": "igaming", "gambling": "igaming", "casino": "igaming", "betting": "igaming",
   "fintech": "fintech", "financial services": "fintech", "banking": "fintech",
-  "blockchain": "web3", "cryptocurrency": "web3", "web3": "web3", "defi": "web3",
+  "blockchain": "web3", "cryptocurrency": "crypto", "web3": "web3", "crypto": "crypto",
+  "defi": "defi", "decentralized finance": "defi",
+  "nft": "nft", "non-fungible": "nft",
+  "dao": "dao", "decentralized autonomous": "dao",
+  "gamefi": "gamefi", "play-to-earn": "gamefi", "p2e": "gamefi",
+  "rwa": "rwa", "real world asset": "rwa", "tokenization": "rwa",
+  "layer 1": "l1l2", "layer 2": "l1l2", "l1": "l1l2", "l2": "l1l2", "rollup": "l1l2",
   "game development": "gaming", "gamedev": "gaming", "esports": "gaming", "video game": "gaming",
   "artificial intelligence": "ai", "machine learning": "ai",
   "marketing": "marketing", "advertising": "marketing", "digital marketing": "marketing",
@@ -108,7 +140,13 @@ _INDUSTRY_TO_DOMAIN_INDUSTRY = {
 _INDUSTRY_TO_DOMAIN_SUMMARY = {
   "igaming": "igaming", "online casino": "igaming", "sports betting": "igaming",
   "fintech": "fintech",
-  "blockchain": "web3", "cryptocurrency": "web3", "web3": "web3", "defi": "web3",
+  "blockchain": "web3", "cryptocurrency": "crypto", "web3": "web3", "crypto": "crypto",
+  "defi": "defi", "decentralized finance": "defi", "dex": "defi", "lending protocol": "defi", "yield": "defi",
+  "nft": "nft", "non-fungible": "nft", "collectible": "nft", "opensea": "nft",
+  "dao": "dao", "governance": "dao", "decentralized autonomous": "dao",
+  "gamefi": "gamefi", "play-to-earn": "gamefi", "play to earn": "gamefi", "p2e": "gamefi",
+  "rwa": "rwa", "real world asset": "rwa", "tokeniz": "rwa",
+  "layer 2": "l1l2", "layer 1": "l1l2", "rollup": "l1l2", "zk-rollup": "l1l2", "optimistic rollup": "l1l2",
   "artificial intelligence": "ai", "machine learning": "ai",
 }
 
@@ -128,6 +166,7 @@ async def upsert_company(
   cp = company_profile or {}
 
   inferred_domains: list[str] = []
+  _CRYPTO_SUBS = {"defi", "nft", "dao", "gamefi", "rwa", "l1l2"}
   industry_lc = (cp.get("industry") or "").lower()
   summary_lc = (cp.get("summary") or "").lower()
   for keyword, domain in _INDUSTRY_TO_DOMAIN_INDUSTRY.items():
@@ -136,6 +175,13 @@ async def upsert_company(
   for keyword, domain in _INDUSTRY_TO_DOMAIN_SUMMARY.items():
     if keyword in summary_lc and domain not in inferred_domains:
       inferred_domains.append(domain)
+
+  # Ensure umbrella domains: if any crypto sub-vertical found, add 'web3' and/or 'crypto'
+  if any(d in _CRYPTO_SUBS for d in inferred_domains):
+    if "web3" not in inferred_domains:
+      inferred_domains.append("web3")
+    if "crypto" not in inferred_domains:
+      inferred_domains.append("crypto")
 
   try:
     async with SessionLocal() as s:
@@ -363,7 +409,7 @@ async def save_vacancy(payload: dict, embedding: list[float] | None) -> int | No
       company_name=payload.get("company_name"),
       company_url=payload.get("company_url"),
       title=payload.get("title"),
-      location_type=payload.get("location_type"),
+      location_type=(payload.get("location_type") or "").lower().strip() or None,
       salary_min_usd=payload.get("salary_min_usd"),
       salary_max_usd=payload.get("salary_max_usd"),
       stack=payload.get("stack", []),

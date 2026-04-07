@@ -334,12 +334,17 @@ async def analyze_with_openrouter(text: str) -> dict:
     "- recruiter: string|null\n"
     "- contacts: string[] (@username, emails, personal links, application form URLs)\n"
     "- domains: string[] — one or more from this set (lowercase, a vacancy can belong to MULTIPLE):\n"
-    "  ['web3','ai','igaming','tech','gaming','traffic','design','dev','fintech','crypto','marketing','hr','analytics','product','support']\n"
+    "  ['web3','crypto','defi','nft','dao','gamefi','rwa','l1l2','ai','igaming','tech','gaming','traffic','design','dev','fintech','marketing','hr','analytics','product','support']\n"
+    "  IMPORTANT: 'web3' and 'crypto' are broad umbrella categories. Sub-verticals like 'defi','nft','dao','gamefi','rwa','l1l2' MUST be added IN ADDITION to 'web3'/'crypto', not instead of them.\n"
     "  Pick ALL that apply. Examples:\n"
-    "  - A graphic designer for a traffic team → ['design','traffic']\n"
-    "  - A frontend dev for a web3 project → ['dev','web3']\n"
+    "  - A Solidity dev for a DEX → ['dev','web3','crypto','defi']\n"
+    "  - A frontend dev for an NFT marketplace → ['dev','web3','nft']\n"
+    "  - A community manager for a DAO → ['web3','dao','marketing']\n"
+    "  - A game designer for play-to-earn → ['gaming','gamefi','web3','crypto']\n"
+    "  - A protocol engineer for L2 scaling → ['dev','web3','crypto','l1l2']\n"
+    "  - A compliance officer for RWA tokenization → ['web3','crypto','rwa','fintech']\n"
     "  - An AI engineer → ['ai','dev']\n"
-    "  - A community manager for a game studio → ['gaming','marketing']\n"
+    "  - A graphic designer for a traffic team → ['design','traffic']\n"
     "- risk_label: 'high-risk'|null (only if scam/high-risk)\n"
     "- role: string|null — pick EXACTLY ONE from this canonical list (Title Case):\n"
     "  'Backend Developer'|'Frontend Developer'|'Full Stack Developer'|'Mobile Developer'|\n"
@@ -762,7 +767,7 @@ Goal: infer the CHANNEL'S THEME/ESSENCE, not summarize individual posts.
 Use last posts only as weak signals/examples. Title+bio are primary.
 
 Return ONLY valid JSON with keys:
-  ai_domains: string[] from ['web3','ai','igaming','tech','gaming','traffic','design','dev','fintech','crypto','marketing','hr','analytics','product','support']
+  ai_domains: string[] from ['web3','crypto','defi','nft','dao','gamefi','rwa','l1l2','ai','igaming','tech','gaming','traffic','design','dev','fintech','marketing','hr','analytics','product','support']
   ai_tags: string[] (EXACTLY 2 or 3 items, short, high-signal, no duplicates)
   ai_risk_label: 'high-risk'|null (only if scam/high-risk)
   admin_contacts: string[] (emails, @usernames, links) found in BIO only

@@ -2,6 +2,25 @@
 {% block title %}Companies — Job-Eco{% endblock %}
 
 {% block extra_css %}
+.comp-page-head { position:relative; margin-bottom:20px; }
+.comp-page-title { font-family:'Rajdhani','Outfit',sans-serif; font-size:24px; font-weight:700; color:#fff; letter-spacing:-.01em; }
+.comp-page-title em { font-style:normal; background:linear-gradient(90deg,#06b6d4,#67e8f9,#38bdf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.comp-page-sub { font-size:13px; color:#475569; margin-top:4px; }
+
+.comp-toolbar { display:flex; align-items:center; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+.comp-search { position:relative; flex:1; max-width:400px; }
+.comp-search input { width:100%; padding:9px 12px 9px 36px; background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:10px; color:#e2e8f0; font-size:13px; transition:border-color .2s, box-shadow .2s; }
+.comp-search input:focus { outline:none; border-color:rgba(6,182,212,.4); box-shadow:0 0 0 3px rgba(6,182,212,.08); }
+.comp-search input::placeholder { color:#334155; }
+.comp-search svg { position:absolute; left:11px; top:50%; transform:translateY(-50%); }
+
+.comp-pill { display:inline-flex; align-items:center; gap:4px; padding:7px 14px; font-size:12px; font-weight:500; border-radius:8px; border:1px solid rgba(255,255,255,.06); color:#64748b; background:transparent; cursor:pointer; transition:all .15s; }
+.comp-pill:hover { color:#94a3b8; border-color:rgba(255,255,255,.1); background:rgba(255,255,255,.03); }
+.comp-pill.active { background:rgba(6,182,212,.1); border-color:rgba(6,182,212,.25); color:#67e8f9; }
+.comp-pill svg { width:14px; height:14px; }
+
+.comp-count { font-family:'JetBrains Mono',monospace; font-size:12px; color:#475569; margin-left:auto; }
+
 .comp-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -9,26 +28,50 @@
 }
 .comp-card {
   background: #0b0b10;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 12px;
-  padding: 16px;
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 14px;
+  padding: 18px;
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.comp-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #06b6d4, #67e8f9);
+  opacity: 0;
+  transition: opacity 0.25s;
+  border-radius: 14px 14px 0 0;
 }
 .comp-card:hover {
-  border-color: rgba(255,255,255,0.12);
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.04);
-  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.10);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  transform: translateY(-2px);
 }
+.comp-card:hover::before { opacity: 1; }
 .comp-card.selected {
-  border-color: rgba(16,185,129,0.30);
-  box-shadow: 0 0 16px rgba(16,185,129,0.06), 0 0 0 1px rgba(16,185,129,0.12);
+  border-color: rgba(6,182,212,0.30);
+  box-shadow: 0 0 20px rgba(6,182,212,0.06), 0 0 0 1px rgba(6,182,212,0.12);
+}
+.comp-card.selected::before { opacity: 1; }
+
+.comp-avatar {
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: #111118;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 600; color: #475569;
+  flex-shrink: 0;
+  object-fit: contain;
+  overflow: hidden;
 }
 
-/* detail pane */
 .comp-pane {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
-  width: 440px; max-width: 94vw;
+  width: 460px; max-width: 94vw;
   background: rgba(8,8,15,0.97);
   backdrop-filter: blur(24px);
   border-left: 1px solid rgba(255,255,255,0.06);
@@ -44,67 +87,97 @@
 
 .cp-head {
   position: sticky; top: 0; z-index: 2;
-  padding: 20px 20px 14px;
-  background: rgba(8,8,15,0.94);
+  padding: 22px 22px 16px;
+  background: linear-gradient(180deg, rgba(6,182,212,.03), rgba(8,8,15,.97));
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
+.cp-close {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: #64748b;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.cp-close:hover { background:rgba(255,255,255,.08); color:#e2e8f0; }
+
 .cp-vac-card {
-  padding: 10px 14px; border-radius: 10px;
+  padding: 12px 16px; border-radius: 10px;
   background: rgba(255,255,255,0.02);
   border: 1px solid rgba(255,255,255,0.04);
   margin-bottom: 6px;
-  cursor: pointer; transition: all 0.12s;
+  cursor: pointer; transition: all 0.15s;
   display: block; text-decoration: none; color: inherit;
 }
 .cp-vac-card:hover {
   background: rgba(255,255,255,0.05);
   border-color: rgba(255,255,255,0.08);
+  transform: translateX(2px);
 }
-.cp-section { padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.04); }
+.cp-section { padding: 16px 22px; border-top: 1px solid rgba(255,255,255,0.04); }
 .cp-sec-title {
-  font-size: 10px; font-weight: 600; color: #475569;
-  text-transform: uppercase; letter-spacing: 0.05em;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 11px; font-weight: 600; color: #475569;
+  text-transform: uppercase; letter-spacing: 0.06em;
   margin-bottom: 10px;
 }
 .cp-meta-row {
   display: flex; align-items: center; gap: 8px;
-  font-size: 12px; color: #94a3b8; padding: 3px 0;
+  font-size: 12px; color: #94a3b8; padding: 4px 0;
 }
-.cp-meta-row .label { color: #475569; min-width: 80px; flex-shrink: 0; }
-.cp-meta-row a { color: #10b981; text-decoration: none; }
-.cp-meta-row a:hover { text-decoration: underline; }
+.cp-meta-row .label { color: #475569; min-width: 80px; flex-shrink: 0; font-weight: 500; }
+.cp-meta-row a { color: #06b6d4; text-decoration: none; }
+.cp-meta-row a:hover { text-decoration: underline; color: #67e8f9; }
 
 .cp-social-link {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 10px; border-radius: 6px; font-size: 11px;
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+  padding: 5px 12px; border-radius: 8px; font-size: 11px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
   color: #94a3b8; text-decoration: none; transition: all 0.15s;
 }
-.cp-social-link:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+.cp-social-link:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; border-color:rgba(255,255,255,.1); }
 
-/* overlay backdrop */
 .comp-overlay {
   position: fixed; inset: 0; z-index: 35;
-  background: rgba(0,0,0,0.3);
+  background: rgba(0,0,0,0.4);
   opacity: 0; pointer-events: none;
   transition: opacity 0.3s;
+  backdrop-filter: blur(2px);
 }
 .comp-overlay.open { opacity: 1; pointer-events: auto; }
+
+.comp-pager { display:flex; justify-content:center; align-items:center; gap:4px; margin-top:16px; }
+
+.comp-industry-select {
+  background:#0b0b10; border:1px solid rgba(255,255,255,.06);
+  border-radius:10px; color:#94a3b8; font-size:12px; padding:8px 32px 8px 12px;
+  appearance:none; transition:border-color .2s;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.comp-industry-select:focus { outline:none; border-color:rgba(6,182,212,.4); }
 {% endblock %}
 
 {% block content %}
+<div class="comp-page-head">
+  <h1 class="comp-page-title"><em>Companies</em> Directory</h1>
+  <p class="comp-page-sub">Explore {{ total }} companies across all tracked industries and markets</p>
+</div>
+
 <form method="get" action="/companies" id="compForm">
-  <div class="flex items-center gap-2 mb-4">
-    <div class="relative flex-1 max-w-md">
-      <input type="text" name="search" value="{{ search or '' }}" placeholder="Search companies..."
-        class="w-full pl-9 pr-3 py-2 input-dark text-sm" />
-      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+  <div class="comp-toolbar">
+    <div class="comp-search">
+      <input type="text" name="search" value="{{ search or '' }}" placeholder="Search companies..." />
+      <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
     </div>
 
     {% if industries %}
-    <select name="industry" onchange="document.getElementById('compForm').submit()"
-      class="input-dark text-xs py-2 px-3 pr-8 appearance-none" style="min-width:140px">
+    <select name="industry" onchange="document.getElementById('compForm').submit()" class="comp-industry-select">
       <option value="">All industries</option>
       {% for ind, cnt in industries %}
       <option value="{{ ind }}" {% if industry == ind %}selected{% endif %}>{{ ind }} ({{ cnt }})</option>
@@ -115,8 +188,7 @@
     <div class="relative" id="sortWrap">
       <input type="hidden" name="sort_by" id="hSortBy" value="{{ sort_by or 'vacancies_desc' }}" />
       <button type="button" onclick="toggleSortMenu()"
-        class="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg border transition
-          {% if sort_by and sort_by != 'vacancies_desc' %}pill-active{% else %}btn-ghost{% endif %}"
+        class="comp-pill {% if sort_by and sort_by != 'vacancies_desc' %}active{% endif %}"
       >
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>
         <span id="sortLabel">{{ {"vacancies_desc": "Most vacancies", "vacancies_asc": "Fewest vacancies", "name_asc": "Name A-Z", "name_desc": "Name Z-A", "newest": "Newest", "oldest": "Oldest"}.get(sort_by, "Most vacancies") }}</span>
@@ -138,12 +210,12 @@
       </div>
     </div>
 
-    <button type="submit" class="px-4 py-2 btn-accent text-xs">Search</button>
+    <button type="submit" class="comp-pill active" style="background:rgba(6,182,212,.15);border-color:rgba(6,182,212,.3);color:#67e8f9">Search</button>
     {% if search or industry %}
-    <a href="/companies" class="px-3 py-2 text-xs text-slate-500 hover:text-slate-300 transition">&times; Clear</a>
+    <a href="/companies" class="comp-pill" style="color:#94a3b8">&times; Clear</a>
     {% endif %}
 
-    <span class="text-xs text-slate-500 ml-auto">{{ total }} companies{% if total_pages > 1 %} · p.{{ page }}/{{ total_pages }}{% endif %}</span>
+    <span class="comp-count">{{ total }} companies{% if total_pages > 1 %} · p.{{ page }}/{{ total_pages }}{% endif %}</span>
   </div>
 </form>
 
@@ -152,9 +224,9 @@
   <div class="comp-card" data-id="{{ c.id }}" onclick="openCompanyPane({{ c.id }})">
     <div class="flex items-start gap-3">
       {% if c.logo_url %}
-      <img src="{{ c.logo_url }}" alt="" class="w-10 h-10 rounded-lg bg-slate-800 object-contain flex-none" onerror="this.style.display='none'" />
+      <img src="{{ c.logo_url }}" alt="" class="comp-avatar" style="object-fit:contain" onerror="this.style.display='none'" />
       {% else %}
-      <div class="w-10 h-10 rounded-lg bg-surface flex items-center justify-center flex-none text-lg font-semibold text-slate-500">
+      <div class="comp-avatar">
         {{ c.name[0]|upper if c.name else '?' }}
       </div>
       {% endif %}
@@ -196,21 +268,21 @@
 
 {% set _qs %}{% if search %}&search={{ search }}{% endif %}{% if industry %}&industry={{ industry }}{% endif %}{% if sort_by and sort_by != 'vacancies_desc' %}&sort_by={{ sort_by }}{% endif %}{% endset %}
 {% if total_pages > 1 %}
-<div class="mt-4 flex justify-center items-center gap-1">
+<div class="comp-pager">
   {% if page > 1 %}
-  <a href="?page={{ page - 1 }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">&larr; Prev</a>
+  <a href="?page={{ page - 1 }}{{ _qs }}" class="comp-pill">&larr; Prev</a>
   {% endif %}
   {% for p in range(1, total_pages + 1) %}
     {% if p == page %}
-    <span class="px-3 py-1 text-xs pill-active rounded-lg border border-transparent">{{ p }}</span>
+    <span class="comp-pill active">{{ p }}</span>
     {% elif (p - page)|abs <= 2 or p == 1 or p == total_pages %}
-    <a href="?page={{ p }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">{{ p }}</a>
+    <a href="?page={{ p }}{{ _qs }}" class="comp-pill">{{ p }}</a>
     {% elif (p - page)|abs == 3 %}
     <span class="text-slate-600 text-xs px-1">&hellip;</span>
     {% endif %}
   {% endfor %}
   {% if page < total_pages %}
-  <a href="?page={{ page + 1 }}{{ _qs }}" class="px-3 py-1 btn-ghost text-xs">Next &rarr;</a>
+  <a href="?page={{ page + 1 }}{{ _qs }}" class="comp-pill">Next &rarr;</a>
   {% endif %}
 </div>
 {% endif %}
@@ -222,13 +294,13 @@
 <div class="comp-pane" id="compPane">
   <div class="cp-head">
     <div class="flex items-start gap-3">
-      <img id="cpLogo" src="" alt="" class="hidden w-12 h-12 rounded-lg bg-surface object-contain flex-none" onerror="this.classList.add('hidden')" />
-      <div id="cpAvatar" class="w-12 h-12 rounded-lg bg-surface flex items-center justify-center flex-none text-xl font-semibold text-slate-500"></div>
+      <img id="cpLogo" src="" alt="" class="hidden comp-avatar" style="width:48px;height:48px" onerror="this.classList.add('hidden')" />
+      <div id="cpAvatar" class="comp-avatar" style="width:48px;height:48px;font-size:20px"></div>
       <div class="min-w-0 flex-1">
-        <div class="text-base font-semibold text-white" id="cpName">—</div>
+        <div class="text-base font-semibold text-white" style="font-family:Rajdhani,sans-serif;font-size:18px" id="cpName">—</div>
         <div class="text-xs text-slate-500 mt-0.5" id="cpIndustry"></div>
       </div>
-      <button class="w-8 h-8 flex items-center justify-center rounded-lg bg-white/[0.04] border border-white/[0.06] text-slate-500 hover:bg-white/[0.08] hover:text-white transition text-sm" onclick="closeCompanyPane()">&times;</button>
+      <button class="cp-close" onclick="closeCompanyPane()">&times;</button>
     </div>
     <div class="flex flex-wrap gap-1.5 mt-3" id="cpBadges"></div>
   </div>

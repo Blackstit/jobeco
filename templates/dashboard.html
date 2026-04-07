@@ -1,139 +1,198 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+.dash-hero { position:relative; padding:32px 36px 28px; border-radius:16px; margin-bottom:24px; overflow:hidden; background:#0b0b10; border:1px solid rgba(255,255,255,.04); }
+.dash-hero::before { content:''; position:absolute; top:-60%; right:-10%; width:500px; height:500px; background:radial-gradient(circle, rgba(16,185,129,.06) 0%, rgba(139,92,246,.03) 40%, transparent 70%); pointer-events:none; }
+.dash-hero::after { content:''; position:absolute; bottom:-40%; left:10%; width:400px; height:400px; background:radial-gradient(circle, rgba(56,189,248,.04) 0%, transparent 60%); pointer-events:none; }
+.dash-hero-content { position:relative; z-index:2; }
+.dash-h1 { font-family:'Rajdhani','Outfit',sans-serif; font-size:28px; font-weight:700; color:#fff; letter-spacing:-.01em; line-height:1.2; }
+.dash-h1 em { font-style:normal; background:linear-gradient(90deg,#10b981,#6ee7b7,#38bdf8,#6ee7b7,#10b981); background-size:200% 100%; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:dShimmer 4s ease-in-out infinite; }
+@keyframes dShimmer { 0%,100% { background-position:200% center; } 50% { background-position:0% center; } }
+.dash-sub { font-size:13px; color:#64748b; margin-top:6px; max-width:500px; }
+.dash-time { position:absolute; top:32px; right:36px; z-index:2; font-size:11px; color:#475569; font-family:'JetBrains Mono',monospace; text-align:right; }
+.dash-time .clock { font-size:18px; color:#94a3b8; font-weight:500; }
+
+.stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:12px; }
+@media(max-width:1024px){ .stat-grid { grid-template-columns:repeat(2,1fr); } }
+.stat-card { position:relative; background:#0b0b10; border:1px solid rgba(255,255,255,.05); border-radius:14px; padding:20px; overflow:hidden; transition:all .25s ease; text-decoration:none; color:inherit; display:block; }
+.stat-card:hover { border-color:rgba(255,255,255,.1); transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.3); }
+.stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; border-radius:14px 14px 0 0; opacity:0; transition:opacity .25s; }
+.stat-card:hover::before { opacity:1; }
+.stat-card.c-emerald::before { background:linear-gradient(90deg,#10b981,#6ee7b7); }
+.stat-card.c-emerald:hover { box-shadow:0 8px 24px rgba(0,0,0,.3), 0 0 20px rgba(16,185,129,.06); }
+.stat-card.c-cyan::before { background:linear-gradient(90deg,#06b6d4,#67e8f9); }
+.stat-card.c-cyan:hover { box-shadow:0 8px 24px rgba(0,0,0,.3), 0 0 20px rgba(6,182,212,.06); }
+.stat-card.c-blue::before { background:linear-gradient(90deg,#3b82f6,#93c5fd); }
+.stat-card.c-blue:hover { box-shadow:0 8px 24px rgba(0,0,0,.3), 0 0 20px rgba(59,130,246,.06); }
+.stat-card.c-violet::before { background:linear-gradient(90deg,#8b5cf6,#c4b5fd); }
+.stat-card.c-violet:hover { box-shadow:0 8px 24px rgba(0,0,0,.3), 0 0 20px rgba(139,92,246,.06); }
+.stat-ico { width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.stat-label { font-family:'Rajdhani',sans-serif; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#475569; font-weight:600; }
+.stat-val { font-family:'Rajdhani',sans-serif; font-size:32px; font-weight:700; color:#fff; line-height:1.1; margin-top:2px; }
+.stat-val .unit { font-size:14px; color:#475569; font-weight:400; margin-left:2px; }
+
+.activity-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
+@media(max-width:1024px){ .activity-grid { grid-template-columns:repeat(2,1fr); } }
+.act-card { background:#0b0b10; border:1px solid rgba(255,255,255,.04); border-radius:12px; padding:14px 16px; }
+.act-label { font-family:'Rajdhani',sans-serif; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#475569; font-weight:600; }
+.act-val { font-family:'Rajdhani',sans-serif; font-size:20px; font-weight:700; color:#fff; margin-top:2px; }
+.act-bar { height:3px; border-radius:2px; background:rgba(255,255,255,.04); margin-top:8px; overflow:hidden; }
+.act-bar-fill { height:100%; border-radius:2px; transition:width .6s ease; }
+
+.sec-head { font-family:'Rajdhani',sans-serif; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:#475569; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+.sec-head::after { content:''; flex:1; height:1px; background:rgba(255,255,255,.04); }
+
+.two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+@media(max-width:1024px){ .two-col { grid-template-columns:1fr; } }
+
+.dom-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:8px; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.04); font-size:13px; color:#94a3b8; transition:all .2s; text-decoration:none; }
+.dom-chip:hover { background:rgba(16,185,129,.06); border-color:rgba(16,185,129,.2); color:#6ee7b7; }
+.dom-chip .cnt { font-family:'JetBrains Mono',monospace; font-size:11px; color:#10b981; }
+
+.role-row { display:flex; align-items:center; gap:10px; padding:6px 0; text-decoration:none; }
+.role-row:hover .role-name { color:#10b981; }
+.role-name { font-size:13px; color:#94a3b8; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:color .2s; }
+.role-cnt { font-family:'JetBrains Mono',monospace; font-size:11px; color:#475569; min-width:30px; text-align:right; }
+.role-bar { flex:0 0 120px; height:3px; border-radius:2px; background:rgba(255,255,255,.04); overflow:hidden; }
+.role-bar-fill { height:100%; border-radius:2px; background:linear-gradient(90deg,rgba(139,92,246,.5),rgba(139,92,246,.2)); }
+
+.co-card { display:flex; flex-direction:column; align-items:center; gap:8px; padding:14px 10px; border-radius:12px; background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.04); transition:all .25s; text-decoration:none; text-align:center; }
+.co-card:hover { background:rgba(255,255,255,.05); border-color:rgba(255,255,255,.08); transform:translateY(-2px); box-shadow:0 4px 16px rgba(0,0,0,.2); }
+.co-avatar { width:44px; height:44px; border-radius:10px; background:#111118; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:600; color:#475569; object-fit:contain; overflow:hidden; }
+.co-name { font-size:12px; font-weight:500; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+.co-meta { font-size:10px; color:#475569; }
+
+.vac-list { background:#0b0b10; border:1px solid rgba(255,255,255,.04); border-radius:14px; overflow:hidden; }
+.vac-head { padding:14px 20px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,.04); }
+.vac-item { display:block; padding:14px 20px; border-bottom:1px solid rgba(255,255,255,.03); transition:background .15s; text-decoration:none; color:inherit; }
+.vac-item:last-child { border-bottom:none; }
+.vac-item:hover { background:rgba(255,255,255,.02); }
+.vac-title { font-size:14px; font-weight:500; color:#e2e8f0; transition:color .15s; }
+.vac-item:hover .vac-title { color:#10b981; }
+.vac-id { font-family:'JetBrains Mono',monospace; font-size:10px; color:#334155; margin-left:6px; }
+.vac-salary { font-family:'JetBrains Mono',monospace; font-size:12px; color:#10b981; white-space:nowrap; }
+{% endblock %}
+
 {% block content %}
 <div>
-  <div class="mb-8">
-    <h2 class="text-2xl font-semibold text-white tracking-tight">Dashboard</h2>
-    <p class="text-sm text-slate-500 mt-1">Overview and latest vacancies</p>
+  <!-- Hero header -->
+  <div class="dash-hero">
+    <div class="dash-hero-content">
+      <h1 class="dash-h1">Welcome to <em>HireLens</em></h1>
+      <p class="dash-sub">Real-time hiring intelligence across {{ total_channels }} sources. Every signal scored, every trend mapped.</p>
+    </div>
+    <div class="dash-time">
+      <div class="clock" id="dash-clock">--:--</div>
+      <div style="margin-top:2px" id="dash-date">—</div>
+    </div>
   </div>
 
-  <!-- Stats cards — row 1 -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
-    <a href="/vacancies" class="card card-glow p-5 block">
+  <!-- Main stat cards -->
+  <div class="stat-grid">
+    <a href="/vacancies" class="stat-card c-emerald">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
-          <svg class="w-4.5 h-4.5 text-accent" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+        <div class="stat-ico" style="background:rgba(16,185,129,.1)">
+          <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
         </div>
         <div>
-          <div class="section-title">Total vacancies</div>
-          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ total_vacancies }}</div>
+          <div class="stat-label">Total Signals</div>
+          <div class="stat-val">{{ total_vacancies }}<span class="unit">+</span></div>
         </div>
       </div>
     </a>
 
-    <a href="/companies" class="card card-glow p-5 block">
+    <a href="/companies" class="stat-card c-cyan">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-          <svg class="w-4.5 h-4.5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
+        <div class="stat-ico" style="background:rgba(6,182,212,.1)">
+          <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
         </div>
         <div>
-          <div class="section-title">Companies</div>
-          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ total_companies }}</div>
+          <div class="stat-label">Companies</div>
+          <div class="stat-val">{{ total_companies }}<span class="unit">+</span></div>
         </div>
       </div>
     </a>
 
-    <a href="/channels" class="card card-glow p-5 block">
+    <a href="/channels" class="stat-card c-blue">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
-          <svg class="w-4.5 h-4.5 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.789m13.788 0c3.808 3.808 3.808 9.981 0 13.79M12 12.75a.75.75 0 100-1.5.75.75 0 000 1.5z"/></svg>
+        <div class="stat-ico" style="background:rgba(59,130,246,.1)">
+          <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.789m13.788 0c3.808 3.808 3.808 9.981 0 13.79M12 12.75a.75.75 0 100-1.5.75.75 0 000 1.5z"/></svg>
         </div>
         <div>
-          <div class="section-title">Sources</div>
-          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ total_channels }}</div>
+          <div class="stat-label">Live Sources</div>
+          <div class="stat-val">{{ total_channels }}</div>
         </div>
       </div>
     </a>
 
-    <div class="card card-glow p-5">
+    <div class="stat-card c-violet">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
-          <svg class="w-4.5 h-4.5 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/></svg>
+        <div class="stat-ico" style="background:rgba(139,92,246,.1)">
+          <svg class="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/></svg>
         </div>
         <div>
-          <div class="section-title">Avg AI score</div>
-          <div class="text-2xl font-semibold text-white mt-0.5 tabular-nums">{{ avg_score or '—' }}<span class="text-sm text-slate-500 font-normal">/10</span></div>
+          <div class="stat-label">Avg AI Score</div>
+          <div class="stat-val">{{ avg_score or '—' }}<span class="unit">/10</span></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Stats cards — row 2: activity -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-    <div class="card p-4">
-      <div class="flex items-center justify-between">
-        <div class="section-title">Last 24h</div>
-        <span class="text-lg font-semibold text-white tabular-nums">+{{ vacancies_24h }}</span>
-      </div>
-      <div class="mt-1 h-1 rounded bg-white/[0.04]">
-        <div class="h-1 rounded bg-accent/60" style="width:{{ [vacancies_24h / [total_vacancies, 1]|max * 100 * 10, 100]|min }}%"></div>
-      </div>
+  <!-- Activity row -->
+  <div class="activity-grid">
+    <div class="act-card">
+      <div class="act-label">Last 24h</div>
+      <div class="act-val">+{{ vacancies_24h }}</div>
+      <div class="act-bar"><div class="act-bar-fill" style="width:{{ [vacancies_24h / [total_vacancies, 1]|max * 100 * 10, 100]|min }}%;background:linear-gradient(90deg,rgba(16,185,129,.6),rgba(16,185,129,.2))"></div></div>
     </div>
-    <div class="card p-4">
-      <div class="flex items-center justify-between">
-        <div class="section-title">Last 7 days</div>
-        <span class="text-lg font-semibold text-white tabular-nums">+{{ vacancies_7d }}</span>
-      </div>
-      <div class="mt-1 h-1 rounded bg-white/[0.04]">
-        <div class="h-1 rounded bg-blue-400/60" style="width:{{ [vacancies_7d / [total_vacancies, 1]|max * 100 * 3, 100]|min }}%"></div>
-      </div>
+    <div class="act-card">
+      <div class="act-label">Last 7 days</div>
+      <div class="act-val">+{{ vacancies_7d }}</div>
+      <div class="act-bar"><div class="act-bar-fill" style="width:{{ [vacancies_7d / [total_vacancies, 1]|max * 100 * 3, 100]|min }}%;background:linear-gradient(90deg,rgba(59,130,246,.6),rgba(59,130,246,.2))"></div></div>
     </div>
-    <div class="card p-4">
-      <div class="flex items-center justify-between">
-        <div class="section-title">With salary</div>
-        <span class="text-lg font-semibold text-white tabular-nums">{{ salary_pct }}%</span>
-      </div>
-      <div class="mt-1 h-1 rounded bg-white/[0.04]">
-        <div class="h-1 rounded bg-amber-400/60" style="width:{{ salary_pct }}%"></div>
-      </div>
+    <div class="act-card">
+      <div class="act-label">With Salary</div>
+      <div class="act-val">{{ salary_pct }}%</div>
+      <div class="act-bar"><div class="act-bar-fill" style="width:{{ salary_pct }}%;background:linear-gradient(90deg,rgba(245,158,11,.6),rgba(245,158,11,.2))"></div></div>
     </div>
-    <div class="card p-4">
-      <div class="flex items-center justify-between">
-        <div class="section-title">Domain tags</div>
-        <span class="text-lg font-semibold text-white tabular-nums">{{ category_stats|length }}</span>
-      </div>
-      <div class="mt-1 h-1 rounded bg-white/[0.04]">
-        <div class="h-1 rounded bg-violet-400/60" style="width:100%"></div>
-      </div>
+    <div class="act-card">
+      <div class="act-label">Domain Tags</div>
+      <div class="act-val">{{ category_stats|length }}</div>
+      <div class="act-bar"><div class="act-bar-fill" style="width:100%;background:linear-gradient(90deg,rgba(139,92,246,.6),rgba(139,92,246,.2))"></div></div>
     </div>
   </div>
 
-  <!-- Two-column grid: domains + top roles -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-    <!-- Domains overview -->
+  <!-- Two columns: domains + top roles -->
+  <div class="two-col">
     {% if category_stats %}
-    <div class="card p-5">
-      <div class="section-title mb-3">Vacancies by domain</div>
-      <div class="flex flex-wrap gap-2">
-        {% for cat, count in category_stats %}
-        <a href="/vacancies?domains={{ cat }}"
-           class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.04] hover:bg-accent/[0.06] hover:border-accent/20 transition cursor-pointer">
-          <span class="text-sm text-slate-300">{{ cat or "n/a" }}</span>
-          <span class="text-xs font-mono text-accent tabular-nums">{{ count }}</span>
-        </a>
-        {% endfor %}
+    <div>
+      <div class="sec-head">Vacancies by Domain</div>
+      <div class="card" style="padding:16px">
+        <div class="flex flex-wrap gap-2">
+          {% for cat, count in category_stats %}
+          <a href="/vacancies?domains={{ cat }}" class="dom-chip">
+            {{ cat or "n/a" }}
+            <span class="cnt">{{ count }}</span>
+          </a>
+          {% endfor %}
+        </div>
       </div>
     </div>
     {% endif %}
 
-    <!-- Top roles -->
     {% if top_roles %}
-    <div class="card p-5">
-      <div class="section-title mb-3">Top roles</div>
-      <div class="space-y-2">
+    <div>
+      <div class="sec-head">Top Roles</div>
+      <div class="card" style="padding:16px">
         {% for role_row in top_roles %}
         {% set role_name = role_row[0] %}
         {% set role_cnt = role_row[1] %}
-        <a href="/vacancies?role={{ role_name }}" class="flex items-center gap-3 group">
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center justify-between mb-0.5">
-              <span class="text-xs text-slate-300 truncate group-hover:text-accent transition">{{ role_name }}</span>
-              <span class="text-xs text-slate-500 tabular-nums ml-2">{{ role_cnt }}</span>
-            </div>
-            <div class="h-1 rounded bg-white/[0.04]">
-              {% set max_role = top_roles[0][1] %}
-              <div class="h-1 rounded bg-violet-400/40 transition-all" style="width:{{ (role_cnt / max_role * 100)|round }}%"></div>
-            </div>
+        <a href="/vacancies?role={{ role_name }}" class="role-row">
+          <span class="role-name">{{ role_name }}</span>
+          <span class="role-cnt">{{ role_cnt }}</span>
+          <div class="role-bar">
+            {% set max_role = top_roles[0][1] %}
+            <div class="role-bar-fill" style="width:{{ (role_cnt / max_role * 100)|round }}%"></div>
           </div>
         </a>
         {% endfor %}
@@ -144,23 +203,20 @@
 
   <!-- Top companies -->
   {% if top_companies %}
-  <div class="card p-5 mb-6">
-    <div class="flex items-center justify-between mb-3">
-      <div class="section-title">Top companies</div>
-      <a href="/companies" class="text-xs text-accent hover:text-emerald-300 transition">View all &rarr;</a>
-    </div>
+  <div class="sec-head">Top Companies</div>
+  <div class="card" style="padding:16px;margin-bottom:20px">
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
       {% for tc in top_companies %}
-      <a href="/companies?open_id={{ tc.id }}" class="flex flex-col items-center gap-2 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.05] hover:border-white/[0.08] transition text-center">
+      <a href="/companies?open_id={{ tc.id }}" class="co-card">
         {% if tc.logo_url %}
-        <img src="{{ tc.logo_url }}" alt="" class="w-10 h-10 rounded-lg bg-slate-800 object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
-        <div class="w-10 h-10 rounded-lg bg-surface items-center justify-center text-lg font-semibold text-slate-500 hidden">{{ tc.name[0]|upper }}</div>
+        <img src="{{ tc.logo_url }}" alt="" class="co-avatar" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+        <div class="co-avatar" style="display:none">{{ tc.name[0]|upper }}</div>
         {% else %}
-        <div class="w-10 h-10 rounded-lg bg-surface flex items-center justify-center text-lg font-semibold text-slate-500">{{ tc.name[0]|upper }}</div>
+        <div class="co-avatar">{{ tc.name[0]|upper }}</div>
         {% endif %}
-        <div class="min-w-0 w-full">
-          <div class="text-xs font-medium text-white truncate">{{ tc.name }}</div>
-          <div class="text-[10px] text-slate-500">{{ tc.cnt }} vac{% if tc.industry %} · {{ tc.industry }}{% endif %}</div>
+        <div style="min-width:0;width:100%">
+          <div class="co-name">{{ tc.name }}</div>
+          <div class="co-meta">{{ tc.cnt }} vac{% if tc.industry %} · {{ tc.industry }}{% endif %}</div>
         </div>
       </a>
       {% endfor %}
@@ -169,20 +225,19 @@
   {% endif %}
 
   <!-- Latest vacancies -->
-  <div class="card overflow-hidden">
-    <div class="p-4 flex items-center justify-between border-b border-white/[0.04]">
-      <div class="section-title">Latest vacancies</div>
-      <a href="/vacancies" class="text-xs text-accent hover:text-emerald-300 transition">View all &rarr;</a>
-    </div>
-    <div class="divide-y divide-white/[0.04]">
-      {% for v in last_vacancies %}
-      <a href="/vacancies?open_vacancy_id={{ v.id }}" class="block p-4 hover:bg-white/[0.02] transition group">
-        <div class="flex items-start justify-between gap-4">
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2.5 mb-1.5">
-              <span class="text-sm font-medium text-white group-hover:text-accent transition truncate">{{ v.title or "Untitled" }}</span>
-              <span class="text-[10px] text-slate-600 font-mono">#{{ v.id }}</span>
-              {% if v.ai_score_value is not none %}
+  <div class="sec-head">
+    Latest Signals
+    <a href="/vacancies" style="margin-left:auto;font-family:'Outfit',sans-serif;font-size:12px;font-weight:500;color:#10b981;text-decoration:none;text-transform:none;letter-spacing:0">View all &rarr;</a>
+  </div>
+  <div class="vac-list">
+    {% for v in last_vacancies %}
+    <a href="/vacancies?open_vacancy_id={{ v.id }}" class="vac-item">
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center flex-wrap gap-2 mb-1">
+            <span class="vac-title">{{ v.title or "Untitled" }}</span>
+            <span class="vac-id">#{{ v.id }}</span>
+            {% if v.ai_score_value is not none %}
               {% if v.ai_score_value <= 3 %}
               <span class="badge badge-risk" style="font-size:10px">{{ v.ai_score_value }}/10</span>
               {% elif v.ai_score_value <= 7 %}
@@ -190,50 +245,63 @@
               {% else %}
               <span class="badge badge-domain" style="font-size:10px">{{ v.ai_score_value }}/10</span>
               {% endif %}
-              {% endif %}
-            </div>
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              {% set _src = v.source_channel|default('') %}
-              {% if _src and _src.startswith('web:') %}
-                <svg class="w-3 h-3 text-blue-400 flex-none" title="{{ _src[4:] }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
-              {% elif v.tg_channel_username %}
-                <svg class="w-3 h-3 text-sky-400 flex-none" title="@{{ v.tg_channel_username }}" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-              {% endif %}
-              {% if v.company_name %}
-              <span class="text-slate-500">{{ v.company_name }}</span>
-              {% endif %}
-              {% if v.tg_channel_username %}
-              <span class="text-slate-600">@{{ v.tg_channel_username }}</span>
-              {% elif _src and _src.startswith('web:') %}
-              <span class="text-slate-600">{{ _src[4:] }}</span>
-              {% endif %}
-              {% if v.seniority %}
-              <span class="badge badge-grade">{{ v.seniority }}</span>
-              {% endif %}
-              {% if v.domains and v.domains|length > 0 %}
-                {% for dom in v.domains[:3] %}
-                <span class="badge badge-domain">{{ dom }}</span>
-                {% endfor %}
-                {% if v.domains|length > 3 %}
-                <span class="text-slate-600 text-[10px]">+{{ v.domains|length - 3 }}</span>
-                {% endif %}
-              {% endif %}
-            </div>
+            {% endif %}
           </div>
-          {% if v.salary_min_usd or v.salary_max_usd %}
-          <div class="text-xs text-accent font-mono whitespace-nowrap tabular-nums">
-            {{ v.salary_min_usd or "?" }}&ndash;{{ v.salary_max_usd or "?" }} $
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            {% set _src = v.source_channel|default('') %}
+            {% if _src and _src.startswith('web:') %}
+              <svg class="w-3 h-3 text-blue-400 flex-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+            {% elif v.tg_channel_username %}
+              <svg class="w-3 h-3 text-sky-400 flex-none" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            {% endif %}
+            {% if v.company_name %}
+            <span class="text-slate-500">{{ v.company_name }}</span>
+            {% endif %}
+            {% if v.tg_channel_username %}
+            <span class="text-slate-600">@{{ v.tg_channel_username }}</span>
+            {% elif _src and _src.startswith('web:') %}
+            <span class="text-slate-600">{{ _src[4:] }}</span>
+            {% endif %}
+            {% if v.seniority %}
+            <span class="badge badge-grade">{{ v.seniority }}</span>
+            {% endif %}
+            {% if v.domains and v.domains|length > 0 %}
+              {% for dom in v.domains[:3] %}
+              <span class="badge badge-domain">{{ dom }}</span>
+              {% endfor %}
+              {% if v.domains|length > 3 %}
+              <span class="text-slate-600 text-[10px]">+{{ v.domains|length - 3 }}</span>
+              {% endif %}
+            {% endif %}
           </div>
-          {% endif %}
         </div>
-      </a>
-      {% endfor %}
-      {% if not last_vacancies %}
-      <div class="p-10 text-center text-slate-600 text-sm">
-        No vacancies yet
+        {% if v.salary_min_usd or v.salary_max_usd %}
+        <div class="vac-salary">
+          {{ v.salary_min_usd or "?" }}&ndash;{{ v.salary_max_usd or "?" }} $
+        </div>
+        {% endif %}
       </div>
-      {% endif %}
+    </a>
+    {% endfor %}
+    {% if not last_vacancies %}
+    <div style="padding:40px;text-align:center;color:#334155;font-size:13px">
+      No signals yet
     </div>
+    {% endif %}
   </div>
 </div>
+
+<script>
+(function(){
+  function updateClock(){
+    var now=new Date();
+    var h=String(now.getHours()).padStart(2,'0');
+    var m=String(now.getMinutes()).padStart(2,'0');
+    document.getElementById('dash-clock').textContent=h+':'+m;
+    var opts={weekday:'short',month:'short',day:'numeric',year:'numeric'};
+    document.getElementById('dash-date').textContent=now.toLocaleDateString('en-US',opts);
+  }
+  updateClock();setInterval(updateClock,30000);
+})();
+</script>
 {% endblock %}
