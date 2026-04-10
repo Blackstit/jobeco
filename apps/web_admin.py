@@ -687,7 +687,7 @@ async def robots_txt():
         "Disallow: /logs\n"
         "Disallow: /channels\n"
         "\n"
-        "Sitemap: https://hirelens.ai/sitemap.xml\n",
+        "Sitemap: https://hirelens.xyz/sitemap.xml\n",
         media_type="text/plain"
     )
 
@@ -700,7 +700,7 @@ async def sitemap_xml():
     items = []
     for u in urls:
         items.append(
-            f"  <url><loc>https://hirelens.ai{u}</loc>"
+            f"  <url><loc>https://hirelens.xyz{u}</loc>"
             f"<changefreq>daily</changefreq><priority>0.8</priority></url>"
         )
     xml = (
