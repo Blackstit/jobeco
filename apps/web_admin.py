@@ -673,6 +673,19 @@ async def favicon_ico():
 
 from starlette.responses import PlainTextResponse as _PlainTextResponse
 
+import re as _re_mod
+def _vacancy_slug(title: str | None, company: str | None = None) -> str:
+    """Generate SEO-friendly slug from vacancy title and company."""
+    parts = []
+    if title:
+        parts.append(title)
+    if company:
+        parts.append("at-" + company)
+    raw = "-".join(parts).lower()
+    raw = _re_mod.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+    return raw[:80] if raw else "vacancy"
+
+
 @app.get("/robots.txt", response_class=_PlainTextResponse)
 async def robots_txt():
     return _PlainTextResponse(
@@ -703,6 +716,24 @@ async def sitemap_xml():
             f"  <url><loc>https://hirelens.xyz{u}</loc>"
             f"<changefreq>daily</changefreq><priority>0.8</priority></url>"
         )
+    # Add recent vacancies for SEO indexing
+    try:
+      async with SessionLocal() as s:
+        vac_rows = (await s.execute(
+          select(Vacancy.id, Vacancy.title, Vacancy.company_name, Vacancy.created_at)
+          .where(Vacancy.title.isnot(None))
+          .order_by(Vacancy.created_at.desc())
+          .limit(500)
+        )).all()
+        for vr in vac_rows:
+          slug = _vacancy_slug(vr.title, vr.company_name)
+          d = vr.created_at.strftime("%Y-%m-%d") if vr.created_at else ""
+          items.append(
+            f"  <url><loc>https://hirelens.xyz/vacancies/{slug}-{vr.id}</loc>"
+            f"<lastmod>{d}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>"
+          )
+    except Exception:
+      pass
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -4167,6 +4198,73 @@ async def graph_vacancies_data():
     })
 
   return {"nodes": nodes}
+
+
+# ─── Single vacancy SEO page ─────────────────────────────────────────────────
+
+@app.get("/vacancies/{slug_and_id:path}", response_class=HTMLResponse)
+async def vacancy_detail_page(request: Request, slug_and_id: str):
+  """SEO-friendly vacancy page: /vacancies/senior-dev-at-binance-1234"""
+  # Extract numeric ID from the end of the slug
+  m = _re_mod.search(r"(\d+)$", slug_and_id.rstrip("/"))
+  if not m:
+    return RedirectResponse(url="/vacancies", status_code=302)
+  vacancy_id = int(m.group(1))
+
+  async with SessionLocal() as s:
+    row = (
+      await s.execute(
+        select(Vacancy, Company.logo_url, Company.website.label("cw"),
+               Company.industry, Company.summary.label("cs"))
+        .select_from(Vacancy)
+        .outerjoin(Company, Company.id == Vacancy.company_id)
+        .where(Vacancy.id == vacancy_id)
+      )
+    ).one_or_none()
+    if not row:
+      return RedirectResponse(url="/vacancies", status_code=302)
+
+    v = row[0]
+    logo_url = row[1]
+    meta = getattr(v, "metadata_json", {}) or {}
+    scoring = meta.get("scoring") or {}
+    total_score = scoring.get("total_score") or getattr(v, "ai_score_value", None)
+
+    canonical_slug = _vacancy_slug(v.title, v.company_name)
+    canonical_url = f"https://hirelens.xyz/vacancies/{canonical_slug}-{v.id}"
+
+    # Redirect to canonical URL if slug doesn't match
+    expected_path = f"/vacancies/{canonical_slug}-{v.id}"
+    actual_path = f"/vacancies/{slug_and_id}"
+    if actual_path != expected_path:
+      return RedirectResponse(url=expected_path, status_code=301)
+
+    description = (getattr(v, "summary_en", None) or getattr(v, "description", None) or v.raw_text or "")[:200].replace("\n", " ").strip()
+    salary_text = ""
+    if v.salary_min_usd or v.salary_max_usd:
+      salary_text = f" | ${v.salary_min_usd or '?'}–${v.salary_max_usd or '?'}"
+
+    seo = {
+      "title": f"{v.title or 'Vacancy'} at {v.company_name or 'Company'} | HireLens",
+      "description": description + salary_text,
+      "canonical": canonical_url,
+      "og_type": "article",
+      "logo_url": logo_url,
+      "company_name": v.company_name,
+      "vacancy_title": v.title,
+      "location_type": v.location_type,
+      "salary_min": v.salary_min_usd,
+      "salary_max": v.salary_max_usd,
+      "created_at": v.created_at.isoformat() if v.created_at else None,
+      "domains": getattr(v, "domains", []) or [],
+      "stack": getattr(v, "stack", []) or [],
+      "seniority": getattr(v, "seniority", None),
+    }
+
+    return templates.TemplateResponse(
+      request, "vacancy_detail.html",
+      {"vacancy_id": vacancy_id, "seo": seo},
+    )
 
 
 # ─── Companies page ──────────────────────────────────────────────────────────

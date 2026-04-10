@@ -560,6 +560,9 @@ function closeVacancyPane() {
   document.getElementById("vacList").classList.add("w-full");
   document.querySelectorAll("[id^='vac-card-']").forEach((el) => el.classList.remove("ring-1","ring-accent"));
   document.body.classList.remove("overflow-hidden");
+  if (window.location.pathname !== '/vacancies') {
+    history.pushState({}, 'Vacancies', '/vacancies');
+  }
 }
 
 function setScoreBadgeInCard(vacancyId, sc, totalScore) {
@@ -594,7 +597,14 @@ async function deleteVacancy(id) {
   else showToast("Delete failed: " + res.status, "error");
 }
 
-async function openVacancyPane(id) {
+function _slugify(title, company) {
+  var parts = [];
+  if (title) parts.push(title);
+  if (company) parts.push('at-' + company);
+  return parts.join('-').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 80) || 'vacancy';
+}
+
+async function openVacancyPane(id, skipPush) {
   const res = await fetch(`/api/vacancies/${id}`);
   if (!res.ok) return;
   const v = await res.json();
@@ -609,6 +619,13 @@ async function openVacancyPane(id) {
   document.getElementById("vacList").classList.remove("w-full");
   document.getElementById("vacList").classList.add("w-1/2");
   document.body.classList.add("overflow-hidden");
+
+  // SEO: update URL
+  if (!skipPush) {
+    var slug = _slugify(v.title, v.company_name);
+    var seoUrl = '/vacancies/' + slug + '-' + id;
+    history.pushState({vacId: id}, v.title || 'Vacancy', seoUrl);
+  }
 
   document.getElementById("pTitle").textContent = v.title || "—";
 
@@ -1179,5 +1196,25 @@ setInterval(refreshTimeago, 30000);
     } catch {}
   }
 })();
+
+// Handle browser back/forward
+window.addEventListener('popstate', function(e) {
+  if (e.state && e.state.vacId) {
+    openVacancyPane(e.state.vacId, true);
+  } else {
+    closeVacancyPane();
+  }
+});
+
+// Auto-open vacancy from ?open= param (redirect from SEO pages)
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var openId = params.get('open');
+  if (openId) {
+    history.replaceState({}, '', '/vacancies');
+    setTimeout(function() { openVacancyPane(parseInt(openId)); }, 100);
+  }
+})();
+
 </script>
 {% endblock %}

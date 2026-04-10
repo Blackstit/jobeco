@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}{{ seo.title }}{% endblock %}
+
+{% block extra_head %}
+<meta name="description" content="{{ seo.description }}">
+<meta property="og:title" content="{{ seo.title }}">
+<meta property="og:description" content="{{ seo.description }}">
+<meta property="og:type" content="article">
+<meta property="og:url" content="{{ seo.canonical }}">
+{% if seo.logo_url %}<meta property="og:image" content="{{ seo.logo_url }}">{% endif %}
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="{{ seo.canonical }}">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "JobPosting",
+  "title": {{ seo.vacancy_title | tojson }},
+  "datePosted": {{ seo.created_at | tojson }},
+  {% if seo.company_name %}"hiringOrganization": {
+    "@type": "Organization",
+    "name": {{ seo.company_name | tojson }}{% if seo.logo_url %},
+    "logo": {{ seo.logo_url | tojson }}{% endif %}
+  },{% endif %}
+  {% if seo.location_type %}"jobLocationType": "{{ seo.location_type | upper }}",{% endif %}
+  {% if seo.salary_min or seo.salary_max %}"baseSalary": {
+    "@type": "MonetaryAmount",
+    "currency": "USD",
+    "value": {
+      "@type": "QuantitativeValue",
+      {% if seo.salary_min %}"minValue": {{ seo.salary_min }},{% endif %}
+      {% if seo.salary_max %}"maxValue": {{ seo.salary_max }},{% endif %}
+      "unitText": "YEAR"
+    }
+  },{% endif %}
+  "description": {{ seo.description | tojson }}
+}
+</script>
+{% endblock %}
+
+{% block extra_css %}
+.vac-seo-noscript {
+  max-width:700px; margin:40px auto; padding:24px;
+  background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:14px;
+}
+.vac-seo-noscript h1 { font-family:'Rajdhani',sans-serif; font-size:22px; font-weight:700; color:#fff; margin-bottom:8px; }
+.vac-seo-noscript .meta { font-size:13px; color:#64748b; margin-bottom:12px; }
+.vac-seo-noscript .desc { font-size:14px; color:#94a3b8; line-height:1.6; }
+.vac-seo-noscript .chips { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.vac-seo-noscript .chip { font-size:11px; padding:3px 10px; border-radius:6px; background:rgba(16,185,129,.1); color:#6ee7b7; border:1px solid rgba(16,185,129,.15); }
+.vac-seo-spinner { width:32px; height:32px; border:3px solid rgba(255,255,255,.08); border-top-color:#10b981; border-radius:50%; animation:spin .6s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+{% endblock %}
+
+{% block content %}
+<noscript>
+<div class="vac-seo-noscript">
+  <h1>{{ seo.vacancy_title or 'Vacancy' }}</h1>
+  <div class="meta">
+    {% if seo.company_name %}{{ seo.company_name }}{% endif %}
+    {% if seo.location_type %} &middot; {{ seo.location_type }}{% endif %}
+    {% if seo.seniority %} &middot; {{ seo.seniority }}{% endif %}
+    {% if seo.salary_min or seo.salary_max %} &middot; ${{ seo.salary_min or '?' }}&ndash;${{ seo.salary_max or '?' }} USD{% endif %}
+  </div>
+  <div class="chips">
+    {% for d in seo.domains %}<span class="chip">{{ d }}</span>{% endfor %}
+    {% for sk in seo.stack[:8] %}<span class="chip">{{ sk }}</span>{% endfor %}
+  </div>
+  <div class="desc">{{ seo.description }}</div>
+  <p style="margin-top:16px"><a href="/vacancies" style="color:#10b981">&larr; All vacancies</a></p>
+</div>
+</noscript>
+
+<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:16px" id="seoLoading">
+  <div class="vac-seo-spinner"></div>
+  <span style="color:#475569;font-size:13px">Loading vacancy...</span>
+</div>
+
+<script>
+(function() {
+  var id = {{ vacancy_id }};
+  window.location.replace('/vacancies?open=' + id);
+})();
+</script>
+{% endblock %}
