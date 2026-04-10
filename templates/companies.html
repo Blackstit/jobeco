@@ -348,7 +348,11 @@ document.addEventListener('click', e => {
 
 let activeCardId = null;
 
-function openCompanyPane(id) {
+function _coSlug(name) {
+  return (name || 'company').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 80) || 'company';
+}
+
+function openCompanyPane(id, skipPush) {
   document.querySelectorAll('.comp-card.selected').forEach(c => c.classList.remove('selected'));
   const card = document.querySelector(`.comp-card[data-id="${id}"]`);
   if (card) card.classList.add('selected');
@@ -359,7 +363,13 @@ function openCompanyPane(id) {
 
   fetch(`/api/companies/${id}`)
     .then(r => r.json())
-    .then(c => renderPane(c))
+    .then(c => {
+      renderPane(c);
+      if (!skipPush) {
+        var slug = _coSlug(c.name);
+        history.pushState({compId: id}, c.name || 'Company', '/companies/' + slug + '-' + id);
+      }
+    })
     .catch(err => console.error('Failed to load company', err));
 }
 
@@ -368,6 +378,9 @@ function closeCompanyPane() {
   document.getElementById('compOverlay').classList.remove('open');
   document.querySelectorAll('.comp-card.selected').forEach(c => c.classList.remove('selected'));
   activeCardId = null;
+  if (window.location.pathname !== '/companies') {
+    history.pushState({}, 'Companies', '/companies');
+  }
 }
 
 document.addEventListener('keydown', e => {
@@ -493,9 +506,20 @@ function formatSalary(min, max) {
   return `from $${fmt(min)}`;
 }
 
+// Handle browser back/forward
+window.addEventListener('popstate', function(e) {
+  if (e.state && e.state.compId) {
+    openCompanyPane(e.state.compId, true);
+  } else {
+    closeCompanyPane();
+  }
+});
+
+// Auto-open from ?open_id= param
 const params = new URLSearchParams(window.location.search);
 if (params.get('open_id')) {
-  openCompanyPane(parseInt(params.get('open_id')));
+  history.replaceState({}, '', '/companies');
+  setTimeout(function() { openCompanyPane(parseInt(params.get('open_id'))); }, 100);
 }
 </script>
 {% endblock %}

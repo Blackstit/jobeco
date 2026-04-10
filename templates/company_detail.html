@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}{{ seo.title }}{% endblock %}
+
+{% block extra_head %}
+<meta name="description" content="{{ seo.description }}">
+<meta property="og:title" content="{{ seo.title }}">
+<meta property="og:description" content="{{ seo.description }}">
+<meta property="og:type" content="profile">
+<meta property="og:url" content="{{ seo.canonical }}">
+{% if seo.logo_url %}<meta property="og:image" content="{{ seo.logo_url }}">{% endif %}
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="{{ seo.canonical }}">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": {{ seo.name | tojson }},
+  {% if seo.website %}"url": {{ seo.website | tojson }},{% endif %}
+  {% if seo.logo_url %}"logo": {{ seo.logo_url | tojson }},{% endif %}
+  {% if seo.industry %}"industry": {{ seo.industry | tojson }},{% endif %}
+  {% if seo.founded %}"foundingDate": {{ seo.founded | tojson }},{% endif %}
+  {% if seo.headquarters %}"location": {"@type": "Place", "name": {{ seo.headquarters | tojson }}},{% endif %}
+  {% if seo.size %}"numberOfEmployees": {"@type": "QuantitativeValue", "value": {{ seo.size | tojson }}},{% endif %}
+  "description": {{ seo.description | tojson }}
+}
+</script>
+{% endblock %}
+
+{% block extra_css %}
+.co-seo-noscript {
+  max-width:700px; margin:40px auto; padding:24px;
+  background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:14px;
+}
+.co-seo-noscript h1 { font-family:'Rajdhani',sans-serif; font-size:22px; font-weight:700; color:#fff; margin-bottom:8px; }
+.co-seo-noscript .meta { font-size:13px; color:#64748b; margin-bottom:12px; }
+.co-seo-noscript .desc { font-size:14px; color:#94a3b8; line-height:1.6; }
+.co-seo-noscript .chips { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.co-seo-noscript .chip { font-size:11px; padding:3px 10px; border-radius:6px; background:rgba(16,185,129,.1); color:#6ee7b7; border:1px solid rgba(16,185,129,.15); }
+.co-seo-spinner { width:32px; height:32px; border:3px solid rgba(255,255,255,.08); border-top-color:#10b981; border-radius:50%; animation:cospin .6s linear infinite; }
+@keyframes cospin { to { transform:rotate(360deg); } }
+{% endblock %}
+
+{% block content %}
+<noscript>
+<div class="co-seo-noscript">
+  <h1>{{ seo.name }}</h1>
+  <div class="meta">
+    {% if seo.industry %}{{ seo.industry }}{% endif %}
+    {% if seo.headquarters %} &middot; {{ seo.headquarters }}{% endif %}
+    {% if seo.size %} &middot; {{ seo.size }} employees{% endif %}
+    {% if seo.founded %} &middot; Est. {{ seo.founded }}{% endif %}
+    {% if seo.vac_count %} &middot; {{ seo.vac_count }} open positions{% endif %}
+  </div>
+  <div class="chips">
+    {% for d in seo.domains %}<span class="chip">{{ d }}</span>{% endfor %}
+  </div>
+  {% if seo.summary %}<div class="desc">{{ seo.summary }}</div>{% endif %}
+  {% if seo.website %}<p style="margin-top:12px"><a href="{{ seo.website }}" target="_blank" style="color:#10b981">{{ seo.website }}</a></p>{% endif %}
+  <p style="margin-top:16px"><a href="/companies" style="color:#10b981">&larr; All companies</a></p>
+</div>
+</noscript>
+
+<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:16px" id="seoLoading">
+  <div class="co-seo-spinner"></div>
+  <span style="color:#475569;font-size:13px">Loading company...</span>
+</div>
+
+<script>
+(function() {
+  var id = {{ company_id }};
+  window.location.replace('/companies?open_id=' + id);
+})();
+</script>
+{% endblock %}

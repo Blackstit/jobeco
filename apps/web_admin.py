@@ -734,6 +734,24 @@ async def sitemap_xml():
           )
     except Exception:
       pass
+    # Add companies for SEO indexing
+    try:
+      async with SessionLocal() as s:
+        comp_rows = (await s.execute(
+          select(Company.id, Company.name, Company.updated_at)
+          .where(Company.name.isnot(None))
+          .order_by(Company.updated_at.desc().nullslast())
+          .limit(500)
+        )).all()
+        for cr in comp_rows:
+          slug = _vacancy_slug(cr.name)
+          d = cr.updated_at.strftime("%Y-%m-%d") if cr.updated_at else ""
+          items.append(
+            f"  <url><loc>https://hirelens.xyz/companies/{slug}-{cr.id}</loc>"
+            f"<lastmod>{d}</lastmod><changefreq>weekly</changefreq><priority>0.5</priority></url>"
+          )
+    except Exception:
+      pass
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -4393,6 +4411,66 @@ async def api_company_detail(company_id: int):
       "socials": comp.socials or {},
       "vacancies": vacancies,
     }
+
+
+# ─── Single company SEO page ──────────────────────────────────────────────────
+
+@app.get("/companies/{slug_and_id:path}", response_class=HTMLResponse)
+async def company_detail_page(request: Request, slug_and_id: str):
+  """SEO-friendly company page: /companies/binance-42"""
+  m = _re_mod.search(r"(\d+)$", slug_and_id.rstrip("/"))
+  if not m:
+    return RedirectResponse(url="/companies", status_code=302)
+  company_id = int(m.group(1))
+
+  async with SessionLocal() as s:
+    comp = (await s.execute(select(Company).where(Company.id == company_id))).scalar_one_or_none()
+    if not comp:
+      return RedirectResponse(url="/companies", status_code=302)
+
+    vac_count = (await s.execute(
+      select(func.count(Vacancy.id)).where(Vacancy.company_id == company_id)
+    )).scalar() or 0
+
+    canonical_slug = _vacancy_slug(comp.name)
+    canonical_url = f"https://hirelens.xyz/companies/{canonical_slug}-{comp.id}"
+
+    expected_path = f"/companies/{canonical_slug}-{comp.id}"
+    actual_path = f"/companies/{slug_and_id}"
+    if actual_path != expected_path:
+      return RedirectResponse(url=expected_path, status_code=301)
+
+    description = (comp.summary or f"{comp.name} company profile")[:200]
+    meta_parts = []
+    if comp.industry:
+      meta_parts.append(comp.industry)
+    if comp.headquarters:
+      meta_parts.append(comp.headquarters)
+    if vac_count:
+      meta_parts.append(f"{vac_count} open positions")
+    if meta_parts:
+      description += " | " + ", ".join(meta_parts)
+
+    seo = {
+      "title": f"{comp.name} — Company Profile | HireLens",
+      "description": description,
+      "canonical": canonical_url,
+      "logo_url": comp.logo_url,
+      "name": comp.name,
+      "website": comp.website,
+      "industry": comp.industry,
+      "size": comp.size,
+      "founded": comp.founded,
+      "headquarters": comp.headquarters,
+      "summary": comp.summary,
+      "domains": comp.domains or [],
+      "vac_count": vac_count,
+    }
+
+    return templates.TemplateResponse(
+      request, "company_detail.html",
+      {"company_id": company_id, "seo": seo},
+    )
 
 
 # ──────────────────────── Documentation ────────────────────────
