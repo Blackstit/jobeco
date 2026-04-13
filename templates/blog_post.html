@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ post.title }} — HireLens Blog</title>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-5L41924NCB"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-5L41924NCB');
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="{{ post.meta_description }}">
+  <meta name="keywords" content="{{ post.meta_keywords }}">
+  <meta name="author" content="{{ post.author }}">
+  <meta property="og:title" content="{{ post.title }}">
+  <meta property="og:description" content="{{ post.meta_description }}">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://hirelens.xyz/blog/{{ post.slug }}">
+  <meta property="og:site_name" content="HireLens">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ post.title }}">
+  <meta name="twitter:description" content="{{ post.meta_description }}">
+  <link rel="canonical" href="https://hirelens.xyz/blog/{{ post.slug }}">
+  <!-- Schema.org Article markup -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "{{ post.title }}",
+    "description": "{{ post.meta_description }}",
+    "author": { "@type": "Organization", "name": "{{ post.author }}" },
+    "publisher": { "@type": "Organization", "name": "HireLens", "url": "https://hirelens.xyz" },
+    "datePublished": "{{ post.published_at.isoformat() }}",
+    "dateModified": "{{ post.published_at.isoformat() }}",
+    "mainEntityOfPage": { "@type": "WebPage", "@id": "https://hirelens.xyz/blog/{{ post.slug }}" },
+    "keywords": "{{ post.meta_keywords }}"
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { background:#050507; margin:0; color:#e2e8f0; font-family:'Outfit',system-ui,sans-serif; }
+    ::-webkit-scrollbar { width:5px } ::-webkit-scrollbar-track { background:transparent } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.08); border-radius:4px }
+
+    /* Nav — same as landing */
+    .l-topnav { position:fixed; top:0; left:0; right:0; z-index:100; padding:0 32px; transition:background .3s,backdrop-filter .3s,border-color .3s; border-bottom:1px solid transparent; background:rgba(5,5,7,.85); backdrop-filter:blur(20px); border-bottom-color:rgba(255,255,255,.04); }
+    .l-topnav-inner { max-width:1200px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; height:60px; }
+    .l-topnav-logo { display:flex; align-items:center; gap:10px; text-decoration:none; font-family:'Rajdhani','Outfit',sans-serif; font-size:16px; font-weight:700; color:#fff; }
+    .l-topnav-logo em { font-style:normal; color:#10b981 }
+    .l-topnav-links { display:flex; gap:6px; }
+    .l-topnav-links a { padding:6px 14px; font-size:13px; font-weight:500; color:#64748b; text-decoration:none; border-radius:6px; transition:all .15s; }
+    .l-topnav-links a:hover,.l-topnav-links a.active { color:#e2e8f0; background:rgba(255,255,255,.04); }
+    .l-topnav-actions { display:flex; align-items:center; gap:8px; }
+    .l-topnav-signin { font-size:13px; font-weight:500; color:#94a3b8; text-decoration:none; padding:6px 14px; transition:color .15s; }
+    .l-topnav-signin:hover { color:#e2e8f0; }
+    .l-topnav-cta { font-size:12px; font-weight:600; color:#050507; background:#10b981; padding:7px 18px; border-radius:8px; text-decoration:none; transition:all .15s; }
+    .l-topnav-cta:hover { background:#34d399; box-shadow:0 0 16px rgba(16,185,129,.25); }
+    @media(max-width:768px){ .l-topnav-links,.l-topnav-signin { display:none } }
+
+    /* Layout */
+    .bx-layout { max-width:1100px; margin:0 auto; padding:96px 32px 80px; display:grid; grid-template-columns:1fr 260px; gap:56px; align-items:start; }
+    @media(max-width:900px){ .bx-layout { grid-template-columns:1fr } .bx-sidebar { display:none } }
+
+    /* Breadcrumb */
+    .bx-breadcrumb { display:flex; align-items:center; gap:8px; font-size:12px; color:#475569; margin-bottom:24px; }
+    .bx-breadcrumb a { color:#475569; text-decoration:none; transition:color .15s; } .bx-breadcrumb a:hover { color:#94a3b8 }
+    .bx-breadcrumb span { color:#1e293b }
+
+    /* Article header */
+    .bx-tag { display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; padding:5px 12px; border-radius:100px; margin-bottom:18px; }
+    .bx-tag-web3-jobs { background:rgba(16,185,129,.1); color:#6ee7b7; border:1px solid rgba(16,185,129,.15); }
+    .bx-tag-ai-jobs { background:rgba(99,102,241,.12); color:#a5b4fc; border:1px solid rgba(99,102,241,.2); }
+    .bx-tag-market { background:rgba(251,191,36,.1); color:#fcd34d; border:1px solid rgba(251,191,36,.15); }
+    .bx-h1 { font-family:'Rajdhani',sans-serif; font-size:clamp(28px,4vw,46px); font-weight:700; text-transform:uppercase; letter-spacing:-.02em; line-height:1.1; margin:0 0 20px; }
+    .bx-excerpt { font-size:16px; color:#64748b; line-height:1.7; margin-bottom:28px; border-left:3px solid rgba(16,185,129,.3); padding-left:16px; }
+    .bx-meta { display:flex; align-items:center; gap:20px; flex-wrap:wrap; font-size:12px; color:#475569; padding:16px 0; border-top:1px solid rgba(255,255,255,.05); border-bottom:1px solid rgba(255,255,255,.05); margin-bottom:36px; }
+    .bx-meta-item { display:flex; align-items:center; gap:6px; }
+    .bx-meta svg { width:13px; height:13px; color:#334155 }
+    .bx-meta-dot { width:3px; height:3px; border-radius:50%; background:#1e293b; }
+
+    /* Article body */
+    .bx-body h2 { font-family:'Rajdhani',sans-serif; font-size:clamp(20px,2.5vw,26px); font-weight:700; text-transform:uppercase; letter-spacing:-.01em; margin:44px 0 16px; padding-top:12px; color:#f1f5f9; border-top:1px solid rgba(255,255,255,.05); }
+    .bx-body h3 { font-family:'Rajdhani',sans-serif; font-size:18px; font-weight:700; letter-spacing:-.01em; margin:28px 0 12px; color:#cbd5e1; }
+    .bx-body p { font-size:15px; line-height:1.8; color:#94a3b8; margin:0 0 18px; }
+    .bx-body strong { color:#e2e8f0; font-weight:600; }
+    .bx-body a { color:#6ee7b7; text-decoration:none; border-bottom:1px solid rgba(16,185,129,.2); transition:border-color .15s; }
+    .bx-body a:hover { border-color:#10b981 }
+
+    /* KPI grid */
+    .bp-kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:28px; }
+    @media(max-width:700px){ .bp-kpi-grid { grid-template-columns:repeat(2,1fr) } }
+    .bp-kpi { background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:10px; padding:16px 18px; }
+    .bp-kpi-v { display:block; font-family:'Rajdhani',sans-serif; font-size:28px; font-weight:700; color:#10b981; letter-spacing:-.01em; line-height:1; }
+    .bp-kpi-l { display:block; font-size:11px; color:#64748b; margin-top:4px; line-height:1.3; }
+
+    /* Chart wrap */
+    .bp-chart-wrap { background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:24px; margin:24px 0 8px; position:relative; }
+    .bp-chart-caption { font-size:11px; color:#475569; font-style:italic; margin:8px 0 24px; }
+
+    /* Table */
+    .bp-table-wrap { overflow-x:auto; margin:20px 0 8px; border-radius:10px; border:1px solid rgba(255,255,255,.06); }
+    .bp-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .bp-table thead tr { background:#0d0d17; }
+    .bp-table th { padding:12px 14px; text-align:left; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#475569; white-space:nowrap; border-bottom:1px solid rgba(255,255,255,.06); }
+    .bp-table td { padding:11px 14px; color:#94a3b8; border-bottom:1px solid rgba(255,255,255,.03); vertical-align:top; line-height:1.4; }
+    .bp-table tbody tr:last-child td { border-bottom:none }
+    .bp-table tbody tr:hover td { background:rgba(255,255,255,.015); color:#cbd5e1; }
+    .bp-table td.up { color:#6ee7b7; font-weight:600; }
+    .bp-table td.flat { color:#64748b; }
+
+    /* List */
+    .bp-list { color:#94a3b8; font-size:15px; line-height:1.8; padding-left:20px; margin:0 0 18px; }
+    .bp-list li { margin-bottom:6px; }
+    .bp-list li strong { color:#e2e8f0; }
+
+    /* FAQ */
+    .bp-faq { margin:8px 0 24px; display:flex; flex-direction:column; gap:2px; }
+    .bp-faq-item { background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:10px; overflow:hidden; transition:border-color .15s; }
+    .bp-faq-item:has(.bp-faq-a.open) { border-color:rgba(16,185,129,.15); }
+    .bp-faq-q { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; background:none; border:none; cursor:pointer; text-align:left; color:#cbd5e1; font-size:14px; font-weight:500; font-family:'Outfit',sans-serif; transition:color .15s; }
+    .bp-faq-q:hover { color:#e2e8f0; }
+    .bp-faq-ico { width:16px; height:16px; flex-shrink:0; color:#334155; transition:transform .2s; }
+    .bp-faq-a { max-height:0; overflow:hidden; transition:max-height .3s ease; }
+    .bp-faq-a.open { max-height:800px; }
+    .bp-faq-a p { padding:0 18px 16px; font-size:14px; line-height:1.75; color:#64748b; margin:0; }
+    .bp-faq-ico.open { transform:rotate(180deg); }
+
+    /* Lead section */
+    .bp-lead { margin-bottom:4px; }
+
+    /* Sidebar */
+    .bx-sidebar { position:sticky; top:80px; }
+    .bx-toc { background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:20px; margin-bottom:20px; }
+    .bx-toc-title { font-family:'Rajdhani',sans-serif; font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:#10b981; font-weight:700; margin-bottom:14px; }
+    .bx-toc-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:2px; }
+    .bx-toc-list a { display:block; font-size:12px; color:#475569; text-decoration:none; padding:5px 8px; border-radius:6px; transition:all .12s; border-left:2px solid transparent; }
+    .bx-toc-list a:hover { color:#94a3b8; background:rgba(255,255,255,.03); border-left-color:rgba(16,185,129,.3); }
+    .bx-sidebar-box { background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:20px; margin-bottom:16px; }
+    .bx-sidebar-box h4 { font-family:'Rajdhani',sans-serif; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin:0 0 12px; color:#94a3b8; }
+    .bx-sidebar-box p { font-size:12px; color:#64748b; line-height:1.6; margin:0 0 14px; }
+    .bx-sidebar-cta { display:block; text-align:center; padding:10px; background:#10b981; color:#050507; font-size:12px; font-weight:700; border-radius:8px; text-decoration:none; transition:background .15s; }
+    .bx-sidebar-cta:hover { background:#34d399 }
+
+    /* Related */
+    .bx-related { margin-top:56px; padding-top:36px; border-top:1px solid rgba(255,255,255,.06); }
+    .bx-related-title { font-family:'Rajdhani',sans-serif; font-size:20px; font-weight:700; text-transform:uppercase; letter-spacing:-.01em; margin-bottom:20px; }
+    .bx-related-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px; }
+    .bx-related-card { background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:20px; text-decoration:none; color:inherit; display:block; transition:all .2s; }
+    .bx-related-card:hover { border-color:rgba(16,185,129,.18); transform:translateY(-2px); }
+    .bx-related-card-tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#10b981; margin-bottom:8px; }
+    .bx-related-card-title { font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; text-transform:uppercase; line-height:1.25; margin-bottom:10px; }
+    .bx-related-card-excerpt { font-size:12px; color:#64748b; line-height:1.55; margin-bottom:12px; }
+    .bx-related-card-meta { font-size:11px; color:#334155; font-family:'JetBrains Mono',monospace; }
+
+    /* Footer */
+    .bx-footer { border-top:1px solid rgba(255,255,255,.04); padding:24px 32px; text-align:center; font-size:12px; color:#334155; }
+    .bx-footer a { color:#475569; text-decoration:none; } .bx-footer a:hover { color:#94a3b8 }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="l-topnav">
+  <div class="l-topnav-inner">
+    <a href="/" class="l-topnav-logo">
+      <div style="width:30px;height:30px;border-radius:8px;background:rgba(16,185,129,.15);display:flex;align-items:center;justify-content:center">
+        <svg width="14" height="14" fill="#10b981" viewBox="0 0 20 20"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838l-3.14 1.346 2.352 1.005a1 1 0 00.788 0l7-3a1 1 0 000-1.838l-7-3.001z"/></svg>
+      </div>
+      <span>Hire<em>Lens</em></span>
+    </a>
+    <div class="l-topnav-links">
+      <a href="/dashboard">Platform</a>
+      <a href="/analytics/studio">Studio</a>
+      <a href="/graph">Market Map</a>
+      <a href="/companies">Companies</a>
+      <a href="/vacancies">Vacancies</a>
+      <a href="/blog" class="active">Blog</a>
+      <a href="/docs">Docs</a>
+      <a href="/about">About</a>
+    </div>
+    <div class="l-topnav-actions">
+      <a href="/login" class="l-topnav-signin">Sign In</a>
+      <a href="/dashboard" class="l-topnav-cta">Get Started</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Content -->
+<div class="bx-layout">
+  <!-- Main -->
+  <article>
+    <!-- Breadcrumb -->
+    <nav class="bx-breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      <a href="/blog">Blog</a>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      <span>{{ post.title | truncate(40) }}</span>
+    </nav>
+
+    <!-- Header -->
+    <div class="bx-tag bx-tag-{{ post.category_slug }}">{{ post.category }}</div>
+    <h1 class="bx-h1">{{ post.title }}</h1>
+    <p class="bx-excerpt">{{ post.excerpt }}</p>
+    <div class="bx-meta">
+      <div class="bx-meta-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        {{ post.reading_time }} min read
+      </div>
+      <div class="bx-meta-dot"></div>
+      <div class="bx-meta-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        {{ post.published_at.strftime('%B %d, %Y') }}
+      </div>
+      <div class="bx-meta-dot"></div>
+      <div class="bx-meta-item">{{ post.author }}, {{ post.author_title }}</div>
+    </div>
+
+    <!-- Body -->
+    <div class="bx-body">
+      {{ post.content | safe }}
+    </div>
+
+    <!-- Related -->
+    {% if related %}
+    <div class="bx-related">
+      <div class="bx-related-title">Related Articles</div>
+      <div class="bx-related-grid">
+        {% for r in related %}
+        <a class="bx-related-card" href="/blog/{{ r.slug }}">
+          <div class="bx-related-card-tag">{{ r.category }}</div>
+          <div class="bx-related-card-title">{{ r.title }}</div>
+          <div class="bx-related-card-excerpt">{{ r.excerpt | truncate(100) }}</div>
+          <div class="bx-related-card-meta">{{ r.reading_time }} min &middot; {{ r.published_at.strftime('%b %d, %Y') }}</div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </article>
+
+  <!-- Sidebar -->
+  <aside class="bx-sidebar">
+    <!-- Table of contents -->
+    <div class="bx-toc">
+      <div class="bx-toc-title">Contents</div>
+      <ul class="bx-toc-list" id="toc-list">
+        <!-- populated by JS -->
+      </ul>
+    </div>
+
+    <!-- Platform CTA -->
+    <div class="bx-sidebar-box">
+      <h4>Live Market Data</h4>
+      <p>Browse 2,800+ active web3 and AI vacancies. AI-scored, filtered, real-time.</p>
+      <a href="/vacancies" class="bx-sidebar-cta">Explore vacancies →</a>
+    </div>
+
+    <!-- Analytics CTA -->
+    <div class="bx-sidebar-box">
+      <h4>Market Analytics</h4>
+      <p>Salary intelligence, domain maps, and hiring trend dashboards.</p>
+      <a href="/analytics" class="bx-sidebar-cta" style="background:rgba(99,102,241,.8);color:#fff">Open Analytics →</a>
+    </div>
+  </aside>
+</div>
+
+<footer class="bx-footer">
+  <p>&copy; 2026 HireLens &middot; <a href="/">Home</a> &middot; <a href="/vacancies">Vacancies</a> &middot; <a href="/blog">Blog</a> &middot; <a href="/analytics">Analytics</a> &middot; <a href="/about">About</a></p>
+</footer>
+
+<script>
+// Auto-build table of contents from h2 elements
+(function(){
+  var h2s = document.querySelectorAll('.bx-body h2[id]');
+  var list = document.getElementById('toc-list');
+  if(!list) return;
+  h2s.forEach(function(h){
+    var li = document.createElement('li');
+    var a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    list.appendChild(li);
+  });
+})();
+
+// FAQ toggle
+function bpToggleFaq(btn) {
+  var item = btn.closest('.bp-faq-item');
+  var ans = item.querySelector('.bp-faq-a');
+  var ico = btn.querySelector('.bp-faq-ico');
+  var isOpen = ans.classList.contains('open');
+  // Close all
+  document.querySelectorAll('.bp-faq-a.open').forEach(function(a){ a.classList.remove('open'); });
+  document.querySelectorAll('.bp-faq-ico.open').forEach(function(i){ i.classList.remove('open'); });
+  if(!isOpen){
+    ans.classList.add('open');
+    ico.classList.add('open');
+  }
+}
+
+// Scroll spy for TOC
+(function(){
+  var links = document.querySelectorAll('#toc-list a');
+  if(!links.length) return;
+  var headings = Array.from(document.querySelectorAll('.bx-body h2[id]'));
+  function onScroll(){
+    var scrollY = window.scrollY + 100;
+    var active = headings.filter(function(h){ return h.offsetTop <= scrollY; }).pop();
+    links.forEach(function(l){ l.style.color = ''; l.style.borderLeftColor = ''; });
+    if(active){
+      var target = document.querySelector('#toc-list a[href="#'+active.id+'"]');
+      if(target){ target.style.color = '#6ee7b7'; target.style.borderLeftColor = '#10b981'; }
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>
+</body>
+</html>

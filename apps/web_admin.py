@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 import httpx
-from sqlalchemy import select, func, desc, or_, update, delete, text
+from sqlalchemy import select, func, desc, or_, update, delete, text, case
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from telethon import TelegramClient
 from telethon.tl.functions.channels import GetFullChannelRequest
@@ -545,6 +545,29 @@ async def settings_save(
   return RedirectResponse(url=f"/settings?tab={tab}&saved=1", status_code=303)
 
 
+@app.get("/about", response_class=HTMLResponse)
+async def about_page(request: Request):
+  """About page with SEO meta."""
+  async with SessionLocal() as s:
+    vac_count = (await s.execute(select(func.count(Vacancy.id)))).scalar() or 0
+    comp_count = (await s.execute(select(func.count(Company.id)))).scalar() or 0
+    tg_ch = (await s.execute(select(func.count(Channel.id)))).scalar() or 0
+    ws_cnt = 0
+    try:
+      ws_cnt = (await s.execute(select(func.count(WebSource.id)))).scalar() or 0
+    except Exception:
+      pass
+    src_count = tg_ch + ws_cnt
+    dom_count = 0
+    try:
+      dom_count = (await s.execute(text("SELECT COUNT(DISTINCT d) FROM vacancies CROSS JOIN LATERAL unnest(domains) AS d WHERE d IS NOT NULL"))).scalar() or 0
+    except Exception:
+      pass
+  return templates.TemplateResponse(request, "about.html", {
+    "stats": {"vacancies": vac_count, "companies": comp_count, "sources": src_count, "domains": dom_count},
+  })
+
+
 @app.get("/landing", response_class=HTMLResponse)
 async def landing_page(request: Request):
   """Public landing page for HireLens."""
@@ -578,6 +601,7 @@ async def landing_page(request: Request):
         "tg_channels": tg_channels,
         "domains": domains,
       },
+      "blog_posts": BLOG_POSTS[:3],
     },
   )
 
@@ -673,6 +697,8 @@ async def favicon_ico():
 
 from starlette.responses import PlainTextResponse as _PlainTextResponse
 
+from apps.blog_posts import BLOG_POSTS, BLOG_POSTS_BY_SLUG, BLOG_CATEGORIES
+
 import re as _re_mod
 def _vacancy_slug(title: str | None, company: str | None = None) -> str:
     """Generate SEO-friendly slug from vacancy title and company."""
@@ -692,6 +718,7 @@ async def robots_txt():
         "User-agent: *\n"
         "Allow: /\n"
         "Allow: /docs\n"
+        "Allow: /about\n"
         "Allow: /landing\n"
         "Disallow: /api/\n"
         "Disallow: /settings\n"
@@ -708,13 +735,20 @@ async def robots_txt():
 async def sitemap_xml():
     urls = [
         "/", "/vacancies", "/companies", "/analytics",
-        "/graph", "/docs", "/analytics/studio",
+        "/graph", "/docs", "/analytics/studio", "/about", "/blog",
     ]
     items = []
     for u in urls:
         items.append(
             f"  <url><loc>https://hirelens.xyz{u}</loc>"
             f"<changefreq>daily</changefreq><priority>0.8</priority></url>"
+        )
+    # Add blog posts for SEO indexing
+    for bp in BLOG_POSTS:
+        d = bp.published_at.strftime("%Y-%m-%d")
+        items.append(
+            f"  <url><loc>https://hirelens.xyz/blog/{bp.slug}</loc>"
+            f"<lastmod>{d}</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>"
         )
     # Add recent vacancies for SEO indexing
     try:
@@ -727,10 +761,10 @@ async def sitemap_xml():
         )).all()
         for vr in vac_rows:
           slug = _vacancy_slug(vr.title, vr.company_name)
-          d = vr.created_at.strftime("%Y-%m-%d") if vr.created_at else ""
+          lastmod = f"<lastmod>{vr.created_at.strftime('%Y-%m-%d')}</lastmod>" if vr.created_at else ""
           items.append(
             f"  <url><loc>https://hirelens.xyz/vacancies/{slug}-{vr.id}</loc>"
-            f"<lastmod>{d}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>"
+            f"{lastmod}<changefreq>weekly</changefreq><priority>0.6</priority></url>"
           )
     except Exception:
       pass
@@ -745,10 +779,10 @@ async def sitemap_xml():
         )).all()
         for cr in comp_rows:
           slug = _vacancy_slug(cr.name)
-          d = cr.updated_at.strftime("%Y-%m-%d") if cr.updated_at else ""
+          lastmod = f"<lastmod>{cr.updated_at.strftime('%Y-%m-%d')}</lastmod>" if cr.updated_at else ""
           items.append(
             f"  <url><loc>https://hirelens.xyz/companies/{slug}-{cr.id}</loc>"
-            f"<lastmod>{d}</lastmod><changefreq>weekly</changefreq><priority>0.5</priority></url>"
+            f"{lastmod}<changefreq>weekly</changefreq><priority>0.5</priority></url>"
           )
     except Exception:
       pass
@@ -764,6 +798,34 @@ async def sitemap_xml():
 async def root_page(request: Request):
   """Always serve landing page at root."""
   return await landing_page(request)
+
+
+# ─── Blog routes ──────────────────────────────────────────────────────────────
+
+@app.get("/blog", response_class=HTMLResponse)
+async def blog_index(request: Request, category: str | None = None):
+  """Public blog listing page."""
+  posts = BLOG_POSTS
+  if category:
+    posts = [p for p in posts if p.category_slug == category]
+  return templates.TemplateResponse(request, "blog.html", {
+    "posts": posts,
+    "categories": BLOG_CATEGORIES,
+    "active_category": category,
+  })
+
+
+@app.get("/blog/{slug}", response_class=HTMLResponse)
+async def blog_post(request: Request, slug: str):
+  """Individual blog post page."""
+  post = BLOG_POSTS_BY_SLUG.get(slug)
+  if not post:
+    raise HTTPException(status_code=404, detail="Article not found")
+  related = [BLOG_POSTS_BY_SLUG[s] for s in post.related_slugs if s in BLOG_POSTS_BY_SLUG]
+  return templates.TemplateResponse(request, "blog_post.html", {
+    "post": post,
+    "related": related,
+  })
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -1143,6 +1205,7 @@ async def vacancies_page(
       "score_min": score_min_val,
       "score_max": score_max_val,
       "sort_by": sort_by,
+      "is_admin": _is_authenticated(request),
     },
   )
 
@@ -2425,7 +2488,7 @@ async def vacancy_suggest(
 
 
 @app.get("/api/vacancies/{vacancy_id}")
-async def get_vacancy_details(vacancy_id: int):
+async def get_vacancy_details(request: Request, vacancy_id: int):
   async with SessionLocal() as s:
     v = (await s.execute(select(Vacancy).where(Vacancy.id == vacancy_id))).scalar_one_or_none()
     if not v:
@@ -2527,7 +2590,7 @@ async def get_vacancy_details(vacancy_id: int):
       "responsibilities": getattr(v, "responsibilities", None),
       "requirements": getattr(v, "requirements", None),
       "conditions": getattr(v, "conditions", None),
-      "raw_text": v.raw_text,
+      "raw_text": v.raw_text if _is_authenticated(request) else None,
       "source_url": v.source_url,
       "created_at": v.created_at.isoformat() if v.created_at else None,
       "scoring": scoring,
@@ -2540,9 +2603,9 @@ async def get_vacancy_details(vacancy_id: int):
       "english_level": getattr(v, "english_level", None),
       "employment_type": (metadata or {}).get("employment_type"),
       "language_requirements": (metadata or {}).get("language_requirements"),
-      "source_channel": getattr(v, "source_channel", None),
+      "source_channel": getattr(v, "source_channel", None) if _is_authenticated(request) else None,
       "external_id": getattr(v, "external_id", None),
-      "tg_channel_username": getattr(v, "tg_channel_username", None),
+      "tg_channel_username": getattr(v, "tg_channel_username", None) if _is_authenticated(request) else None,
       "company": company_data,
       "related_vacancies": related_vacancies,
     }
@@ -2715,9 +2778,17 @@ async def channels_page(
   risk: str | None = Query(None),
   sort: str | None = Query("created_desc"),
 ):
+  _now = datetime.now(timezone.utc)
+  _day7 = _now - timedelta(days=7)
+
   async with SessionLocal() as s:
     query = (
-      select(Channel, func.count(Vacancy.id).label("vacancies_count"))
+      select(
+        Channel,
+        func.count(Vacancy.id).label("vacancies_count"),
+        func.avg(Vacancy.ai_score_value).label("avg_score"),
+        func.coalesce(func.sum(case((Vacancy.created_at >= _day7, 1), else_=0)), 0).label("vacancies_7d"),
+      )
       .outerjoin(Vacancy, Channel.username == Vacancy.tg_channel_username)
       .group_by(Channel.id)
     )
@@ -2736,7 +2807,6 @@ async def channels_page(
       query = query.where(Channel.enabled == (enabled == "true"))
 
     if domain:
-      # ai_domains is text[] in DB
       query = query.where(Channel.ai_domains.contains([domain.strip().lower()]))
 
     if risk == "high-risk":
@@ -2768,15 +2838,43 @@ async def channels_page(
     ).all()
     domain_options = [r[0] for r in domain_rows]
 
-    # Web sources
+    # Sparkline: vacancies per day for last 30 days grouped by tg_channel_username
+    sparkline_data: dict = {}
+    sl_rows = (await s.execute(text(
+      "SELECT tg_channel_username, DATE(created_at) AS day, COUNT(*) AS cnt "
+      "FROM vacancies "
+      "WHERE created_at >= NOW() - INTERVAL '30 days' "
+      "  AND tg_channel_username IS NOT NULL "
+      "GROUP BY tg_channel_username, DATE(created_at)"
+    ))).all()
+    for uname, day_val, cnt in sl_rows:
+      if uname:
+        day_key = day_val.isoformat() if hasattr(day_val, "isoformat") else str(day_val)
+        sparkline_data.setdefault(uname, {})[day_key] = int(cnt)
+
+    # Web sources with analytics
     web_sources_raw = (await s.execute(
       select(WebSource).order_by(desc(WebSource.created_at))
     )).scalars().all()
     web_sources = []
     for ws in web_sources_raw:
-      vac_count = (await s.execute(
-        select(func.count(Vacancy.id)).where(Vacancy.source_channel == f"web:{ws.slug}")
+      sc = f"web:{ws.slug}"
+      sc_filter = Vacancy.source_channel == sc
+      vac_count = (await s.execute(select(func.count(Vacancy.id)).where(sc_filter))).scalar() or 0
+      avg_sc = (await s.execute(select(func.avg(Vacancy.ai_score_value)).where(sc_filter))).scalar()
+      vac_7d = (await s.execute(
+        select(func.count(Vacancy.id)).where(sc_filter, Vacancy.created_at >= _day7)
       )).scalar() or 0
+      ws_sl_rows = (await s.execute(text(
+        "SELECT DATE(created_at) AS day, COUNT(*) AS cnt "
+        "FROM vacancies WHERE source_channel = :sc "
+        "AND created_at >= NOW() - INTERVAL '14 days' "
+        "GROUP BY DATE(created_at)"
+      ).bindparams(sc=sc))).all()
+      sparkline_data[sc] = {
+        (r[0].isoformat() if hasattr(r[0], "isoformat") else str(r[0])): int(r[1])
+        for r in ws_sl_rows if r[0]
+      }
       web_sources.append({
         "id": ws.id,
         "slug": ws.slug,
@@ -2787,6 +2885,9 @@ async def channels_page(
         "sync_interval_minutes": ws.sync_interval_minutes,
         "last_synced_at": ws.last_synced_at,
         "vacancies_count": vac_count,
+        "avg_score": round(float(avg_sc), 1) if avg_sc is not None else None,
+        "vacancies_7d": vac_7d,
+        "sparkline_key": sc,
         "created_at": ws.created_at,
       })
 
@@ -2803,6 +2904,7 @@ async def channels_page(
         "sort": sort or "created_desc",
       },
       "domain_options": domain_options,
+      "sparkline_data": json.dumps(sparkline_data),
     },
   )
 
@@ -2876,6 +2978,55 @@ async def get_channel_details(channel_id: int, _: bool = Depends(require_auth)):
     "ai_risk_label": getattr(ch, "ai_risk_label", None),
     "total_vacancies": total_vac,
     "latest_vacancies": [_vac_dict(v) for v in latest],
+  }
+
+
+@app.get("/api/channels/{channel_id}/analytics")
+async def channel_analytics(channel_id: int, _: bool = Depends(require_auth)):
+  async with SessionLocal() as s:
+    ch = (await s.execute(select(Channel).where(Channel.id == channel_id))).scalar_one_or_none()
+    if not ch:
+      raise HTTPException(status_code=404)
+    _now = datetime.now(timezone.utc)
+    _d7 = _now - timedelta(days=7)
+    _d30 = _now - timedelta(days=30)
+    cond = []
+    if ch.tg_id: cond.append(Vacancy.tg_channel_id == ch.tg_id)
+    if ch.username:
+      cond.append(Vacancy.tg_channel_username == ch.username)
+      cond.append(Vacancy.source_channel == ch.username)
+    if not cond:
+      return {"total": 0, "count_7d": 0, "avg_score": None, "daily": {}, "score_dist": {}}
+    flt = or_(*cond)
+    total = (await s.execute(select(func.count(Vacancy.id)).where(flt))).scalar() or 0
+    count_7d = (await s.execute(select(func.count(Vacancy.id)).where(flt, Vacancy.created_at >= _d7))).scalar() or 0
+    avg_sc = (await s.execute(select(func.avg(Vacancy.ai_score_value)).where(flt))).scalar()
+    _d14 = _now - timedelta(days=14)
+    count_prev_7d = (await s.execute(select(func.count(Vacancy.id)).where(flt, Vacancy.created_at >= _d14, Vacancy.created_at < _d7))).scalar() or 0
+    daily_rows = (await s.execute(text(
+      "SELECT DATE(created_at) AS day, COUNT(*) AS cnt, AVG(ai_score_value) AS avg_sc FROM vacancies "
+      "WHERE tg_channel_username = :u AND created_at >= :d30 "
+      "GROUP BY DATE(created_at) ORDER BY day"
+    ).bindparams(u=ch.username or "", d30=_d30))).all()
+    daily = {r[0].isoformat(): int(r[1]) for r in daily_rows if r[0]}
+    daily_avg_score = {r[0].isoformat(): round(float(r[2]),2) for r in daily_rows if r[0] and r[2] is not None}
+    score_rows = (await s.execute(text(
+      "SELECT FLOOR(ai_score_value)::int AS bucket, COUNT(*) AS cnt FROM vacancies "
+      "WHERE tg_channel_username = :u AND ai_score_value IS NOT NULL "
+      "GROUP BY bucket ORDER BY bucket"
+    ).bindparams(u=ch.username or ""))).all()
+    score_dist = {str(r[0]): int(r[1]) for r in score_rows if r[0] is not None}
+    top_roles_rows = (await s.execute(text(
+      "SELECT role, COUNT(*) AS cnt FROM vacancies "
+      "WHERE tg_channel_username = :u AND role IS NOT NULL "
+      "GROUP BY role ORDER BY cnt DESC LIMIT 6"
+    ).bindparams(u=ch.username or ""))).all()
+    top_roles = [{"role": r[0], "count": int(r[1])} for r in top_roles_rows]
+  return {
+    "total": total, "count_7d": count_7d, "count_prev_7d": count_prev_7d,
+    "avg_score": round(float(avg_sc), 2) if avg_sc is not None else None,
+    "daily": daily, "daily_avg_score": daily_avg_score,
+    "score_dist": score_dist, "top_roles": top_roles,
   }
 
 
@@ -3264,6 +3415,48 @@ async def web_source_vacancies(
 
   return {"total": total, "page": page, "per_page": per_page, "items": items}
 
+
+@app.get("/api/web-sources/{source_id}/analytics")
+async def web_source_analytics(source_id: int, _: bool = Depends(require_auth)):
+  async with SessionLocal() as s:
+    ws = (await s.execute(select(WebSource).where(WebSource.id == source_id))).scalar_one_or_none()
+    if not ws:
+      raise HTTPException(status_code=404)
+    sc = f"web:{ws.slug}"
+    _now = datetime.now(timezone.utc)
+    _d7  = _now - timedelta(days=7)
+    _d30 = _now - timedelta(days=30)
+    flt = Vacancy.source_channel == sc
+    total    = (await s.execute(select(func.count(Vacancy.id)).where(flt))).scalar() or 0
+    count_7d = (await s.execute(select(func.count(Vacancy.id)).where(flt, Vacancy.created_at >= _d7))).scalar() or 0
+    avg_sc   = (await s.execute(select(func.avg(Vacancy.ai_score_value)).where(flt))).scalar()
+    _d14 = _now - timedelta(days=14)
+    count_prev_7d = (await s.execute(select(func.count(Vacancy.id)).where(flt, Vacancy.created_at >= _d14, Vacancy.created_at < _d7))).scalar() or 0
+    daily_rows = (await s.execute(text(
+      "SELECT DATE(created_at) AS day, COUNT(*) AS cnt, AVG(ai_score_value) AS avg_sc FROM vacancies "
+      "WHERE source_channel = :sc AND created_at >= :d30 "
+      "GROUP BY DATE(created_at) ORDER BY day"
+    ).bindparams(sc=sc, d30=_d30))).all()
+    daily = {r[0].isoformat(): int(r[1]) for r in daily_rows if r[0]}
+    daily_avg_score = {r[0].isoformat(): round(float(r[2]),2) for r in daily_rows if r[0] and r[2] is not None}
+    score_rows = (await s.execute(text(
+      "SELECT FLOOR(ai_score_value)::int AS bucket, COUNT(*) AS cnt FROM vacancies "
+      "WHERE source_channel = :sc AND ai_score_value IS NOT NULL "
+      "GROUP BY bucket ORDER BY bucket"
+    ).bindparams(sc=sc))).all()
+    score_dist = {str(r[0]): int(r[1]) for r in score_rows if r[0] is not None}
+    top_roles_rows = (await s.execute(text(
+      "SELECT role, COUNT(*) AS cnt FROM vacancies "
+      "WHERE source_channel = :sc AND role IS NOT NULL "
+      "GROUP BY role ORDER BY cnt DESC LIMIT 6"
+    ).bindparams(sc=sc))).all()
+    top_roles = [{"role": r[0], "count": int(r[1])} for r in top_roles_rows]
+  return {
+    "total": total, "count_7d": count_7d, "count_prev_7d": count_prev_7d,
+    "avg_score": round(float(avg_sc), 2) if avg_sc is not None else None,
+    "daily": daily, "daily_avg_score": daily_avg_score,
+    "score_dist": score_dist, "top_roles": top_roles,
+  }
 
 
 # ─── Analytics Studio ────────────────────────────────────────────────────────
@@ -4281,6 +4474,64 @@ async def vacancy_detail_page(request: Request, slug_and_id: str):
 
     return templates.TemplateResponse(
       request, "vacancy_detail.html",
+      {"vacancy_id": vacancy_id, "seo": seo},
+    )
+
+
+@app.get("/vacancy/{slug_and_id:path}", response_class=HTMLResponse)
+async def vacancy_fullpage(request: Request, slug_and_id: str):
+  """Standalone full-page vacancy view: /vacancy/senior-dev-at-binance-1234"""
+  m = _re_mod.search(r"(\d+)$", slug_and_id.rstrip("/"))
+  if not m:
+    return RedirectResponse(url="/vacancies", status_code=302)
+  vacancy_id = int(m.group(1))
+
+  async with SessionLocal() as s:
+    row = (
+      await s.execute(
+        select(Vacancy, Company.logo_url)
+        .select_from(Vacancy)
+        .outerjoin(Company, Company.id == Vacancy.company_id)
+        .where(Vacancy.id == vacancy_id)
+      )
+    ).one_or_none()
+    if not row:
+      return RedirectResponse(url="/vacancies", status_code=302)
+
+    v = row[0]
+    logo_url = row[1]
+
+    canonical_slug = _vacancy_slug(v.title, v.company_name)
+    canonical_url = f"https://hirelens.xyz/vacancy/{canonical_slug}-{v.id}"
+
+    expected_path = f"/vacancy/{canonical_slug}-{v.id}"
+    actual_path = f"/vacancy/{slug_and_id}"
+    if actual_path != expected_path:
+      return RedirectResponse(url=expected_path, status_code=301)
+
+    description = (getattr(v, "summary_en", None) or getattr(v, "description", None) or v.raw_text or "")[:200].replace("\n", " ").strip()
+    salary_text = ""
+    if v.salary_min_usd or v.salary_max_usd:
+      salary_text = f" | ${v.salary_min_usd or '?'}–${v.salary_max_usd or '?'}"
+
+    seo = {
+      "title": f"{v.title or 'Vacancy'} at {v.company_name or 'Company'} | HireLens",
+      "description": description + salary_text,
+      "canonical": canonical_url,
+      "logo_url": logo_url,
+      "company_name": v.company_name,
+      "vacancy_title": v.title,
+      "location_type": v.location_type,
+      "salary_min": v.salary_min_usd,
+      "salary_max": v.salary_max_usd,
+      "created_at": v.created_at.isoformat() if v.created_at else None,
+      "domains": getattr(v, "domains", []) or [],
+      "stack": getattr(v, "stack", []) or [],
+      "seniority": getattr(v, "seniority", None),
+    }
+
+    return templates.TemplateResponse(
+      request, "vacancy_page.html",
       {"vacancy_id": vacancy_id, "seo": seo},
     )
 

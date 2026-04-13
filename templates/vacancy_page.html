@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block title %}{{ seo.title }}{% endblock %}
+
+{% block extra_head %}
+<meta name="description" content="{{ seo.description }}">
+<meta property="og:title" content="{{ seo.title }}">
+<meta property="og:description" content="{{ seo.description }}">
+<meta property="og:type" content="article">
+<meta property="og:url" content="{{ seo.canonical }}">
+{% if seo.logo_url %}<meta property="og:image" content="{{ seo.logo_url }}">{% endif %}
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="{{ seo.canonical }}">
+{% endblock %}
+
+{% block extra_css %}
+.vp-wrap { max-width: 780px; margin: 0 auto; padding-bottom: 80px; }
+.vp-back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #475569; text-decoration: none; transition: color .15s; margin-bottom: 20px; }
+.vp-back:hover { color: #94a3b8; }
+.vp-card { background: #08080e; border: 1px solid rgba(255,255,255,.05); border-radius: 14px; overflow: hidden; margin-bottom: 12px; }
+.vp-head { padding: 24px; border-bottom: 1px solid rgba(255,255,255,.04); background: linear-gradient(180deg,rgba(16,185,129,.03),transparent); }
+.vp-title { font-family:'Rajdhani','Outfit',sans-serif; font-size: 24px; font-weight: 700; color: #fff; line-height: 1.2; }
+.vp-section { background: #0b0b10; border: 1px solid rgba(255,255,255,.04); border-radius: 10px; padding: 16px; margin-bottom: 10px; }
+.vp-section-title { font-family:'Rajdhani',sans-serif; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; }
+.vp-spinner { width: 28px; height: 28px; border: 3px solid rgba(255,255,255,.06); border-top-color: #10b981; border-radius: 50%; animation: vp-spin .6s linear infinite; flex-none; }
+@keyframes vp-spin { to { transform: rotate(360deg); } }
+.vp-related-item { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); text-decoration:none; transition:background .15s,border-color .15s; }
+.vp-related-item:hover { background:rgba(255,255,255,0.05); border-color:rgba(255,255,255,0.08); }
+{% endblock %}
+
+{% block content %}
+<div class="vp-wrap" id="vpRoot">
+  <div class="flex items-center justify-between mb-5">
+    <a href="/vacancies" class="vp-back">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+      All vacancies
+    </a>
+  </div>
+
+  <!-- Loading state -->
+  <div id="vpLoading" class="flex items-center gap-3 py-12">
+    <div class="vp-spinner"></div>
+    <span style="color:#475569;font-size:13px">Loading...</span>
+  </div>
+
+  <!-- Main content (hidden until loaded) -->
+  <div id="vpContent" class="hidden">
+
+    <!-- Header card -->
+    <div class="vp-card">
+      <div class="vp-head">
+        <div class="flex items-start gap-4">
+          <img id="vpLogo" src="" alt="" class="hidden w-14 h-14 rounded-xl bg-surface object-contain flex-none shrink-0" onerror="this.classList.add('hidden')"/>
+          <div class="flex-1 min-w-0">
+            <div class="vp-title" id="vpTitle">{{ seo.vacancy_title or '—' }}</div>
+            <div class="text-sm text-slate-400 mt-2 flex items-center gap-1.5 flex-wrap" id="vpCompany"></div>
+            <div class="text-xs text-slate-600 mt-1 flex flex-wrap gap-x-3 gap-y-0.5" id="vpCompanyMeta"></div>
+            <div class="mt-3 flex flex-wrap gap-2" id="vpBadges"></div>
+            <div class="mt-1.5 flex flex-wrap gap-2" id="vpLangs"></div>
+            <div class="mt-2 text-xs text-slate-500" id="vpMeta"></div>
+          </div>
+          <div class="flex items-center gap-2 flex-none">
+            <a id="vpSource" href="#" target="_blank" rel="noreferrer"
+               class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-white/[0.07] text-slate-400 hover:text-slate-200 transition hidden">
+              Source ↗
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Score row -->
+      <div id="vpScoreRow" class="hidden px-6 py-5 border-t border-white/[0.04] flex items-start gap-5">
+        <div class="relative flex-none" style="width:72px;height:72px">
+          <svg width="72" height="72" viewBox="0 0 72 72" class="transform -rotate-90 absolute inset-0">
+            <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="6"/>
+            <circle id="vpScoreArc" cx="36" cy="36" r="30" fill="none" stroke="#3b82f6" stroke-width="6"
+              stroke-dasharray="188.5" stroke-dashoffset="188.5" stroke-linecap="round" class="transition-all duration-700 ease-out"/>
+          </svg>
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span id="vpScoreVal" class="text-base font-bold text-white"></span>
+          </div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-semibold mb-1 text-slate-200">AI Score</div>
+          <div id="vpScoreSummary" class="text-xs text-slate-400 leading-relaxed"></div>
+          <div id="vpRedFlags" class="mt-2 flex flex-wrap gap-1.5 hidden"></div>
+          <details id="vpScoreDetails" class="mt-3">
+            <summary class="cursor-pointer text-xs text-slate-500 hover:text-slate-300 select-none">Show criteria breakdown</summary>
+            <div id="vpScoringCriteria" class="mt-3 space-y-3"></div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sections -->
+    <div id="vpSecSummary" class="vp-section hidden">
+      <div class="vp-section-title">AI Summary</div>
+      <div class="text-sm text-slate-200 leading-relaxed" id="vpSummary"></div>
+    </div>
+
+    <div id="vpSecCompany" class="vp-section hidden">
+      <div class="vp-section-title">Company Profile</div>
+      <div class="text-sm text-slate-300 leading-relaxed" id="vpCompanyProfile"></div>
+    </div>
+
+    <div id="vpSecDesc" class="vp-section hidden">
+      <div class="vp-section-title">Description</div>
+      <div class="text-sm text-slate-200 whitespace-pre-wrap" id="vpDesc"></div>
+    </div>
+
+    <div id="vpSecResp" class="vp-section hidden">
+      <div class="vp-section-title">Responsibilities</div>
+      <div class="text-sm text-slate-200" id="vpResp"></div>
+    </div>
+
+    <div id="vpSecReq" class="vp-section hidden">
+      <div class="vp-section-title">Requirements</div>
+      <div class="text-sm text-slate-200" id="vpReq"></div>
+    </div>
+
+    <div id="vpSecCond" class="vp-section hidden">
+      <div class="vp-section-title">What They Offer</div>
+      <div class="text-sm text-slate-200" id="vpCond"></div>
+    </div>
+
+    <div id="vpSecContacts" class="vp-section hidden">
+      <div class="vp-section-title">Contacts</div>
+      <div class="space-y-2 text-sm" id="vpContacts"></div>
+    </div>
+
+    <!-- Related vacancies -->
+    <div id="vpSecRelated" class="vp-section hidden">
+      <div class="vp-section-title">Other vacancies from this company</div>
+      <div class="space-y-2" id="vpRelated"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+var vacancyId = {{ vacancy_id }};
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+function showIf(id, text) { const el = document.getElementById(id); if (el) { if ((text||'').trim()) el.classList.remove('hidden'); else el.classList.add('hidden'); } }
+function slugify(title, company) {
+  var parts = [];
+  if (title) parts.push(title);
+  if (company) parts.push('at-' + company);
+  return parts.join('-').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').substring(0,80) || 'vacancy';
+}
+function formatScore10(n) { const x = Number(n); if (!Number.isFinite(x)) return '—'; return Number.isInteger(x) ? String(Math.trunc(x)) : x.toFixed(1); }
+function barColor(s) { return s<=3?'#ef4444':s<=5?'#f59e0b':s<=7?'#3b82f6':'#22c55e'; }
+function buildSegmentBar(score) {
+  return Array.from({length:10},(_,i)=>{const a=i+1<=score;const c=i+1<=3?'#ef4444':i+1<=5?'#f59e0b':i+1<=7?'#3b82f6':'#22c55e';return`<div style="flex:1;height:6px;border-radius:2px;background:${a?c:'rgba(255,255,255,0.06)'}"></div>`;}).join('');
+}
+function renderBulletText(text) {
+  const raw=(text||'').trim(); if(!raw) return '';
+  const lines=raw.split(/\r?\n/); const blocks=[]; let list=[],para=[];
+  const fp=()=>{const p=para.join(' ').trim();if(p)blocks.push(`<p class="mt-2 first:mt-0 text-sm text-slate-200 leading-relaxed">${esc(p)}</p>`);para=[];};
+  const fl=()=>{if(!list.length)return;blocks.push(`<ul class="mt-2 first:mt-0 space-y-1 text-sm text-slate-200 leading-relaxed">${list.map(x=>`<li class="ml-5 list-disc">${esc(x)}</li>`).join('')}</ul>`);list=[];};
+  for(const ln of lines){const s=(ln||'').trim();if(!s){fl();fp();continue;}const m=s.match(/^[-*]\s+(.*)$/);if(m){fp();list.push(m[1].trim());}else{fl();para.push(s);}}
+  fl();fp(); return blocks.join('');
+}
+function timeAgo(date) {
+  const secs=Math.floor((Date.now()-date.getTime())/1000);
+  if(secs<60)return'just now';if(secs<3600)return Math.floor(secs/60)+'m ago';
+  if(secs<86400)return Math.floor(secs/3600)+'h ago';if(secs<2592000)return Math.floor(secs/86400)+'d ago';
+  return date.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+}
+
+fetch('/api/vacancies/' + vacancyId)
+  .then(r => r.ok ? r.json() : Promise.reject(r.status))
+  .then(v => {
+    document.getElementById('vpLoading').style.display = 'none';
+    document.getElementById('vpContent').classList.remove('hidden');
+
+    document.getElementById('vpTitle').textContent = v.title || '—';
+
+    // Logo
+    const comp = v.company || null;
+    const logoUrl = comp ? comp.logo_url : null;
+    if (logoUrl) { const l=document.getElementById('vpLogo'); l.src=logoUrl; l.classList.remove('hidden'); }
+
+    // Company + links
+    const compEl = document.getElementById('vpCompany');
+    compEl.innerHTML = '';
+    if (v.company_name) {
+      const s=document.createElement('span'); s.className='font-medium text-slate-200'; s.textContent=v.company_name; compEl.appendChild(s);
+    }
+    const links=[];
+    if(comp&&comp.website) links.push({label:'Website',url:comp.website});
+    if(comp&&comp.linkedin) links.push({label:'LinkedIn',url:comp.linkedin});
+    const soc=(comp&&comp.socials)||{};
+    if(soc.twitter) links.push({label:'X/Twitter',url:soc.twitter});
+    if(soc.telegram) links.push({label:'Telegram',url:soc.telegram});
+    if(soc.github) links.push({label:'GitHub',url:soc.github});
+    links.forEach(l=>{
+      compEl.insertAdjacentHTML('beforeend',' <span class="text-slate-700">·</span> ');
+      compEl.insertAdjacentHTML('beforeend',`<a href="${esc(l.url)}" target="_blank" rel="noreferrer" class="underline hover:text-white text-slate-400 transition">${esc(l.label)}</a>`);
+    });
+
+    // Company meta
+    const cmEl=document.getElementById('vpCompanyMeta'); const cmParts=[];
+    if(comp&&comp.industry) cmParts.push(esc(comp.industry));
+    if(comp&&comp.size) cmParts.push(esc(comp.size)+' employees');
+    if(comp&&comp.founded) cmParts.push('Est. '+esc(comp.founded));
+    if(comp&&comp.headquarters) cmParts.push(esc(comp.headquarters));
+    if(cmParts.length) cmEl.innerHTML=cmParts.join(' <span class="text-slate-800">·</span> ');
+
+    // Badges
+    const badges=document.getElementById('vpBadges'); badges.innerHTML='';
+    if(v.seniority) badges.insertAdjacentHTML('beforeend',`<span class="badge badge-grade">${esc(v.seniority)}</span>`);
+    if(v.employment_type) badges.insertAdjacentHTML('beforeend',`<span class="badge badge-emp">${esc(v.employment_type)}</span>`);
+    (v.domains||[]).forEach(d=>badges.insertAdjacentHTML('beforeend',`<span class="badge badge-domain">${esc(d)}</span>`));
+    if(v.risk_label==='high-risk') badges.insertAdjacentHTML('beforeend',`<span class="badge badge-risk">high-risk</span>`);
+    (v.stack||[]).slice(0,10).forEach(t=>badges.insertAdjacentHTML('beforeend',`<span class="badge badge-score">${esc(t)}</span>`));
+
+    // Languages
+    const langsEl=document.getElementById('vpLangs'); langsEl.innerHTML='';
+    const lr=v.language_requirements;
+    if(lr&&typeof lr==='object'&&Object.keys(lr).length){
+      Object.entries(lr).forEach(([lang,level])=>langsEl.insertAdjacentHTML('beforeend',`<span class="badge badge-lang">${esc(lang.charAt(0).toUpperCase()+lang.slice(1))}: ${esc((level||'').toUpperCase())}</span>`));
+    } else if(v.english_level) {
+      langsEl.insertAdjacentHTML('beforeend',`<span class="badge badge-lang">English: ${esc(v.english_level)}</span>`);
+    }
+
+    // Meta line
+    const mp=[]; const _ts=(v.scoring||{}).total_score;
+    if(_ts!=null) mp.push('Score: '+formatScore10(Number(_ts))+'/10');
+    if(v.location_type) mp.push('Location: '+v.location_type);
+    if(v.salary_min_usd||v.salary_max_usd) mp.push('Salary: '+(v.salary_min_usd||'?')+'–'+(v.salary_max_usd||'?')+' USD');
+    if(v.recruiter) mp.push('Recruiter: '+v.recruiter);
+    if(v.created_at){try{const d=new Date(v.created_at);mp.push('Published: '+d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}));}catch{}}
+    document.getElementById('vpMeta').textContent = mp.join(' · ');
+
+    // Source link
+    if(v.source_url){const src=document.getElementById('vpSource');src.href=v.source_url;src.classList.remove('hidden');}
+
+    // Scoring ring
+    const scoring=v.scoring||{}; const totalScore=scoring.total_score;
+    const scoringResults=Array.isArray(scoring.scoring_results)?scoring.scoring_results:[];
+    if(totalScore!=null){
+      document.getElementById('vpScoreRow').classList.remove('hidden');
+      const circ=2*Math.PI*30;
+      const pct=Math.min(1,Math.max(0,Number(totalScore)/10));
+      const scoreColor=pct<=0.3?'#ef4444':pct<=0.6?'#f59e0b':'#22c55e';
+      const arc=document.getElementById('vpScoreArc');
+      arc.style.stroke=scoreColor; arc.style.strokeDasharray=circ; arc.style.strokeDashoffset=circ;
+      requestAnimationFrame(()=>{arc.style.strokeDashoffset=circ*(1-pct);});
+      const cv=document.getElementById('vpScoreVal'); cv.textContent=formatScore10(Number(totalScore)); cv.style.color=scoreColor;
+      document.getElementById('vpScoreSummary').textContent=scoring.overall_summary||'';
+      const flagsEl=document.getElementById('vpRedFlags');
+      const rf=Array.isArray(scoring.red_flags)?scoring.red_flags:[];
+      if(rf.length){flagsEl.classList.remove('hidden');rf.forEach(f=>flagsEl.insertAdjacentHTML('beforeend',`<span class="px-2 py-0.5 text-[11px] bg-red-900/40 text-red-300 border border-red-700/50 rounded">${esc(f)}</span>`));}
+      if(scoringResults.length){
+        const ce=document.getElementById('vpScoringCriteria');
+        scoringResults.forEach(cr=>{
+          const sc=Math.min(10,Math.max(0,Number(cr.score)||0));
+          const row=document.createElement('div');
+          row.innerHTML=`<div class="flex items-center justify-between mb-1"><span class="text-xs font-medium text-slate-200">${esc(cr.criterion||cr.key)}</span><span class="text-xs font-bold" style="color:${barColor(sc)}">${sc}/10</span></div><div class="flex gap-[3px] mb-1">${buildSegmentBar(sc)}</div><div class="text-[11px] text-slate-400 leading-snug">${esc(cr.summary||'')}</div>`;
+          ce.appendChild(row);
+        });
+      }
+    }
+
+    // Text sections
+    document.getElementById('vpSummary').textContent=v.summary_en||'';
+    showIf('vpSecSummary',v.summary_en);
+    const compSum=comp?comp.summary:null;
+    if(compSum){document.getElementById('vpCompanyProfile').textContent=compSum;document.getElementById('vpSecCompany').classList.remove('hidden');}
+    if(v.description&&v.description.trim()){document.getElementById('vpDesc').textContent=v.description;document.getElementById('vpSecDesc').classList.remove('hidden');}
+    document.getElementById('vpResp').innerHTML=renderBulletText(v.responsibilities); showIf('vpSecResp',v.responsibilities);
+    document.getElementById('vpReq').innerHTML=renderBulletText(v.requirements); showIf('vpSecReq',v.requirements);
+    document.getElementById('vpCond').innerHTML=renderBulletText(v.conditions); showIf('vpSecCond',v.conditions);
+
+    // Contacts
+    const cEl=document.getElementById('vpContacts'); cEl.innerHTML='';
+    (v.contacts||[]).forEach(x=>{
+      const lower=(x||'').toLowerCase(); let label='Contact',href=null;
+      const fds=['forms.gle/','docs.google.com/forms','typeform.com','jotform.com','tally.so','greenhouse.io','workable.com','bamboohr.com','lever.co/','ashbyhq.com'];
+      if(lower.includes('linkedin.com')){label='LinkedIn';href=x;}
+      else if(lower.includes('t.me/')){label='Telegram';href=x;}
+      else if(fds.some(fd=>lower.includes(fd))){label='Application Form';href=x;}
+      else if(lower.startsWith('http')){label='Website';href=x;}
+      else if(lower.startsWith('mailto:')){label='Email';href=x.replace(/^mailto:/i,'');}
+      else if(x.startsWith('@')){label='Telegram';href='https://t.me/'+x.slice(1);}
+      else if(lower.includes('@')&&lower.includes('.')&&!lower.includes(' ')){label='Email';href='mailto:'+x;}
+      const row=document.createElement('div');
+      row.innerHTML=`<span class="text-slate-400">${label}:</span> `;
+      if(href) row.insertAdjacentHTML('beforeend',`<a href="${esc(href)}" target="_blank" rel="noreferrer" class="underline hover:text-white">${esc(x)}</a>`);
+      else row.insertAdjacentHTML('beforeend',`<span>${esc(x)}</span>`);
+      cEl.appendChild(row);
+    });
+    if((v.contacts||[]).length) document.getElementById('vpSecContacts').classList.remove('hidden');
+
+    // Related vacancies
+    const rv=v.related_vacancies||[];
+    if(rv.length){
+      const relEl=document.getElementById('vpRelated'); relEl.innerHTML='';
+      rv.forEach(r=>{
+        const scoreColor=r.ai_score_value==null?'text-slate-600':r.ai_score_value<=3?'text-red-400':r.ai_score_value<=7?'text-blue-400':'text-emerald-400';
+        const scoreStr=r.ai_score_value!=null?r.ai_score_value:'—';
+        const date=r.created_at?timeAgo(new Date(r.created_at)):'';
+        const slug=slugify(r.title,v.company_name);
+        const a=document.createElement('a');
+        a.href='/vacancy/'+slug+'-'+r.id;
+        a.className='vp-related-item';
+        a.innerHTML=`
+          <span class="text-sm font-bold tabular-nums ${scoreColor} w-8 text-center flex-none">${scoreStr}</span>
+          <span class="text-sm text-slate-200 truncate flex-1 min-w-0">${esc(r.title||'Untitled')}</span>
+          <span class="text-[11px] text-slate-600 flex-none">${esc(date)}</span>`;
+        relEl.appendChild(a);
+      });
+      document.getElementById('vpSecRelated').classList.remove('hidden');
+    }
+  })
+  .catch(err=>{
+    document.getElementById('vpLoading').innerHTML='<span style="color:#ef4444;font-size:13px">Failed to load. <a href="/vacancies" style="color:#10b981;text-decoration:underline">Go back</a></span>';
+    console.error(err);
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Blog — HireLens Market Intelligence</title>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-5L41924NCB"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-5L41924NCB');
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Data-driven analysis of the web3 and AI job market. Salary benchmarks, hiring trends, and career intelligence from HireLens — powered by 2,800+ tracked vacancies.">
+  <meta name="keywords" content="web3 jobs blog, blockchain hiring analysis, crypto salary report, AI jobs web3, DeFi hiring trends, smart contract developer salary">
+  <meta property="og:title" content="HireLens Blog — Web3 & AI Hiring Intelligence">
+  <meta property="og:description" content="Data-driven analysis of the web3 and AI job market. Powered by real-time tracking of 2,800+ vacancies.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://hirelens.xyz/blog">
+  <link rel="canonical" href="https://hirelens.xyz/blog">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background:#050507; margin:0; color:#e2e8f0; font-family:'Outfit',system-ui,sans-serif; }
+    ::-webkit-scrollbar { width:5px } ::-webkit-scrollbar-track { background:transparent } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.08); border-radius:4px }
+
+    /* Nav — same as landing */
+    .l-topnav { position:fixed; top:0; left:0; right:0; z-index:100; padding:0 32px; transition:background .3s,backdrop-filter .3s,border-color .3s; border-bottom:1px solid transparent; background:rgba(5,5,7,.85); backdrop-filter:blur(20px); border-bottom-color:rgba(255,255,255,.04); }
+    .l-topnav-inner { max-width:1200px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; height:60px; }
+    .l-topnav-logo { display:flex; align-items:center; gap:10px; text-decoration:none; font-family:'Rajdhani','Outfit',sans-serif; font-size:16px; font-weight:700; color:#fff; }
+    .l-topnav-logo em { font-style:normal; color:#10b981 }
+    .l-topnav-links { display:flex; gap:6px; }
+    .l-topnav-links a { padding:6px 14px; font-size:13px; font-weight:500; color:#64748b; text-decoration:none; border-radius:6px; transition:all .15s; }
+    .l-topnav-links a:hover,.l-topnav-links a.active { color:#e2e8f0; background:rgba(255,255,255,.04); }
+    .l-topnav-actions { display:flex; align-items:center; gap:8px; }
+    .l-topnav-signin { font-size:13px; font-weight:500; color:#94a3b8; text-decoration:none; padding:6px 14px; transition:color .15s; }
+    .l-topnav-signin:hover { color:#e2e8f0; }
+    .l-topnav-cta { font-size:12px; font-weight:600; color:#050507; background:#10b981; padding:7px 18px; border-radius:8px; text-decoration:none; transition:all .15s; }
+    .l-topnav-cta:hover { background:#34d399; box-shadow:0 0 16px rgba(16,185,129,.25); }
+    @media(max-width:768px){ .l-topnav-links,.l-topnav-signin { display:none } }
+
+    /* Hero */
+    .bl-hero { padding:120px 32px 64px; text-align:center; position:relative; }
+    .bl-hero::before { content:''; position:absolute; top:0; left:50%; transform:translateX(-50%); width:700px; height:500px; background:radial-gradient(circle,rgba(16,185,129,.06) 0%,transparent 70%); pointer-events:none; }
+    .bl-hero-label { font-family:'Rajdhani',sans-serif; font-size:11px; text-transform:uppercase; letter-spacing:.14em; color:#10b981; font-weight:700; margin-bottom:12px; }
+    .bl-hero-title { font-family:'Rajdhani',sans-serif; font-size:clamp(32px,5vw,58px); font-weight:700; text-transform:uppercase; letter-spacing:-.01em; line-height:1.1; }
+    .bl-hero-title em { font-style:normal; background:linear-gradient(90deg,#10b981,#6ee7b7,#38bdf8,#6ee7b7,#10b981); background-size:200% auto; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:blShimmer 4s ease-in-out infinite; }
+    @keyframes blShimmer { 0%{background-position:200% center} 50%{background-position:0% center} 100%{background-position:200% center} }
+    .bl-hero-sub { color:#64748b; font-size:15px; max-width:480px; margin:16px auto 0; line-height:1.65; }
+
+    /* Category filter */
+    .bl-cats { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:36px; }
+    .bl-cat { padding:7px 18px; border-radius:100px; font-size:12px; font-weight:600; border:1px solid rgba(255,255,255,.08); color:#64748b; background:transparent; cursor:pointer; text-decoration:none; transition:all .15s; }
+    .bl-cat:hover,.bl-cat.active { border-color:rgba(16,185,129,.4); color:#6ee7b7; background:rgba(16,185,129,.06); }
+
+    /* Grid */
+    .bl-content { max-width:1100px; margin:0 auto; padding:0 32px 80px; }
+    .bl-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:24px; margin-top:48px; }
+    @media(max-width:900px){ .bl-grid { grid-template-columns:repeat(2,1fr) } }
+    @media(max-width:600px){ .bl-grid { grid-template-columns:1fr } }
+
+    /* Card */
+    .bl-card { background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:14px; overflow:hidden; text-decoration:none; color:inherit; display:flex; flex-direction:column; transition:all .2s; position:relative; }
+    .bl-card:hover { border-color:rgba(16,185,129,.18); transform:translateY(-3px); box-shadow:0 16px 48px rgba(0,0,0,.4); }
+    .bl-card-cover { height:160px; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; }
+    .bl-card-cover-web3 { background:linear-gradient(135deg,rgba(16,185,129,.12) 0%,rgba(56,189,248,.08) 50%,rgba(99,102,241,.1) 100%); }
+    .bl-card-cover-ai { background:linear-gradient(135deg,rgba(99,102,241,.14) 0%,rgba(139,92,246,.1) 50%,rgba(16,185,129,.08) 100%); }
+    .bl-card-cover-market { background:linear-gradient(135deg,rgba(251,191,36,.1) 0%,rgba(16,185,129,.08) 100%); }
+    .bl-card-cover svg { width:48px; height:48px; opacity:.18 }
+    .bl-card-cover-dots { position:absolute; inset:0; background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1px); background-size:20px 20px; }
+    .bl-card-body { padding:20px 22px 22px; flex:1; display:flex; flex-direction:column; }
+    .bl-card-tag { display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; padding:4px 10px; border-radius:100px; margin-bottom:12px; width:fit-content; }
+    .bl-card-tag-web3 { background:rgba(16,185,129,.1); color:#6ee7b7; border:1px solid rgba(16,185,129,.15); }
+    .bl-card-tag-ai { background:rgba(99,102,241,.12); color:#a5b4fc; border:1px solid rgba(99,102,241,.2); }
+    .bl-card-tag-market { background:rgba(251,191,36,.1); color:#fcd34d; border:1px solid rgba(251,191,36,.15); }
+    .bl-card-title { font-family:'Rajdhani',sans-serif; font-size:17px; font-weight:700; line-height:1.25; margin-bottom:10px; text-transform:uppercase; letter-spacing:-.01em; }
+    .bl-card-excerpt { font-size:13px; color:#64748b; line-height:1.6; flex:1; }
+    .bl-card-meta { display:flex; align-items:center; justify-content:space-between; margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,.05); }
+    .bl-card-date { font-size:11px; color:#475569; font-family:'JetBrains Mono',monospace; }
+    .bl-card-read { font-size:11px; color:#475569; }
+    .bl-card-arrow { font-size:13px; color:#10b981; margin-left:auto; transition:transform .2s; }
+    .bl-card:hover .bl-card-arrow { transform:translateX(3px) }
+
+    /* Section label */
+    .bl-section-label { font-family:'Rajdhani',sans-serif; font-size:11px; text-transform:uppercase; letter-spacing:.14em; color:#10b981; font-weight:700; margin-bottom:8px; margin-top:56px; }
+    .bl-section-title { font-family:'Rajdhani',sans-serif; font-size:clamp(20px,2.5vw,28px); font-weight:700; text-transform:uppercase; letter-spacing:-.01em; }
+
+    /* Newsletter */
+    .bl-nl { background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:16px; padding:40px 48px; display:flex; align-items:center; justify-content:space-between; gap:32px; margin-top:48px; flex-wrap:wrap; }
+    .bl-nl-text h3 { font-family:'Rajdhani',sans-serif; font-size:22px; font-weight:700; text-transform:uppercase; margin:0 0 6px; }
+    .bl-nl-text p { font-size:13px; color:#64748b; margin:0; }
+    .bl-nl-link { display:inline-flex; align-items:center; gap:8px; padding:11px 24px; background:#10b981; color:#050507; font-size:13px; font-weight:700; border-radius:8px; text-decoration:none; transition:all .15s; white-space:nowrap; }
+    .bl-nl-link:hover { background:#34d399 }
+
+    /* Footer */
+    .bl-footer { border-top:1px solid rgba(255,255,255,.04); padding:24px 32px; text-align:center; font-size:12px; color:#334155; }
+    .bl-footer a { color:#475569; text-decoration:none; } .bl-footer a:hover { color:#94a3b8 }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="l-topnav">
+  <div class="l-topnav-inner">
+    <a href="/" class="l-topnav-logo">
+      <div style="width:30px;height:30px;border-radius:8px;background:rgba(16,185,129,.15);display:flex;align-items:center;justify-content:center">
+        <svg width="14" height="14" fill="#10b981" viewBox="0 0 20 20"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838l-3.14 1.346 2.352 1.005a1 1 0 00.788 0l7-3a1 1 0 000-1.838l-7-3.001z"/></svg>
+      </div>
+      <span>Hire<em>Lens</em></span>
+    </a>
+    <div class="l-topnav-links">
+      <a href="/dashboard">Platform</a>
+      <a href="/analytics/studio">Studio</a>
+      <a href="/graph">Market Map</a>
+      <a href="/companies">Companies</a>
+      <a href="/vacancies">Vacancies</a>
+      <a href="/blog" class="active">Blog</a>
+      <a href="/docs">Docs</a>
+      <a href="/about">About</a>
+    </div>
+    <div class="l-topnav-actions">
+      <a href="/login" class="l-topnav-signin">Sign In</a>
+      <a href="/dashboard" class="l-topnav-cta">Get Started</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="bl-hero">
+  <div class="bl-hero-label">Market Intelligence</div>
+  <h1 class="bl-hero-title">The <em>Web3 &amp; AI</em><br>Jobs Digest</h1>
+  <p class="bl-hero-sub">Data-driven analysis of the blockchain and AI hiring market. Powered by real-time tracking of 2,800+ vacancies across 200+ sources.</p>
+  <!-- Category filter -->
+  <div class="bl-cats">
+    <a href="/blog" class="bl-cat {% if not active_category %}active{% endif %}">All</a>
+    {% for cat_label, cat_slug in categories %}
+    <a href="/blog?category={{ cat_slug }}" class="bl-cat {% if active_category == cat_slug %}active{% endif %}">{{ cat_label }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- Articles grid -->
+<main class="bl-content">
+  <div class="bl-grid">
+    {% for post in posts %}
+    <a class="bl-card" href="/blog/{{ post.slug }}">
+      <div class="bl-card-cover bl-card-cover-{{ post.category_slug.split('-')[0] }}">
+        <div class="bl-card-cover-dots"></div>
+        {% if post.category_slug == 'web3-jobs' %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        {% elif post.category_slug == 'ai-jobs' %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/></svg>
+        {% else %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18"/></svg>
+        {% endif %}
+      </div>
+      <div class="bl-card-body">
+        <span class="bl-card-tag bl-card-tag-{{ post.category_slug.split('-')[0] }}">{{ post.category }}</span>
+        <div class="bl-card-title">{{ post.title }}</div>
+        <div class="bl-card-excerpt">{{ post.excerpt }}</div>
+        <div class="bl-card-meta">
+          <span class="bl-card-date">{{ post.published_at.strftime('%b %d, %Y') }}</span>
+          <span class="bl-card-read">{{ post.reading_time }} min read</span>
+          <span class="bl-card-arrow">→</span>
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Platform CTA -->
+  <div class="bl-nl">
+    <div class="bl-nl-text">
+      <h3>Track the market in real time</h3>
+      <p>2,800+ live vacancies scored by AI. Filter by role, domain, salary, and more.</p>
+    </div>
+    <a href="/vacancies" class="bl-nl-link">Browse vacancies &rarr;</a>
+  </div>
+</main>
+
+<footer class="bl-footer">
+  <p>&copy; 2026 HireLens &middot; <a href="/">Home</a> &middot; <a href="/vacancies">Vacancies</a> &middot; <a href="/companies">Companies</a> &middot; <a href="/analytics">Analytics</a> &middot; <a href="/blog">Blog</a> &middot; <a href="/about">About</a></p>
+</footer>
+
+</body>
+</html>

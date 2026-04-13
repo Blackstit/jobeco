@@ -18,7 +18,7 @@ log = structlog.get_logger()
 
 async def ensure_channels(client: TelegramClient) -> None:
   async with SessionLocal() as s:
-    channels = (await s.execute(select(Channel).order_by(Channel.id.asc()))).scalars().all()
+    channels = (await s.execute(select(Channel).where(Channel.enabled == True).order_by(Channel.id.asc()))).scalars().all()
 
   for ch in channels:
     if not ch.username:
@@ -73,7 +73,7 @@ async def main_async() -> None:
   async def get_allowed_channels() -> set[int | str]:
     """Возвращает set с tg_id и username разрешённых каналов."""
     async with SessionLocal() as s:
-      channels = (await s.execute(select(Channel))).scalars().all()
+      channels = (await s.execute(select(Channel).where(Channel.enabled == True))).scalars().all()
     allowed = set()
     for ch in channels:
       if ch.tg_id:

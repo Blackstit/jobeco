@@ -11,6 +11,9 @@
   .source-tab { padding: 6px 14px; font-size: 12px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; transition: all .15s; }
   .source-tab:hover { background: rgba(255,255,255,0.04); }
   .source-tab.active { border-color: var(--accent); color: var(--accent); background: rgba(0,255,136,0.06); }
+  .pane-tab { padding: 8px 16px; font-size: 12px; font-weight: 500; color: #475569; border-bottom: 2px solid transparent; cursor: pointer; transition: all .15s; white-space: nowrap; }
+  .pane-tab:hover { color: #94a3b8; }
+  .pane-tab.active { color: #10b981; border-bottom-color: #10b981; }
   .ws-card { position: relative; overflow: hidden; }
   .ws-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); border-radius: 0 2px 2px 0; opacity: 0; transition: opacity .15s; }
   .ws-card:hover::before { opacity: 1; }
@@ -155,9 +158,13 @@
                 {% endif %}
                 <span class="badge badge-neutral" style="font-size:10px;padding:1px 6px;border-color:rgba(96,165,250,0.3);color:#60a5fa">Web</span>
               </div>
-              <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+              <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 flex-wrap">
                 <span>{{ ws.url }}</span>
-                <span>{{ ws.vacancies_count }} vacancies</span>
+                <span>{{ ws.vacancies_count }} total</span>
+                <span class="{% if ws.vacancies_7d %}text-emerald-600{% endif %}">+{{ ws.vacancies_7d or 0 }} 7d</span>
+                {% if ws.avg_score is not none %}
+                  <span class="text-sky-400 font-mono font-medium">⌀{{ ws.avg_score }}</span>
+                {% endif %}
                 {% if ws.last_synced_at %}
                   <span>Synced: {{ ws.last_synced_at.strftime('%d %b %H:%M') if ws.last_synced_at else '—' }}</span>
                 {% endif %}
@@ -193,7 +200,7 @@
 
       <!-- Telegram channels list -->
       <div class="space-y-2" id="tgChannels">
-        {% for ch, vac_count in channels %}
+        {% for ch, vac_count, avg_score, vacancies_7d in channels %}
         <div id="ch-card-{{ ch.id }}"
              class="group card card-hover px-4 py-3 cursor-pointer"
              data-source-type="telegram"
@@ -228,12 +235,16 @@
                   <span class="badge badge-risk" style="border-radius:9999px;font-size:10px;padding:1px 6px">risk</span>
                 {% endif %}
               </div>
-              <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+              <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 flex-wrap">
                 {% if ch.username %}
                   <span>@{{ ch.username }}</span>
                 {% endif %}
                 <span>{{ ch.members_count|default('—', true) }} members</span>
-                <span>{{ vac_count or 0 }} vacancies</span>
+                <span>{{ vac_count or 0 }} total</span>
+                <span class="{% if vacancies_7d %}text-emerald-600{% endif %}">+{{ vacancies_7d or 0 }} 7d</span>
+                {% if avg_score is not none %}
+                  <span class="text-sky-400 font-mono font-medium">⌀{{ "%.1f"|format(avg_score|float) }}</span>
+                {% endif %}
               </div>
             </div>
 
@@ -270,63 +281,124 @@
     </div>
 
     <!-- Detail pane -->
-    <div id="chPane" class="hidden w-1/2 bg-base border border-white/[0.06] rounded-xl overflow-hidden flex-col min-h-0">
-      <div class="p-4 border-b border-white/[0.04] flex-none bg-base">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <div id="pIcon" class="w-10 h-10 rounded-lg flex items-center justify-center flex-none text-lg font-bold bg-emerald-900/30 text-emerald-400"></div>
-              <div class="min-w-0">
-                <div class="text-lg font-semibold truncate" id="pTitle">—</div>
-                <a id="pLink" class="text-xs text-slate-400 hover:text-blue-400 transition hidden" target="_blank" rel="noreferrer"></a>
+    <div id="chPane" class="hidden w-1/2 border border-white/[0.06] rounded-xl overflow-hidden flex-col min-h-0" style="background:#050507">
+
+      <!-- Hero header with blurred chart background -->
+      <div class="relative flex-none overflow-hidden" style="background:#08080e;min-height:130px">
+        <canvas id="pHeroBg" class="absolute inset-0 pointer-events-none" style="filter:blur(10px) saturate(1.4);opacity:0.45;transform:scale(1.08)"></canvas>
+        <div class="absolute inset-0 pointer-events-none" style="background:linear-gradient(180deg,rgba(8,8,14,0.3) 0%,rgba(8,8,14,0.96) 100%)"></div>
+        <div class="relative p-4 pb-0">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1 flex items-start gap-3">
+              <div id="pIcon" class="w-11 h-11 rounded-xl flex items-center justify-center flex-none text-lg font-bold bg-emerald-900/30 text-emerald-400 mt-0.5 shrink-0"></div>
+              <div class="min-w-0 flex-1">
+                <div class="text-base font-semibold leading-snug truncate" id="pTitle">—</div>
+                <a id="pLink" class="text-xs text-slate-400 hover:text-blue-400 transition hidden mt-0.5 block truncate" target="_blank" rel="noreferrer"></a>
               </div>
             </div>
-            <div class="mt-2 flex flex-wrap gap-1.5" id="pBadges"></div>
-            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500" id="pStats"></div>
+            <div class="flex items-center gap-1 flex-none">
+              <button type="button" id="paneSyncBtn" onclick="paneSyncAction()" title="Sync / Refresh" class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              </button>
+              <button type="button" id="paneFetchBtn" onclick="paneFetchAction()" title="Fetch last 5" class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost hidden">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
+              </button>
+              <button onclick="closePane()" class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
           </div>
-          <div class="flex items-center gap-1.5 flex-none">
-            <button type="button" id="paneSyncBtn" onclick="paneSyncAction()" title="Sync / Refresh"
-              class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost transition">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            </button>
-            <button type="button" id="paneFetchBtn" onclick="paneFetchAction()" title="Fetch last 5"
-              class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost transition hidden">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
-            </button>
-            <button class="w-8 h-8 flex items-center justify-center rounded-lg btn-ghost transition" onclick="closePane()">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
-          </div>
+          <div class="mt-2 flex flex-wrap gap-1.5" id="pBadges"></div>
+          <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500" id="pStats"></div>
+        </div>
+        <!-- Tabs inside hero bottom -->
+        <div class="flex px-1 mt-3 border-t border-white/[0.04]" style="position:relative">
+          <button id="pTabOv" onclick="switchPaneTab('overview')" class="pane-tab active">Overview</button>
+          <button id="pTabAn" onclick="switchPaneTab('analytics')" class="pane-tab">Analytics</button>
         </div>
       </div>
 
-      <!-- Pane body -->
-      <div class="p-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
-        <div id="secBio" class="card p-4 hidden">
-          <div class="text-sm font-semibold mb-2">Description</div>
-          <div class="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed" id="pBio"></div>
-        </div>
+      <!-- Tab bodies -->
+      <div class="flex-1 min-h-0 overflow-y-auto">
 
-        <div id="secTags" class="card p-4 hidden">
-          <div class="text-sm font-semibold mb-2">AI Tags</div>
-          <div class="flex flex-wrap gap-1.5" id="pTags"></div>
-        </div>
-
-        <!-- Sync result (web sources) -->
-        <div id="secSyncResult" class="card p-4 hidden">
-          <div class="text-sm font-semibold mb-2">Last sync result</div>
-          <div class="text-sm text-slate-300" id="pSyncResult"></div>
-        </div>
-
-        <div class="card p-4">
-          <div class="flex items-center justify-between mb-3">
-            <div class="text-sm font-semibold">Latest vacancies</div>
-            <span class="text-[11px] text-slate-500" id="pVacCount"></span>
+        <!-- Overview -->
+        <div id="pBodyOv" class="p-4 space-y-3">
+          <div id="secBio" class="card p-4 hidden">
+            <div class="text-sm font-semibold mb-2">Description</div>
+            <div class="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed" id="pBio"></div>
           </div>
-          <div class="space-y-1.5" id="pVacancies">
-            <div class="text-xs text-slate-500 text-center py-4">Loading...</div>
+          <div id="secTags" class="card p-4 hidden">
+            <div class="text-sm font-semibold mb-2">AI Tags</div>
+            <div class="flex flex-wrap gap-1.5" id="pTags"></div>
+          </div>
+          <div id="secSyncResult" class="card p-4 hidden">
+            <div class="text-sm font-semibold mb-2">Last sync result</div>
+            <div class="text-sm text-slate-300" id="pSyncResult"></div>
+          </div>
+          <div class="card p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="text-sm font-semibold">Latest vacancies</div>
+              <span class="text-[11px] text-slate-500" id="pVacCount"></span>
+            </div>
+            <div class="space-y-1.5" id="pVacancies">
+              <div class="text-xs text-slate-500 text-center py-4">Loading...</div>
+            </div>
           </div>
         </div>
+
+        <!-- Analytics -->
+        <div id="pBodyAn" class="hidden p-4 space-y-3">
+          <!-- KPI row -->
+          <div class="grid grid-cols-3 gap-2">
+            <div class="card p-3">
+              <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Total</div>
+              <div class="text-xl font-bold font-mono" id="aKpiTotal">—</div>
+            </div>
+            <div class="card p-3">
+              <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Last 7d</div>
+              <div class="text-xl font-bold font-mono text-emerald-400" id="aKpi7d">—</div>
+              <div class="text-[10px] mt-0.5 font-mono" id="aVelocity"></div>
+            </div>
+            <div class="card p-3">
+              <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Avg Score</div>
+              <div class="text-xl font-bold font-mono text-sky-400" id="aKpiScore">—</div>
+            </div>
+          </div>
+          <!-- Vacancies line chart -->
+          <div class="card p-4">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+              Vacancies per day <span class="text-slate-600 font-normal normal-case">30d</span>
+            </div>
+            <div class="overflow-hidden w-full" style="margin-top:10px">
+              <canvas id="aChartDaily" style="display:block;width:100%;height:140px;cursor:crosshair"></canvas>
+            </div>
+          </div>
+          <!-- Avg score line chart -->
+          <div class="card p-4">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-violet-500 inline-block"></span>
+              Avg score per day <span class="text-slate-600 font-normal normal-case">30d</span>
+            </div>
+            <div class="overflow-hidden w-full" style="margin-top:10px">
+              <canvas id="aChartScoreDay" style="display:block;width:100%;height:120px;cursor:crosshair"></canvas>
+            </div>
+          </div>
+          <!-- Score distribution + Top roles -->
+          <div class="grid grid-cols-2 gap-2">
+            <div class="card p-3">
+              <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Score dist.</div>
+              <div class="overflow-hidden w-full">
+                <canvas id="aChartScore" style="display:block;width:100%;height:64px"></canvas>
+              </div>
+            </div>
+            <div class="card p-3">
+              <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Top roles</div>
+              <div id="aTopRoles" class="space-y-1.5"></div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -517,6 +589,7 @@ async function openWebSourcePane(id) {
   openWebSourceId = id;
   openChannelId = null;
   currentPaneType = 'web';
+  _resetPane();
 
   // Highlight
   document.querySelectorAll('[id^="ch-card-"], [id^="ws-card-"]').forEach(el => {
@@ -550,6 +623,7 @@ async function openWebSourcePane(id) {
   link.textContent = ws.url;
   link.href = ws.url;
   link.classList.remove('hidden');
+  setTimeout(() => _drawHeroBg('web:' + ws.slug), 30);
 
   // Badges
   const badges = document.getElementById('pBadges');
@@ -623,6 +697,7 @@ async function openChannelPane(id) {
   openChannelId = id;
   openWebSourceId = null;
   currentPaneType = 'telegram';
+  _resetPane();
 
   document.querySelectorAll('[id^="ch-card-"], [id^="ws-card-"]').forEach(el => {
     el.classList.toggle('ring-1', el.id === 'ch-card-' + id);
@@ -677,6 +752,8 @@ async function openChannelPane(id) {
     <span>TG ID: <span class="text-slate-200">${tgIdStr}</span></span>
     <span>Added: <span class="text-slate-200">${createdStr}</span></span>
   `;
+
+  if (ch.username) setTimeout(() => _drawHeroBg(ch.username), 30);
 
   const bioEl = document.getElementById('pBio');
   const bioSec = document.getElementById('secBio');
@@ -762,5 +839,291 @@ try {
   const openId = new URLSearchParams(window.location.search).get('open_channel_id');
   if (openId) setTimeout(() => openChannelPane(parseInt(openId, 10)), 0);
 } catch {}
+
+// ── Sparkline data (30d, for hero bg) ──────────────────────────────────────
+const SPARKLINE_DATA = {{ sparkline_data | safe }};
+
+// ── Pane tabs ──────────────────────────────────────────────────────────────
+function switchPaneTab(tab) {
+  document.getElementById('pTabOv').classList.toggle('active', tab === 'overview');
+  document.getElementById('pTabAn').classList.toggle('active', tab === 'analytics');
+  document.getElementById('pBodyOv').classList.toggle('hidden', tab !== 'overview');
+  document.getElementById('pBodyAn').classList.toggle('hidden', tab !== 'analytics');
+  if (tab === 'analytics') _loadAnalytics();
+}
+
+// ── Analytics ──────────────────────────────────────────────────────────────
+let _analyticsKey = null;
+
+function _resetPane() {
+  _analyticsKey = null;
+  switchPaneTab('overview');
+  ['aKpiTotal','aKpi7d','aKpiScore','aVelocity'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = id === 'aVelocity' ? '' : '—';
+  });
+  document.getElementById('aTopRoles').innerHTML = '';
+}
+
+async function _loadAnalytics() {
+  let url, key;
+  if (currentPaneType === 'telegram' && openChannelId) { url = `/api/channels/${openChannelId}/analytics`; key = 'tg:'+openChannelId; }
+  else if (currentPaneType === 'web' && openWebSourceId) { url = `/api/web-sources/${openWebSourceId}/analytics`; key = 'web:'+openWebSourceId; }
+  else return;
+  if (_analyticsKey === key) return;
+  _analyticsKey = key;
+  document.getElementById('aKpiTotal').textContent = '…';
+  try {
+    const data = await fetch(url).then(r => r.json());
+    document.getElementById('aKpiTotal').textContent = (data.total ?? 0).toLocaleString();
+    document.getElementById('aKpi7d').textContent = (data.count_7d ?? 0).toLocaleString();
+    document.getElementById('aKpiScore').textContent = data.avg_score != null ? data.avg_score.toFixed(1) : '—';
+    // Velocity vs prev 7d
+    const vel = document.getElementById('aVelocity');
+    const prev = data.count_prev_7d ?? 0, cur = data.count_7d ?? 0;
+    if (prev > 0) {
+      const pct = Math.round((cur - prev) / prev * 100);
+      vel.textContent = (pct >= 0 ? '↑' : '↓') + Math.abs(pct) + '% vs prev 7d';
+      vel.className = 'text-[10px] mt-0.5 font-mono ' + (pct >= 0 ? 'text-emerald-500' : 'text-red-400');
+    } else { vel.textContent = ''; }
+    // Top roles
+    _renderTopRoles(data.top_roles || []);
+    setTimeout(() => {
+      _drawLineChart('aChartDaily', _days30(), data.daily||{}, {color:'rgba(16,185,129,1)', fill:'rgba(16,185,129,0.12)', padB:20, labelKey:'count', maxFallback:1});
+      _drawLineChart('aChartScoreDay', _days30(), data.daily_avg_score||{}, {color:'rgba(167,139,250,1)', fill:'rgba(167,139,250,0.1)', padB:20, yMin:0, yMax:10, labelKey:'score'});
+      _drawScoreDist('aChartScore', data.score_dist||{});
+    }, 40);
+  } catch(e) { document.getElementById('aKpiTotal').textContent = 'err'; console.error(e); }
+}
+
+function _days30() {
+  const today = new Date();
+  return Array.from({length:30}, (_,i) => { const d=new Date(today); d.setDate(d.getDate()-(29-i)); return d.toISOString().slice(0,10); });
+}
+
+// ── Canvas width helper ────────────────────────────────────────────────────
+function _cw(canvas) {
+  if (canvas.offsetWidth > 10) return canvas.offsetWidth;
+  const w = canvas.parentElement?.offsetWidth || 0;
+  if (w > 10) return w;
+  return 280;
+}
+
+// ── Generic line chart ─────────────────────────────────────────────────────
+const _chartMeta = {};
+
+function _drawLineChart(canvasId, days, dataMap, opts={}) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = _cw(canvas);
+  const h = parseInt(canvas.style.height) || 90;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0,0,w,h);
+  const values = days.map(d => dataMap[d] ?? null);
+  const defined = values.filter(v => v !== null);
+  if (!defined.length) {
+    ctx.fillStyle='rgba(100,116,139,0.3)'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('No data', w/2, h/2); return;
+  }
+  const rawMax = opts.yMax ?? Math.max(...defined, opts.maxFallback ?? 0);
+  const rawMin = opts.yMin ?? 0;
+  const range = rawMax - rawMin || 1;
+  const padB = opts.padB ?? 20, padT = 8, padL = 4, padR = 4;
+  const cw = w - padL - padR, ch = h - padT - padB;
+  const toY = v => padT + ch - ((v - rawMin) / range) * ch;
+  const step = cw / (days.length - 1);
+  // Grid lines
+  [0.25,0.5,0.75,1].forEach(f => {
+    const y = padT + ch * (1 - f); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+cw,y);
+    ctx.strokeStyle='rgba(255,255,255,0.04)'; ctx.lineWidth=1; ctx.stroke();
+  });
+  // Build path through defined points only (skip nulls)
+  const pts = days.map((d,i) => ({ x: padL + i*step, y: values[i] !== null ? toY(values[i]) : null }));
+  // Area fill
+  const agrad = ctx.createLinearGradient(0, padT, 0, padT+ch);
+  const fc = opts.fill || 'rgba(16,185,129,0.12)';
+  agrad.addColorStop(0, fc); agrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath();
+  let started = false;
+  pts.forEach((p, i) => {
+    if (p.y === null) return;
+    if (!started) { ctx.moveTo(p.x, p.y); started = true; }
+    else {
+      const prev = pts.slice(0,i).reverse().find(pp=>pp.y!==null);
+      if (prev) { const cpx = (prev.x+p.x)/2; ctx.bezierCurveTo(cpx,prev.y,cpx,p.y,p.x,p.y); }
+      else ctx.lineTo(p.x,p.y);
+    }
+  });
+  const lastDef = [...pts].reverse().find(p=>p.y!==null);
+  const firstDef = pts.find(p=>p.y!==null);
+  if (lastDef && firstDef) {
+    ctx.lineTo(lastDef.x, padT+ch); ctx.lineTo(firstDef.x, padT+ch); ctx.closePath();
+    ctx.fillStyle = agrad; ctx.fill();
+  }
+  // Line
+  ctx.beginPath(); started = false;
+  pts.forEach((p,i) => {
+    if (p.y === null) { started = false; return; }
+    if (!started) { ctx.moveTo(p.x,p.y); started=true; }
+    else {
+      const prev = pts.slice(0,i).reverse().find(pp=>pp.y!==null);
+      if (prev) { const cpx=(prev.x+p.x)/2; ctx.bezierCurveTo(cpx,prev.y,cpx,p.y,p.x,p.y); }
+      else ctx.lineTo(p.x,p.y);
+    }
+  });
+  ctx.strokeStyle = opts.color || 'rgba(16,185,129,1)'; ctx.lineWidth=1.5; ctx.stroke();
+  // Small dots on defined points
+  pts.forEach(p => {
+    if (p.y === null) return;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, Math.PI*2);
+    ctx.fillStyle = opts.color || 'rgba(16,185,129,1)'; ctx.fill();
+  });
+  // X axis labels
+  ctx.fillStyle='rgba(100,116,139,0.6)'; ctx.font='9px monospace'; ctx.textAlign='center';
+  [0, 14, 29].forEach(i => {
+    if (!days[i]) return;
+    const d = new Date(days[i]);
+    ctx.fillText(d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}), padL+i*step, h-4);
+  });
+  // Y max label
+  if (rawMax > 0) {
+    ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(100,116,139,0.45)';
+    ctx.fillText(opts.yMax ? rawMax.toFixed(0) : rawMax, padL+cw-2, padT+10);
+  }
+  // Hover crosshair overlay
+  const hi = opts._hoverIdx;
+  if (hi != null && pts[hi] && pts[hi].y !== null) {
+    const hx = pts[hi].x, hy = pts[hi].y;
+    // Vertical dashed line
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(hx, padT); ctx.lineTo(hx, padT+ch);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
+    ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+    // Larger dot
+    ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI*2);
+    ctx.fillStyle = opts.color || 'rgba(16,185,129,1)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // Tooltip
+    const val = values[hi];
+    const valStr = opts.yMax == 10 ? (val != null ? val.toFixed(1) : '—') : (val != null ? val.toFixed(0) : '—');
+    const dateStr = new Date(days[hi]).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+    const label = dateStr + '  ' + valStr;
+    ctx.font = 'bold 10px monospace';
+    const tw = ctx.measureText(label).width;
+    const tpw = tw + 12, tph = 20;
+    let tx = hx - tpw/2;
+    tx = Math.max(padL+2, Math.min(tx, padL+cw-tpw-2));
+    const ty = padT + 2;
+    ctx.fillStyle = 'rgba(15,20,30,0.85)';
+    if (ctx.roundRect) ctx.roundRect(tx, ty, tpw, tph, 4); else ctx.rect(tx, ty, tpw, tph);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'left';
+    ctx.fillText(label, tx+6, ty+13);
+  }
+  // Store meta + attach events once
+  _chartMeta[canvasId] = { days, dataMap, opts: {...opts, _hoverIdx: undefined} };
+  if (!canvas._hoverBound) {
+    canvas._hoverBound = true;
+    canvas.addEventListener('mousemove', e => {
+      const meta = _chartMeta[canvasId]; if (!meta) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const W = _cw(canvas);
+      const pL = 4, pR = 4;
+      const step2 = (W - pL - pR) / (meta.days.length - 1);
+      const idx = Math.max(0, Math.min(meta.days.length-1, Math.round((mx - pL) / step2)));
+      _drawLineChart(canvasId, meta.days, meta.dataMap, {...meta.opts, _hoverIdx: idx});
+    });
+    canvas.addEventListener('mouseleave', () => {
+      const meta = _chartMeta[canvasId]; if (!meta) return;
+      _drawLineChart(canvasId, meta.days, meta.dataMap, meta.opts);
+    });
+  }
+}
+
+// ── Score distribution (bar) ───────────────────────────────────────────────
+function _drawScoreDist(canvasId, scoreDist) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = _cw(canvas);
+  const h = 64;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0,0,w,h);
+  const buckets = Array.from({length:10}, (_,i) => ({ label: String(i), count: scoreDist[String(i)]||0 }));
+  const max = Math.max(...buckets.map(b=>b.count), 1);
+  const n = buckets.length, gap = 2, padB = 14;
+  const barW = (w - gap*(n-1)) / n, chartH = h - padB;
+  const colors = [
+    'rgba(239,68,68,0.65)','rgba(239,68,68,0.75)','rgba(234,179,8,0.6)','rgba(234,179,8,0.7)',
+    'rgba(59,130,246,0.6)','rgba(59,130,246,0.7)','rgba(59,130,246,0.8)',
+    'rgba(16,185,129,0.6)','rgba(16,185,129,0.75)','rgba(16,185,129,0.9)'
+  ];
+  buckets.forEach((b,i) => {
+    const bh = b.count > 0 ? Math.max(3, Math.round((b.count/max)*(chartH-3))) : 1;
+    const x = i*(barW+gap), y = chartH-bh;
+    ctx.fillStyle = colors[i];
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x,y,Math.max(1,barW-1),bh,2); else ctx.rect(x,y,Math.max(1,barW-1),bh);
+    ctx.fill();
+    ctx.fillStyle='rgba(100,116,139,0.5)'; ctx.font='8px monospace'; ctx.textAlign='center';
+    ctx.fillText(b.label, x+barW/2, h-2);
+  });
+}
+
+// ── Top roles ──────────────────────────────────────────────────────────────
+function _renderTopRoles(roles) {
+  const el = document.getElementById('aTopRoles');
+  if (!el) return;
+  if (!roles.length) { el.innerHTML = '<div class="text-[11px] text-slate-600">No data</div>'; return; }
+  const max = Math.max(...roles.map(r=>r.count), 1);
+  el.innerHTML = roles.map(r => {
+    const pct = Math.round(r.count/max*100);
+    return `<div>
+      <div class="flex items-center justify-between mb-0.5">
+        <span class="text-[10px] text-slate-300 truncate" style="max-width:80%">${esc(r.role)}</span>
+        <span class="text-[10px] text-slate-500 font-mono ml-1 shrink-0">${r.count}</span>
+      </div>
+      <div class="h-1 rounded-full bg-white/[0.05] overflow-hidden">
+        <div class="h-full rounded-full bg-emerald-500/60" style="width:${pct}%"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Hero blurred background ────────────────────────────────────────────────
+function _drawHeroBg(spKey) {
+  const canvas = document.getElementById('pHeroBg');
+  const hero = canvas.parentElement;
+  const w = hero.clientWidth || 400, h = hero.clientHeight || 130;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  canvas.style.width = w+'px'; canvas.style.height = h+'px';
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  const src = SPARKLINE_DATA[spKey] || {};
+  const today = new Date();
+  const days = Array.from({length:30},(_,i)=>{ const d=new Date(today); d.setDate(d.getDate()-(29-i)); return d.toISOString().slice(0,10); });
+  const counts = days.map(d=>src[d]||0);
+  const max = Math.max(...counts, 1); if (max===0) return;
+  const step = w/(days.length-1);
+  const pts = counts.map((v,i)=>({ x:i*step, y:h-(v/max)*h*0.82-h*0.06 }));
+  const grad=ctx.createLinearGradient(0,0,0,h);
+  grad.addColorStop(0,'rgba(16,185,129,0.8)'); grad.addColorStop(1,'rgba(16,185,129,0.0)');
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++){
+    const cx=(pts[i-1].x+pts[i].x)/2;
+    ctx.bezierCurveTo(cx,pts[i-1].y,cx,pts[i].y,pts[i].x,pts[i].y);
+  }
+  ctx.lineTo(pts[pts.length-1].x,h); ctx.lineTo(pts[0].x,h); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++){
+    const cx=(pts[i-1].x+pts[i].x)/2;
+    ctx.bezierCurveTo(cx,pts[i-1].y,cx,pts[i].y,pts[i].x,pts[i].y);
+  }
+  ctx.strokeStyle='rgba(16,185,129,0.85)'; ctx.lineWidth=2; ctx.stroke();
+}
 </script>
 {% endblock %}
