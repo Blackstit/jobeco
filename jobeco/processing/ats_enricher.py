@@ -46,6 +46,13 @@ _JSON_LD_RE = re.compile(
 _LEVER_RE = re.compile(r"jobs\.lever\.co/([^/]+)/([0-9a-f-]+)", re.I)
 _HIBOB_RE = re.compile(r"\.careers\.hibob\.com/", re.I)
 _WORKABLE_RE = re.compile(r"apply\.workable\.com/([^/]+)/j/([A-Za-z0-9]+)", re.I)
+_BOARDS_GH_RE = re.compile(
+    r"(?:boards|job-boards)\.greenhouse\.io/([^/?#\s]+)/jobs/(\d+)",
+    re.I,
+)
+_GH_JID_RE = re.compile(r"[?&]gh_jid=(\d+)", re.I)
+# embed format: job-boards.greenhouse.io/embed/job_app?token=<job_id>&for=<board_token>
+_GH_EMBED_RE = re.compile(r"greenhouse\.io/embed/job_app\?.*?token=(\d+).*?for=([^&\s]+)", re.I)
 
 
 def _html_to_text(html_str: str) -> str:
@@ -110,6 +117,72 @@ async def _fetch_lever_api(apply_url: str) -> str | None:
     result = "\n".join(parts).strip()
     if len(result) > 200:
         log.debug("ats_enriched_lever_api", url=apply_url, chars=len(result))
+        return result[:MAX_CHARS]
+    return None
+
+
+# ─── Greenhouse (JSON API) ───────────────────────────────────────────
+
+async def _fetch_greenhouse_api(apply_url: str) -> str | None:
+    """
+    Use Greenhouse public JSON API.
+    Handles both standard boards.greenhouse.io URLs and custom-domain
+    jobs that carry ?gh_jid=<id> (e.g. coinbase.com, binance.com).
+    """
+    m = _BOARDS_GH_RE.search(apply_url)
+    if m:
+        board_token, job_id = m.group(1), m.group(2)
+    else:
+        # Embed format: ?token=<job_id>&for=<board_token>
+        m_embed = _GH_EMBED_RE.search(apply_url)
+        if m_embed:
+            job_id, board_token = m_embed.group(1), m_embed.group(2)
+        else:
+            m_jid = _GH_JID_RE.search(apply_url)
+            if not m_jid:
+                return None
+            job_id = m_jid.group(1)
+            # Derive board token from the host: www.coinbase.com → coinbase
+            parsed = urlparse(apply_url)
+            host = (parsed.netloc or "").lower().lstrip("www.")
+            board_token = host.split(".")[0]
+            if not board_token:
+                return None
+
+    api_url = f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs/{job_id}"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, headers={
+            **_HEADERS, "accept": "application/json"
+        }) as client:
+            resp = await client.get(api_url)
+            if resp.status_code != 200:
+                log.debug("greenhouse_api_non200", url=api_url, status=resp.status_code)
+                return None
+            data = resp.json()
+    except Exception as exc:
+        log.debug("greenhouse_api_error", url=api_url, error=str(exc))
+        return None
+
+    parts = []
+    if data.get("title"):
+        parts.append(f"Position: {data['title']}")
+    if data.get("content"):
+        # Greenhouse returns content as HTML-entity-encoded HTML (e.g. &lt;div&gt;)
+        parts.append(_html_to_text(unescape(data["content"])))
+
+    meta_parts = []
+    loc = data.get("location", {})
+    if isinstance(loc, dict) and loc.get("name"):
+        meta_parts.append(f"Location: {loc['name']}")
+    for dept in data.get("departments", []):
+        if dept.get("name"):
+            meta_parts.append(f"Department: {dept['name']}")
+    if meta_parts:
+        parts.append("\n" + " | ".join(meta_parts))
+
+    result = "\n".join(parts).strip()
+    if len(result) > 200:
+        log.debug("ats_enriched_greenhouse_api", url=apply_url, chars=len(result))
         return result[:MAX_CHARS]
     return None
 
@@ -309,6 +382,12 @@ async def fetch_ats_description(apply_url: str) -> str | None:
     # ── Lever: use JSON API (fast, avoids 700KB+ HTML) ──
     if _LEVER_RE.search(apply_url):
         result = await _fetch_lever_api(apply_url)
+        if result:
+            return result
+
+    # ── Greenhouse: JSON API (standard + embed + custom domains with ?gh_jid=) ──
+    if _BOARDS_GH_RE.search(apply_url) or _GH_JID_RE.search(apply_url) or _GH_EMBED_RE.search(apply_url):
+        result = await _fetch_greenhouse_api(apply_url)
         if result:
             return result
 

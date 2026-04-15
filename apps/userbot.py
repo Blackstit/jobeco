@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from telethon import TelegramClient, events
 from telethon.tl.functions.channels import JoinChannelRequest, GetFullChannelRequest
 
@@ -69,56 +69,39 @@ async def main_async() -> None:
 
   await ensure_channels(client)
 
-  # Получаем список разрешённых каналов из БД
-  async def get_allowed_channels() -> set[int | str]:
-    """Возвращает set с tg_id и username разрешённых каналов."""
-    async with SessionLocal() as s:
-      channels = (await s.execute(select(Channel).where(Channel.enabled == True))).scalars().all()
-    allowed = set()
-    for ch in channels:
-      if ch.tg_id:
-        allowed.add(ch.tg_id)
-      if ch.username:
-        allowed.add(ch.username)
-    return allowed
-
-  allowed_channels = await get_allowed_channels()
-  log.info("allowed_channels_loaded", count=len(allowed_channels))
-
   @client.on(events.NewMessage())
   async def handler(event: events.NewMessage.Event) -> None:
     try:
-      # Проверяем, что сообщение из разрешённого канала
       chat = event.chat
       if not chat:
         return
-      
-      # Пропускаем личные чаты (проверяем, что это канал/группа)
-      # В Telethon: личные чаты имеют id > 0, каналы/группы имеют id < 0
+
       chat_id = getattr(chat, "id", None)
       chat_username = getattr(chat, "username", None)
-      
-      # Проверяем, что это канал (broadcast), а не группа
-      # В Telethon каналы имеют broadcast=True, а группы/чаты часто megagroup=True
+
       is_broadcast = getattr(chat, "broadcast", False)
       is_megagroup = getattr(chat, "megagroup", False)
       if not is_broadcast and not is_megagroup:
         return
-      
-      # Проверяем, что канал в списке разрешённых
-      is_allowed = False
+
+      # Проверяем enabled прямо в БД, чтобы отражать изменения из админки без перезапуска
+      conditions = []
       if chat_id:
-        # Telethon для каналов/групп часто использует id со знаком.
-        # В БД мы храним tg_id как положительное число, поэтому сравниваем и модуль.
-        if chat_id in allowed_channels or abs(chat_id) in allowed_channels:
-          is_allowed = True
-      if (not is_allowed) and chat_username and chat_username in allowed_channels:
-        is_allowed = True
-      
-      if not is_allowed:
+        conditions.append(Channel.tg_id == abs(chat_id))
+      if chat_username:
+        conditions.append(Channel.username == chat_username)
+      if not conditions:
+        return
+
+      async with SessionLocal() as s:
+        channel = (await s.execute(
+          select(Channel).where(Channel.enabled == True, or_(*conditions))
+        )).scalar_one_or_none()
+
+      if not channel:
         log.debug("message_skipped_not_allowed", chat_id=chat_id, username=chat_username)
         return
-      
+
       await process_message(event)
     except Exception as e:
       log.exception("process_message_failed", error=str(e))

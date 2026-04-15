@@ -7,7 +7,7 @@ import secrets
 
 from markupsafe import Markup
 
-from fastapi import FastAPI, Request, Query, Form, Depends, HTTPException, status, Header
+from fastapi import FastAPI, Request, Query, Form, Depends, HTTPException, status, Header, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,7 +21,7 @@ from jobeco.db.session import SessionLocal, engine
 from jobeco.db.models import Vacancy, Channel, SystemSettings, AdminUser, ApiKey, ApiKeyUsage, ParserLog, Company, WebSource, DocArticle
 from jobeco.settings import settings
 from jobeco.openrouter.client import categorize_channel, analyze_with_openrouter, embed_text, score_vacancy_with_openrouter, resolve_company_info, enrich_company_profile
-from jobeco.processing.pipeline import upsert_company, _boost_company_score, try_enrich_from_ats
+from jobeco.processing.pipeline import upsert_company, _boost_company_score, try_enrich_from_ats, _strip_channel_from_contacts
 from jobeco.processing.company_branding import pick_corporate_website
 from jobeco.processing.pipeline import process_text_message
 from jobeco.runtime_settings import (
@@ -712,7 +712,7 @@ def _vacancy_slug(title: str | None, company: str | None = None) -> str:
     return raw[:80] if raw else "vacancy"
 
 
-@app.get("/robots.txt", response_class=_PlainTextResponse)
+@app.api_route("/robots.txt", methods=["GET", "HEAD"], response_class=_PlainTextResponse)
 async def robots_txt():
     return _PlainTextResponse(
         "User-agent: *\n"
@@ -731,21 +731,26 @@ async def robots_txt():
         media_type="text/plain"
     )
 
-@app.get("/sitemap.xml", response_class=_PlainTextResponse)
+@app.api_route("/sitemap.xml", methods=["GET", "HEAD"], response_class=_PlainTextResponse)
 async def sitemap_xml():
-    urls = [
-        "/", "/vacancies", "/companies", "/analytics",
-        "/graph", "/docs", "/analytics/studio", "/about", "/blog",
+    static_urls = [
+        ("/", "daily", "1.0"),
+        ("/vacancies", "daily", "0.9"),
+        ("/companies", "weekly", "0.8"),
+        ("/analytics", "weekly", "0.7"),
+        ("/about", "monthly", "0.6"),
+        ("/blog", "weekly", "0.8"),
+        ("/docs/welcome", "monthly", "0.6"),
     ]
     items = []
-    for u in urls:
+    for u, freq, pri in static_urls:
         items.append(
             f"  <url><loc>https://hirelens.xyz{u}</loc>"
-            f"<changefreq>daily</changefreq><priority>0.8</priority></url>"
+            f"<changefreq>{freq}</changefreq><priority>{pri}</priority></url>"
         )
     # Add blog posts for SEO indexing
     for bp in BLOG_POSTS:
-        d = bp.published_at.strftime("%Y-%m-%d")
+        d = bp.published_at.strftime("%Y-%m-%dT00:00:00Z")
         items.append(
             f"  <url><loc>https://hirelens.xyz/blog/{bp.slug}</loc>"
             f"<lastmod>{d}</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>"
@@ -761,7 +766,7 @@ async def sitemap_xml():
         )).all()
         for vr in vac_rows:
           slug = _vacancy_slug(vr.title, vr.company_name)
-          lastmod = f"<lastmod>{vr.created_at.strftime('%Y-%m-%d')}</lastmod>" if vr.created_at else ""
+          lastmod = f"<lastmod>{vr.created_at.strftime('%Y-%m-%dT%H:%M:%SZ')}</lastmod>" if vr.created_at else ""
           items.append(
             f"  <url><loc>https://hirelens.xyz/vacancies/{slug}-{vr.id}</loc>"
             f"{lastmod}<changefreq>weekly</changefreq><priority>0.6</priority></url>"
@@ -779,7 +784,7 @@ async def sitemap_xml():
         )).all()
         for cr in comp_rows:
           slug = _vacancy_slug(cr.name)
-          lastmod = f"<lastmod>{cr.updated_at.strftime('%Y-%m-%d')}</lastmod>" if cr.updated_at else ""
+          lastmod = f"<lastmod>{cr.updated_at.strftime('%Y-%m-%dT%H:%M:%SZ')}</lastmod>" if cr.updated_at else ""
           items.append(
             f"  <url><loc>https://hirelens.xyz/companies/{slug}-{cr.id}</loc>"
             f"{lastmod}<changefreq>weekly</changefreq><priority>0.5</priority></url>"
@@ -2720,6 +2725,9 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
 
     old_meta = getattr(old, "metadata_json", {}) if old else {}
     old_meta = old_meta or {}
+    # Preserve all original contacts (apply URL, email, telegram) — never drop them on re-analysis
+    old_contacts = list(old.contacts or []) if old else []
+    old_source_url = (getattr(old, "source_url", None) or "") if old else ""
     new_meta = {
       **old_meta,
       **(analysis.get("metadata", {}) or {}),
@@ -2731,6 +2739,21 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
       "language_requirements": analysis.get("language_requirements"),
       "company_profile": company_profile if company_profile else None,
     }
+    merged_contacts = _enrich_contacts_with_forms(analysis.get("contacts") or [], text_raw)
+    _mc_lower = {c.lower() for c in merged_contacts}
+    # Merge old contacts (never drop apply URL, email, telegram handle)
+    for _c in old_contacts:
+      if _c and _c.lower() not in _mc_lower:
+        merged_contacts.append(_c)
+        _mc_lower.add(_c.lower())
+    # Also ensure source_url (ATS apply link) is always in contacts as last resort
+    if apply_url and apply_url.lower() not in _mc_lower:
+      merged_contacts.append(apply_url)
+    elif old_source_url and old_source_url.startswith("http") and old_source_url.lower() not in _mc_lower:
+      merged_contacts.append(old_source_url)
+    # Strip the source Telegram channel — it's the aggregator, not a recruiter contact
+    tg_chan = getattr(old, "tg_channel_username", None) if old else None
+    merged_contacts = _strip_channel_from_contacts(merged_contacts, tg_chan)
     await s.execute(
       update(Vacancy)
       .where(Vacancy.id == vacancy_id)
@@ -2750,7 +2773,7 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
         domains=vacancy_domains,
         risk_label=analysis.get("risk_label"),
         recruiter=analysis.get("recruiter"),
-        contacts=_enrich_contacts_with_forms(analysis.get("contacts") or [], text_raw),
+        contacts=merged_contacts,
         description=analysis.get("description"),
         responsibilities=analysis.get("responsibilities"),
         requirements=analysis.get("requirements"),
@@ -2766,6 +2789,67 @@ async def reanalyze_vacancy(vacancy_id: int, _: bool = Depends(require_auth)):
     await s.commit()
 
   return {"success": True}
+
+
+@app.post("/api/vacancies/bulk-reenrich")
+async def bulk_reenrich_vacancies(
+  background_tasks: BackgroundTasks,
+  _: bool = Depends(require_auth),
+  company_name: str | None = Query(None, description="Filter by company name (case-insensitive)"),
+  max_desc_len: int = Query(500, description="Re-enrich if description+responsibilities+requirements < N chars"),
+  limit: int = Query(100, le=500, description="Max vacancies to queue"),
+):
+  """
+  Find vacancies with short descriptions that have an apply URL, then queue them for re-analysis.
+  Designed to retroactively enrich aggregator-scraped vacancies (Coinbase, Binance, etc.)
+  that were stored with stub descriptions from the aggregator instead of the real ATS content.
+  """
+  import structlog as _slog
+  _log = _slog.get_logger()
+
+  async with SessionLocal() as s:
+    q = select(
+      Vacancy.id,
+      Vacancy.contacts,
+      Vacancy.description,
+      Vacancy.responsibilities,
+      Vacancy.requirements,
+    )
+    if company_name:
+      q = q.where(func.lower(Vacancy.company_name) == company_name.strip().lower())
+    # Over-fetch then filter by description length in Python
+    q = q.order_by(Vacancy.id.desc()).limit(limit * 10)
+    rows = (await s.execute(q)).all()
+
+  ids_to_process: list[int] = []
+  for row in rows:
+    desc_len = (
+      len(row.description or "")
+      + len(row.responsibilities or "")
+      + len(row.requirements or "")
+    )
+    if desc_len >= max_desc_len:
+      continue
+    has_url = any(
+      isinstance(c, str) and c.startswith("http")
+      for c in (row.contacts or [])
+    )
+    if not has_url:
+      continue
+    ids_to_process.append(row.id)
+    if len(ids_to_process) >= limit:
+      break
+
+  async def _process_all(ids: list[int]) -> None:
+    for vid in ids:
+      try:
+        await reanalyze_vacancy(vid, _=True)
+        _log.info("bulk_reenrich_ok", vacancy_id=vid)
+      except Exception as exc:
+        _log.warning("bulk_reenrich_failed", vacancy_id=vid, error=str(exc))
+
+  background_tasks.add_task(_process_all, ids_to_process)
+  return {"queued": len(ids_to_process), "ids": ids_to_process}
 
 
 @app.get("/channels", response_class=HTMLResponse)
@@ -4841,3 +4925,11 @@ async def docs_delete_article(request: Request, article_id: int, _: bool = Depen
         await s.execute(text("DELETE FROM doc_articles WHERE id = :id"), {"id": article_id})
         await s.commit()
     return {"ok": True}
+
+
+# FastAPI @app.get() doesn't automatically handle HEAD requests.
+# Patch all registered GET routes to also accept HEAD so Googlebot
+# and HTTP monitoring tools get proper 200 responses instead of 405.
+for _route in app.routes:
+    if hasattr(_route, "methods") and isinstance(_route.methods, set) and "GET" in _route.methods:
+        _route.methods.add("HEAD")

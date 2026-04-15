@@ -31,5 +31,6 @@ RUN pip install --no-cache-dir -U pip && \
       "uvicorn[standard]>=0.30,<1.0" \
       "jinja2>=3.1,<4.0" \
       "python-multipart>=0.0.9,<0.1" \
-      "itsdangerous>=2.1,<3.0"
+      "itsdangerous>=2.1,<3.0" \
+      "beautifulsoup4>=4.12,<5.0"
 

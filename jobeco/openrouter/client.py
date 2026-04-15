@@ -313,13 +313,14 @@ async def analyze_with_openrouter(text: str) -> dict:
     "  Output rules (anti-invention):\n"
     "  1) Use ONLY information that is explicitly present in the provided post text.\n"
     "  2) Do NOT invent missing responsibilities/requirements/conditions.\n"
-    "  3) Paraphrase is allowed, but it must stay faithful to the source text.\n"
-    "  4) If a list field is not supported by the text, return it as null.\n"
-    "  5) If you are unsure whether a bullet is supported, omit it.\n"
-    "  6) Prefer fewer, more accurate bullets over long fabricated lists.\n"
+    "  3) Translate faithfully — preserve ALL bullet points that exist in the source. Do NOT summarize or compress.\n"
+    "  4) If the post has multiple roles/positions, combine their requirements under clear sub-headings (e.g. '### Role Name').\n"
+    "  5) If a section is genuinely absent from the text, return null. But if bullets exist — include ALL of them.\n"
     "- contacts MUST include ALL ways to apply/respond: @username handles, emails, personal links,\n"
     "  AND application form URLs (Google Forms, Typeform, JotForm, etc.).\n"
-    "  EXCLUDE only: channel footer links, \"subscribe\" links, and generic channel usernames.\n"
+    "  EXCLUDE: channel self-promotion links, 'subscribe' links, and @usernames that are clearly\n"
+    "  the posting/aggregator channel (e.g. 'Blockchain Hunter: @name', 'Channel: @name',\n"
+    "  'Source: @name', 'Posted via @name'). Include ONLY direct recruiter/HR contacts.\n"
     "- company_website: if the post contains a URL to the company's own website or career page, extract it.\n"
     "  Do NOT guess/invent URLs. Only extract if explicitly present in the text.\n"
     "- company_linkedin: if the post contains a LinkedIn company/profile URL, extract it.\n"
@@ -405,7 +406,7 @@ async def analyze_with_openrouter(text: str) -> dict:
     ],
     "temperature": 0.2,
     # Keep token budget reasonable to avoid 402 errors on low balances.
-    "max_tokens": int(runtime.get("openrouter", {}).get("max_tokens_analyzer", 2500)),
+    "max_tokens": int(runtime.get("openrouter", {}).get("max_tokens_analyzer", 4000)),
   }
 
   async with httpx.AsyncClient(timeout=60) as client:
@@ -819,7 +820,9 @@ Rules for ai_tags:
     "- description/requirements/conditions/responsibilities must be English bullet-like text (can be plain paragraphs).\n"
     "- contacts MUST include ALL ways to apply/respond: @username handles, emails, personal links,\n"
     "  AND application form URLs (Google Forms, Typeform, JotForm, etc.).\n"
-    "  EXCLUDE only: channel footer links, \"subscribe\" links, and generic channel usernames.\n"
+    "  EXCLUDE: channel self-promotion links, 'subscribe' links, and @usernames that are clearly\n"
+    "  the posting/aggregator channel (e.g. 'Blockchain Hunter: @name', 'Channel: @name',\n"
+    "  'Source: @name', 'Posted via @name'). Include ONLY direct recruiter/HR contacts.\n"
     "- company_website: if the post contains a URL to the company's own website or career page, extract it.\n"
     "  Do NOT guess/invent URLs. Only extract if explicitly present in the text.\n"
     "- company_linkedin: if the post contains a LinkedIn company/profile URL, extract it.\n"

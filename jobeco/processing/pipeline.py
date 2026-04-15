@@ -28,7 +28,7 @@ async def try_enrich_from_ats(raw_text: str, apply_url: str | None) -> str:
   """
   if not apply_url or not apply_url.startswith("http"):
     return raw_text
-  if len(raw_text) > 2000:
+  if len(raw_text) > 3000:
     return raw_text
   try:
     ats_text = await fetch_ats_description(apply_url)
@@ -37,6 +37,9 @@ async def try_enrich_from_ats(raw_text: str, apply_url: str | None) -> str:
       split_full = "\nFull Job Description"
       enriched = raw_text.split(split_desc)[0].split(split_full)[0]
       enriched = enriched.rstrip() + "\n\nFull Job Description (from company ATS):\n" + ats_text
+      # Always keep apply_url visible so LLM extracts it into contacts
+      if apply_url and apply_url not in enriched:
+        enriched += f"\n\nApply: {apply_url}"
       log.info("ats_enriched_pipeline", url=apply_url[:80], original_len=len(raw_text), enriched_len=len(enriched))
       return enriched
   except Exception as exc:
@@ -81,6 +84,23 @@ _AGGREGATOR_DOMAINS = [
   "work.ua", "djinni.co", "jooble.org", "careerjet.com", "simplyhired.com",
   "ziprecruiter.com", "monster.com",
 ]
+
+
+def _strip_channel_from_contacts(contacts: list[str], channel_username: str | None) -> list[str]:
+  """Remove the source Telegram channel from contacts — it's not an apply contact."""
+  if not channel_username:
+    return contacts
+  slug = channel_username.lower().lstrip("@")
+  result = []
+  for c in contacts:
+    lc = (c or "").lower().lstrip("@")
+    # Drop exact @channel match or t.me/channel URLs
+    if lc == slug:
+      continue
+    if f"t.me/{slug}" in lc:
+      continue
+    result.append(c)
+  return result
 
 
 def _merge_entity_contacts(contacts: list[str], entity_urls: list[str]) -> list[str]:
@@ -608,9 +628,12 @@ async def process_message(event: events.NewMessage.Event) -> None:
     "domains": vacancy_domains,
     "risk_label": analysis.get("risk_label"),
     "recruiter": analysis.get("recruiter"),
-    "contacts": _merge_entity_contacts(
-      _enrich_contacts_with_forms(analysis.get("contacts") or [], text_raw),
-      _extracted_entity_contacts,
+    "contacts": _strip_channel_from_contacts(
+      _merge_entity_contacts(
+        _enrich_contacts_with_forms(analysis.get("contacts") or [], text_raw),
+        _extracted_entity_contacts,
+      ),
+      channel_username,
     ),
     "description": analysis.get("description"),
     "responsibilities": analysis.get("responsibilities"),

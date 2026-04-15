@@ -70,7 +70,7 @@ async def get_runtime_settings(ttl_seconds: int = 30) -> dict[str, Any]:
       "base_url": str(openrouter.get("base_url") or env_settings.openrouter_base_url or "https://openrouter.ai/api/v1"),
       "model_classifier": str(openrouter.get("model_classifier") or env_settings.openrouter_model_classifier),
       "model_analyzer": str(openrouter.get("model_analyzer") or env_settings.openrouter_model_analyzer),
-      "max_tokens_analyzer": int(openrouter.get("max_tokens_analyzer") or 2500),
+      "max_tokens_analyzer": int(openrouter.get("max_tokens_analyzer") or 4000),
     },
     "limits": {
       "prevalidate_max_chars": int(limits.get("prevalidate_max_chars") or 6000),
