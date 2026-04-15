@@ -34,9 +34,10 @@
 
 .vac-detail-pane { background:#08080e; border:1px solid rgba(255,255,255,.05); border-radius:14px; overflow:hidden; }
 .vac-detail-head { position:relative; overflow:hidden; border-bottom:1px solid rgba(255,255,255,.06); min-height:150px; }
-.vac-detail-head-inner { position:relative; padding:16px 16px 14px; }
-.vac-hero-canvas { position:absolute; inset:0; pointer-events:none; filter:blur(18px) saturate(1.5); opacity:0.5; transform:scale(1.1); }
-.vac-hero-overlay { position:absolute; inset:0; pointer-events:none; background:linear-gradient(160deg,rgba(8,8,14,0.1) 0%,rgba(8,8,14,0.88) 60%,rgba(8,8,14,0.98) 100%); }
+.vac-detail-head-inner { position:relative; z-index:3; padding:16px 16px 14px; }
+.vac-hero-canvas { position:absolute; inset:0; z-index:1; pointer-events:none; filter:blur(18px) saturate(1.5); opacity:0.5; transform:scale(1.1); }
+.vac-hero-overlay { position:absolute; inset:0; z-index:2; pointer-events:none; background:linear-gradient(180deg,rgba(8,8,14,0.52) 0%,rgba(8,8,14,0.88) 60%,rgba(8,8,14,0.98) 100%); }
+#pTitle { color:#fff; }
 .vac-head-btn { width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:8px; border:1px solid rgba(255,255,255,.08); background:rgba(8,8,14,0.5); color:#64748b; cursor:pointer; transition:all .15s; text-decoration:none; backdrop-filter:blur(4px); }
 .vac-head-btn:hover { border-color:rgba(255,255,255,.16); color:#94a3b8; background:rgba(255,255,255,0.05); }
 .vac-head-btn-danger { border-color:rgba(239,68,68,0.2); color:#f87171; }
@@ -344,7 +345,7 @@
       <div class="vac-detail-head-inner flex items-start gap-3">
         <img id="pLogo" src="" alt="" class="hidden w-11 h-11 rounded-lg bg-surface object-contain flex-none mt-0.5" style="box-shadow:0 0 0 1px rgba(255,255,255,.08)" onerror="this.classList.add('hidden')"/>
         <div class="min-w-0 flex-1">
-          <div class="text-base font-semibold leading-snug" id="pTitle">—</div>
+          <div class="text-base font-semibold leading-snug text-white" id="pTitle">—</div>
           <div class="text-sm text-slate-400 mt-1" id="pCompany"></div>
           <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500 mt-0.5 empty:hidden" id="pCompanyMeta"></div>
           <div class="mt-2 flex flex-wrap gap-1.5" id="pBadges"></div>

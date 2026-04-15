@@ -87,23 +87,25 @@
 
 .cp-head {
   position: sticky; top: 0; z-index: 2;
-  padding: 22px 22px 16px;
-  background: linear-gradient(180deg, rgba(6,182,212,.03), rgba(8,8,15,.97));
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  overflow: hidden;
+  min-height: 130px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
+.cp-head-canvas { position:absolute; inset:0; pointer-events:none; filter:blur(18px) saturate(1.5); opacity:0.45; transform:scale(1.1); }
+.cp-head-overlay { position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg,rgba(8,8,15,0.52) 0%,rgba(8,8,15,0.92) 60%,rgba(8,8,15,0.99) 100%); }
+.cp-head-inner { position:relative; padding: 20px 20px 14px; }
 .cp-close {
   width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 8px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(8,8,15,0.5);
+  border: 1px solid rgba(255,255,255,0.08);
   color: #64748b;
-  font-size: 14px;
   cursor: pointer;
   transition: all .15s;
+  backdrop-filter: blur(4px);
 }
-.cp-close:hover { background:rgba(255,255,255,.08); color:#e2e8f0; }
+.cp-close:hover { background:rgba(255,255,255,.05); border-color:rgba(255,255,255,.16); color:#94a3b8; }
 
 .cp-vac-card {
   padding: 12px 16px; border-radius: 10px;
@@ -293,16 +295,24 @@
 <!-- Detail pane -->
 <div class="comp-pane" id="compPane">
   <div class="cp-head">
-    <div class="flex items-start gap-3">
-      <img id="cpLogo" src="" alt="" class="hidden comp-avatar" style="width:48px;height:48px" onerror="this.classList.add('hidden')" />
-      <div id="cpAvatar" class="comp-avatar" style="width:48px;height:48px;font-size:20px"></div>
-      <div class="min-w-0 flex-1">
-        <div class="text-base font-semibold text-white" style="font-family:Rajdhani,sans-serif;font-size:18px" id="cpName">—</div>
-        <div class="text-xs text-slate-500 mt-0.5" id="cpIndustry"></div>
+    <canvas id="cpHeroBg" class="cp-head-canvas"></canvas>
+    <div class="cp-head-overlay"></div>
+    <div class="cp-head-inner">
+      <div class="flex items-start gap-3">
+        <img id="cpLogo" src="" alt="" class="hidden comp-avatar" style="width:48px;height:48px;box-shadow:0 0 0 1px rgba(255,255,255,.08)" onerror="this.classList.add('hidden')" />
+        <div id="cpAvatar" class="comp-avatar" style="width:48px;height:48px;font-size:20px"></div>
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold text-white" style="font-family:Rajdhani,sans-serif;font-size:18px;line-height:1.2" id="cpName">—</div>
+          <div class="text-xs text-slate-400 mt-0.5" id="cpIndustry"></div>
+        </div>
+        <button class="cp-close" onclick="closeCompanyPane()">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
       </div>
-      <button class="cp-close" onclick="closeCompanyPane()">&times;</button>
+      <div class="flex flex-wrap gap-1.5 mt-3" id="cpBadges"></div>
     </div>
-    <div class="flex flex-wrap gap-1.5 mt-3" id="cpBadges"></div>
   </div>
 
   <div id="cpSummarySection" class="cp-section hidden">
@@ -402,6 +412,7 @@ function renderPane(c) {
 
   document.getElementById('cpName').textContent = c.name || '—';
   document.getElementById('cpIndustry').textContent = c.industry || '';
+  setTimeout(() => _drawCompHeroBg(c.id), 20);
 
   const badges = document.getElementById('cpBadges');
   badges.innerHTML = '';
@@ -485,6 +496,48 @@ function renderPane(c) {
   } else {
     vacDiv.innerHTML = '<div class="text-xs text-slate-600">No vacancies</div>';
   }
+}
+
+function _drawCompHeroBg(compId) {
+  const canvas = document.getElementById('cpHeroBg');
+  if (!canvas) return;
+  const hero = canvas.parentElement;
+  const w = hero.clientWidth || 460, h = hero.clientHeight || 130;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  // Companies accent: cyan
+  const col = '6,182,212';
+  // Seeded PRNG
+  let seed = (compId || 1) * 2654435761;
+  const rng = () => { seed = (seed ^ (seed >>> 16)) * 0x45d9f3b | 0; seed = (seed ^ (seed >>> 16)); return (seed >>> 0) / 0x100000000; };
+  // Glow blobs
+  const g1 = ctx.createRadialGradient(w * 0.72, h * 0.15, 0, w * 0.72, h * 0.15, w * 0.55);
+  g1.addColorStop(0, `rgba(${col},0.6)`); g1.addColorStop(1, `rgba(${col},0)`);
+  ctx.fillStyle = g1; ctx.fillRect(0, 0, w, h);
+  const g2 = ctx.createRadialGradient(w * 0.1, h * 0.8, 0, w * 0.1, h * 0.8, w * 0.3);
+  g2.addColorStop(0, `rgba(${col},0.3)`); g2.addColorStop(1, `rgba(${col},0)`);
+  ctx.fillStyle = g2; ctx.fillRect(0, 0, w, h);
+  // Network nodes
+  const nodes = Array.from({length: 10}, () => ({ x: rng() * w, y: rng() * h }));
+  ctx.lineWidth = 0.8;
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < w * 0.38) {
+        ctx.globalAlpha = (1 - dist / (w * 0.38)) * 0.4;
+        ctx.strokeStyle = `rgb(${col})`;
+        ctx.beginPath(); ctx.moveTo(nodes[i].x, nodes[i].y); ctx.lineTo(nodes[j].x, nodes[j].y); ctx.stroke();
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+  nodes.forEach(n => {
+    ctx.beginPath(); ctx.arc(n.x, n.y, 1.8, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${col},0.6)`; ctx.fill();
+  });
 }
 
 function metaRow(label, value) {
