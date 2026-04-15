@@ -186,7 +186,14 @@ fetch('/api/vacancies/' + vacancyId)
     const compEl = document.getElementById('vpCompany');
     compEl.innerHTML = '';
     if (v.company_name) {
-      const s=document.createElement('span'); s.className='font-medium text-slate-200'; s.textContent=v.company_name; compEl.appendChild(s);
+      const compId = comp ? comp.id : (v.company_id || null);
+      const compSlug = slugify(v.company_name, null);
+      const compHref = compId ? `/companies/${compSlug}-${compId}` : null;
+      if (compHref) {
+        const a=document.createElement('a'); a.href=compHref; a.className='font-medium text-slate-200 hover:underline hover:text-white transition'; a.textContent=v.company_name; compEl.appendChild(a);
+      } else {
+        const s=document.createElement('span'); s.className='font-medium text-slate-200'; s.textContent=v.company_name; compEl.appendChild(s);
+      }
     }
     const links=[];
     if(comp&&comp.website) links.push({label:'Website',url:comp.website});

@@ -280,7 +280,12 @@
                 </span>
               {% endif %}
               {% endif %}
+              {% set _co_url = company_url(v.company_name, v.company_id) %}
+              {% if _co_url %}
+              <a href="{{ _co_url }}" class="hover:underline hover:text-white transition" onclick="event.stopPropagation()">{{ v.company_name }}</a>
+              {% else %}
               <span>{{ v.company_name or "" }}</span>
+              {% endif %}
               {% if is_admin %}
               {% if v.tg_channel_username %}<span>· @{{ v.tg_channel_username }}</span>{% endif %}
               {% if v.source_channel and v.source_channel.startswith('web:') %}<span>· {{ v.source_channel[4:] }}</span>{% endif %}
@@ -698,10 +703,21 @@ async function openVacancyPane(id, skipPush) {
   const pCompanyEl = document.getElementById("pCompany");
   pCompanyEl.innerHTML = "";
   if (v.company_name) {
-    const nameSpan = document.createElement("span");
-    nameSpan.className = "font-medium";
-    nameSpan.textContent = v.company_name;
-    pCompanyEl.appendChild(nameSpan);
+    const compId = comp ? comp.id : (v.company_id || null);
+    const compSlug = _slugify(v.company_name, null);
+    const compHref = compId ? `/companies/${compSlug}-${compId}` : null;
+    if (compHref) {
+      const nameLink = document.createElement("a");
+      nameLink.href = compHref;
+      nameLink.className = "font-medium hover:underline hover:text-white transition";
+      nameLink.textContent = v.company_name;
+      pCompanyEl.appendChild(nameLink);
+    } else {
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "font-medium";
+      nameSpan.textContent = v.company_name;
+      pCompanyEl.appendChild(nameSpan);
+    }
   }
   // Collect company links — only from enrichment (companies table), not from vacancy contacts
   const companyLinks = [];

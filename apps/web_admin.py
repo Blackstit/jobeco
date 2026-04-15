@@ -108,6 +108,9 @@ _session_secret = settings.session_secret_key or settings.openrouter_api_key or 
 app.add_middleware(SessionMiddleware, secret_key=_session_secret)
 
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["company_url"] = lambda name, cid: (
+    f"/companies/{_vacancy_slug(name or 'company')}-{cid}" if cid else ""
+)
 
 from starlette.staticfiles import StaticFiles
 import os as _os
