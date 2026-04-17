@@ -56,6 +56,10 @@
   border-color: rgba(6,182,212,0.30);
   box-shadow: 0 0 20px rgba(6,182,212,0.06), 0 0 0 1px rgba(6,182,212,0.12);
 }
+/* Invisible SEO-link overlay: gives Googlebot a real <a href> to discover
+   company pages from the list. pointer-events:none so the existing card
+   onclick (open side panel) is not blocked and the UX stays identical. */
+.comp-card-seolink { position:absolute; inset:0; z-index:0; opacity:0; pointer-events:none; }
 .comp-card.selected::before { opacity: 1; }
 
 .comp-avatar {
@@ -224,7 +228,11 @@
 <div class="comp-grid" id="compGrid">
   {% for c in companies %}
   <div class="comp-card" data-id="{{ c.id }}" onclick="openCompanyPane({{ c.id }})">
-    <div class="flex items-start gap-3">
+    <a class="comp-card-seolink"
+       href="{{ company_url(c.name, c.id) }}"
+       aria-hidden="true"
+       tabindex="-1">{{ c.name }}{% if c.industry %} — {{ c.industry }}{% endif %}</a>
+    <div class="flex items-start gap-3" style="position:relative;z-index:1">
       {% if c.logo_url %}
       <img src="{{ c.logo_url }}" alt="" class="comp-avatar" style="object-fit:contain" onerror="this.style.display='none'" />
       {% else %}

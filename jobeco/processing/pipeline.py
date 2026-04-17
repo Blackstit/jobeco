@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy import text
@@ -9,6 +9,8 @@ from telethon import events
 
 from jobeco.db.session import SessionLocal
 from jobeco.db.models import Vacancy, ParserLog, Company
+
+COMPANY_CACHE_TTL_DAYS = 90
 from jobeco.openrouter.client import analyze_with_openrouter, embed_text, prevalidate_post, score_vacancy_with_openrouter, resolve_company_info, enrich_company_profile
 from jobeco.settings import settings
 from jobeco.runtime_settings import get_runtime_settings
@@ -169,6 +171,64 @@ _INDUSTRY_TO_DOMAIN_SUMMARY = {
   "layer 2": "l1l2", "layer 1": "l1l2", "rollup": "l1l2", "zk-rollup": "l1l2", "optimistic rollup": "l1l2",
   "artificial intelligence": "ai", "machine learning": "ai",
 }
+
+
+async def get_cached_company_profile(
+  company_name: str | None,
+  *,
+  max_age_days: int | None = None,
+) -> dict | None:
+  """
+  Return an existing company's profile in the same shape as enrich_company_profile(),
+  or None if we should call Perplexity (no row / stale / missing core fields / cache disabled).
+
+  Reads `company_cache.enabled` and `company_cache.ttl_days` from runtime settings,
+  so the cache can be tuned or disabled live from the admin UI.
+  """
+  if not company_name or len(company_name.strip()) < 2:
+    return None
+
+  runtime = await get_runtime_settings()
+  cache_cfg = runtime.get("company_cache") or {}
+  if not cache_cfg.get("enabled", True):
+    return None
+  if max_age_days is None:
+    max_age_days = int(cache_cfg.get("ttl_days", COMPANY_CACHE_TTL_DAYS))
+
+  name_lc = company_name.strip().lower()
+  try:
+    async with SessionLocal() as s:
+      from sqlalchemy import select
+      row = (await s.execute(select(Company).where(Company.name_lower == name_lc))).scalar_one_or_none()
+  except Exception:
+    log.exception("company_cache_lookup_failed", company=company_name)
+    return None
+
+  if not row:
+    return None
+  # Need at least the two most useful fields to consider cache usable.
+  if not row.summary or not row.industry:
+    return None
+  # TTL: re-enrich if last update is too old, so we can pick up new socials/size/etc.
+  if row.updated_at is not None:
+    now = datetime.now(timezone.utc)
+    try:
+      age = now - row.updated_at
+    except TypeError:
+      age = now - row.updated_at.replace(tzinfo=timezone.utc)
+    if age > timedelta(days=max_age_days):
+      return None
+
+  return {
+    "summary": row.summary,
+    "industry": row.industry,
+    "size": row.size,
+    "founded": row.founded,
+    "website": row.website,
+    "headquarters": row.headquarters,
+    "socials": row.socials or {},
+    "logo_url": row.logo_url,
+  }
 
 
 async def upsert_company(
@@ -561,13 +621,24 @@ async def process_message(event: events.NewMessage.Event) -> None:
   ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
 
   company_profile = {}
-  try:
-    company_profile = await enrich_company_profile(
-      company_name=analysis.get("company_name"),
-      company_url=company_info.get("company_url"),
+  cached_profile = await get_cached_company_profile(analysis.get("company_name"))
+  if cached_profile is not None:
+    company_profile = cached_profile
+    await persist_parser_log(
+      level="INFO",
+      event="company_cache_hit",
+      message_en=f"Company profile served from cache: {analysis.get('company_name')}",
+      channel_username=channel_username,
+      tg_message_id=msg_id,
     )
-  except Exception:
-    log.warning("company_profile_enrichment_failed", company=analysis.get("company_name"))
+  else:
+    try:
+      company_profile = await enrich_company_profile(
+        company_name=analysis.get("company_name"),
+        company_url=company_info.get("company_url"),
+      )
+    except Exception:
+      log.warning("company_profile_enrichment_failed", company=analysis.get("company_name"))
 
   # Adjust company_profile criterion in scoring if enrichment found data
   scoring = _boost_company_score(scoring, company_profile, company_info)
@@ -741,13 +812,24 @@ async def process_text_message(
   ai_score_value_0_10 = max(0, min(10, ai_score_value_0_10))
 
   company_profile = {}
-  try:
-    company_profile = await enrich_company_profile(
-      company_name=analysis.get("company_name"),
-      company_url=company_info.get("company_url"),
+  cached_profile = await get_cached_company_profile(analysis.get("company_name"))
+  if cached_profile is not None:
+    company_profile = cached_profile
+    await persist_parser_log(
+      level="INFO",
+      event="company_cache_hit",
+      message_en=f"Company profile served from cache: {analysis.get('company_name')}",
+      channel_username=tg_channel_username,
+      tg_message_id=tg_message_id,
     )
-  except Exception:
-    pass
+  else:
+    try:
+      company_profile = await enrich_company_profile(
+        company_name=analysis.get("company_name"),
+        company_url=company_info.get("company_url"),
+      )
+    except Exception:
+      pass
 
   scoring = _boost_company_score(scoring, company_profile, company_info)
   total_score = scoring.get("total_score")

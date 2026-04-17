@@ -16,17 +16,28 @@
 {
   "@context": "https://schema.org",
   "@type": "JobPosting",
-  "title": {{ seo.vacancy_title | tojson }},
-  "datePosted": {{ seo.created_at | tojson }},
-  {% if seo.company_name %}"hiringOrganization": {
+  "title": {{ (seo.vacancy_title or "Vacancy") | tojson }},
+  {% if seo.created_at %}"datePosted": {{ seo.created_at | tojson }},{% endif %}
+  {% if seo.valid_through %}"validThrough": {{ seo.valid_through | tojson }},{% endif %}
+  {% if seo.employment_type_schema %}"employmentType": {{ seo.employment_type_schema | tojson }},{% endif %}
+  "hiringOrganization": {
     "@type": "Organization",
-    "name": {{ seo.company_name | tojson }}{% if seo.logo_url %},
+    "name": {{ (seo.company_name or "Unknown") | tojson }}{% if seo.company_website %},
+    "sameAs": {{ seo.company_website | tojson }}{% endif %}{% if seo.logo_url %},
     "logo": {{ seo.logo_url | tojson }}{% endif %}
-  },{% endif %}
-  {% if seo.location_type %}"jobLocationType": "{{ seo.location_type | upper }}",{% endif %}
+  },
+  {% if seo.country_city and seo.location_type and seo.location_type|lower != 'remote' %}
+  "jobLocation": {
+    "@type": "Place",
+    "address": { "@type": "PostalAddress", "addressLocality": {{ seo.country_city | tojson }} }
+  },
+  {% else %}
+  "jobLocationType": "TELECOMMUTE",
+  "applicantLocationRequirements": { "@type": "Country", "name": "Anywhere" },
+  {% endif %}
   {% if seo.salary_min or seo.salary_max %}"baseSalary": {
     "@type": "MonetaryAmount",
-    "currency": "USD",
+    "currency": {{ (seo.currency or "USD") | tojson }},
     "value": {
       "@type": "QuantitativeValue",
       {% if seo.salary_min %}"minValue": {{ seo.salary_min }},{% endif %}
@@ -34,53 +45,157 @@
       "unitText": "YEAR"
     }
   },{% endif %}
-  "description": {{ seo.description | tojson }}
+  {% if seo.apply_url %}"directApply": false,
+  "url": {{ seo.apply_url | tojson }},{% endif %}
+  {% if seo.stack %}"skills": {{ (seo.stack | join(', ')) | tojson }},{% endif %}
+  "description": {{ (seo.full_description or seo.description) | tojson }}
 }
 </script>
 {% endblock %}
 
 {% block extra_css %}
-.vac-seo-noscript {
-  max-width:700px; margin:40px auto; padding:24px;
-  background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:14px;
-}
-.vac-seo-noscript h1 { font-family:'Rajdhani','Outfit',sans-serif; font-size:22px; font-weight:700; color:#fff; margin-bottom:8px; }
-.vac-seo-noscript .meta { font-size:13px; color:#64748b; margin-bottom:12px; }
-.vac-seo-noscript .desc { font-size:14px; color:#94a3b8; line-height:1.6; }
-.vac-seo-noscript .chips { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
-.vac-seo-noscript .chip { font-size:11px; padding:3px 10px; border-radius:6px; background:rgba(16,185,129,.1); color:#6ee7b7; border:1px solid rgba(16,185,129,.15); }
-.vac-seo-spinner { width:32px; height:32px; border:3px solid rgba(255,255,255,.08); border-top-color:#10b981; border-radius:50%; animation:spin .6s linear infinite; }
-@keyframes spin { to { transform:rotate(360deg); } }
+.vd-wrap { max-width: 820px; margin: 0 auto; padding-bottom: 64px; }
+.vd-back { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#475569; text-decoration:none; transition:color .15s; margin-bottom:20px; }
+.vd-back:hover { color:#94a3b8; }
+.vd-card { background:#08080e; border:1px solid rgba(255,255,255,.05); border-radius:14px; overflow:hidden; margin-bottom:12px; }
+.vd-head { padding:22px 24px; border-bottom:1px solid rgba(255,255,255,.04); background:linear-gradient(180deg,rgba(16,185,129,.03),transparent); }
+.vd-title { font-family:'Rajdhani','Outfit',sans-serif; font-size:24px; font-weight:700; color:#fff; line-height:1.2; letter-spacing:-.01em; }
+.vd-meta { font-size:13px; color:#64748b; margin-top:8px; display:flex; flex-wrap:wrap; gap:4px 14px; }
+.vd-meta a { color:#94a3b8; text-decoration:none; transition:color .15s; }
+.vd-meta a:hover { color:#e2e8f0; }
+.vd-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.vd-chip { font-size:11px; padding:4px 10px; border-radius:6px; background:rgba(16,185,129,.08); color:#6ee7b7; border:1px solid rgba(16,185,129,.15); font-weight:500; }
+.vd-chip.neutral { background:rgba(255,255,255,.03); color:#94a3b8; border-color:rgba(255,255,255,.05); }
+.vd-chip.risk { background:rgba(239,68,68,.08); color:#fca5a5; border-color:rgba(239,68,68,.18); }
+.vd-sec { background:#0b0b10; border:1px solid rgba(255,255,255,.04); border-radius:10px; padding:16px 18px; margin-bottom:10px; }
+.vd-sec-title { font-family:'Rajdhani',sans-serif; font-size:12px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; }
+.vd-sec-body { font-size:14px; color:#cbd5e1; line-height:1.65; white-space:pre-wrap; }
+.vd-apply { display:inline-flex; align-items:center; gap:6px; padding:10px 18px; background:#10b981; color:#042f24; border-radius:10px; font-size:13px; font-weight:600; text-decoration:none; transition:all .15s; }
+.vd-apply:hover { background:#6ee7b7; }
+.vd-score-row { display:flex; gap:18px; padding:16px 24px; border-top:1px solid rgba(255,255,255,.04); align-items:flex-start; }
+.vd-score-ring { flex:none; width:60px; height:60px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; font-family:'Rajdhani',sans-serif; font-size:18px; }
+.vd-score-ring.high { background:linear-gradient(135deg,#10b981,#059669); }
+.vd-score-ring.mid { background:linear-gradient(135deg,#f59e0b,#d97706); }
+.vd-score-ring.low { background:linear-gradient(135deg,#ef4444,#b91c1c); }
+.vd-red-flags { margin-top:8px; display:flex; flex-wrap:wrap; gap:4px; }
 {% endblock %}
 
 {% block content %}
-<noscript>
-<div class="vac-seo-noscript">
-  <h1>{{ seo.vacancy_title or 'Vacancy' }}</h1>
-  <div class="meta">
-    {% if seo.company_name %}{{ seo.company_name }}{% endif %}
-    {% if seo.location_type %} &middot; {{ seo.location_type }}{% endif %}
-    {% if seo.seniority %} &middot; {{ seo.seniority }}{% endif %}
-    {% if seo.salary_min or seo.salary_max %} &middot; ${{ seo.salary_min or '?' }}&ndash;${{ seo.salary_max or '?' }} USD{% endif %}
-  </div>
-  <div class="chips">
-    {% for d in seo.domains %}<span class="chip">{{ d }}</span>{% endfor %}
-    {% for sk in seo.stack[:8] %}<span class="chip">{{ sk }}</span>{% endfor %}
-  </div>
-  <div class="desc">{{ seo.description }}</div>
-  <p style="margin-top:16px"><a href="/vacancies" style="color:#10b981">&larr; All vacancies</a></p>
-</div>
-</noscript>
+<div class="vd-wrap">
+  <a href="/vacancies" class="vd-back">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+    All vacancies
+  </a>
 
-<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:16px" id="seoLoading">
-  <div class="vac-seo-spinner"></div>
-  <span style="color:#475569;font-size:13px">Loading vacancy...</span>
-</div>
+  <article class="vd-card">
+    <div class="vd-head">
+      <div class="flex items-start gap-4">
+        {% if seo.logo_url %}
+        <img src="{{ seo.logo_url }}" alt="{{ seo.company_name or '' }}"
+             class="w-14 h-14 rounded-xl bg-surface object-contain flex-none"
+             onerror="this.style.display='none'"/>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <h1 class="vd-title">{{ seo.vacancy_title or 'Vacancy' }}</h1>
+          <div class="vd-meta">
+            {% if seo.company_name %}<span>{{ seo.company_name }}</span>{% endif %}
+            {% if seo.location_type %}<span>· {{ seo.location_type }}</span>{% endif %}
+            {% if seo.country_city %}<span>· {{ seo.country_city }}</span>{% endif %}
+            {% if seo.seniority %}<span>· {{ seo.seniority }}</span>{% endif %}
+            {% if seo.employment_type %}<span>· {{ seo.employment_type }}</span>{% endif %}
+            {% if seo.salary_min or seo.salary_max %}
+              <span>· ${{ seo.salary_min or '?' }}&ndash;${{ seo.salary_max or '?' }} {{ seo.currency or 'USD' }}</span>
+            {% endif %}
+          </div>
 
-<script>
-(function() {
-  var id = {{ vacancy_id }};
-  window.location.replace('/vacancies?open=' + id);
-})();
-</script>
+          {% if seo.domains or seo.stack %}
+          <div class="vd-chips">
+            {% for d in seo.domains %}<span class="vd-chip">{{ d }}</span>{% endfor %}
+            {% for sk in seo.stack[:12] %}<span class="vd-chip neutral">{{ sk }}</span>{% endfor %}
+          </div>
+          {% endif %}
+        </div>
+
+        {% if seo.apply_url %}
+        <a href="{{ seo.apply_url }}" target="_blank" rel="noopener nofollow"
+           class="vd-apply flex-none hidden md:inline-flex">
+          Apply
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% set _ts = seo.get('total_score') %}
+    {% if _ts is not none and _ts != '' %}
+    <div class="vd-score-row">
+      <div class="vd-score-ring {% if _ts|float >= 7 %}high{% elif _ts|float >= 4 %}mid{% else %}low{% endif %}">
+        {{ (_ts|float)|round(1) }}
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-semibold text-slate-200 mb-1">AI Score</div>
+        {% if seo.overall_summary %}
+        <div class="text-xs text-slate-400 leading-relaxed">{{ seo.overall_summary }}</div>
+        {% endif %}
+        {% if seo.red_flags %}
+        <div class="vd-red-flags">
+          {% for rf in seo.red_flags %}<span class="vd-chip risk">{{ rf }}</span>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </article>
+
+  {% if seo.full_description %}
+  <section class="vd-sec">
+    <div class="vd-sec-title">Job description</div>
+    <div class="vd-sec-body">{{ seo.full_description }}</div>
+  </section>
+  {% endif %}
+
+  {% if seo.responsibilities %}
+  <section class="vd-sec">
+    <div class="vd-sec-title">Responsibilities</div>
+    <div class="vd-sec-body">{{ seo.responsibilities }}</div>
+  </section>
+  {% endif %}
+
+  {% if seo.requirements %}
+  <section class="vd-sec">
+    <div class="vd-sec-title">Requirements</div>
+    <div class="vd-sec-body">{{ seo.requirements }}</div>
+  </section>
+  {% endif %}
+
+  {% if seo.conditions %}
+  <section class="vd-sec">
+    <div class="vd-sec-title">Conditions</div>
+    <div class="vd-sec-body">{{ seo.conditions }}</div>
+  </section>
+  {% endif %}
+
+  {% if seo.company_summary %}
+  <section class="vd-sec">
+    <div class="vd-sec-title">About {{ seo.company_name or 'the company' }}</div>
+    <div class="vd-sec-body">{{ seo.company_summary }}</div>
+    <div class="vd-meta" style="margin-top:10px">
+      {% if seo.company_industry %}<span>{{ seo.company_industry }}</span>{% endif %}
+      {% if seo.company_size %}<span>· {{ seo.company_size }}</span>{% endif %}
+      {% if seo.company_headquarters %}<span>· {{ seo.company_headquarters }}</span>{% endif %}
+      {% if seo.company_founded %}<span>· Founded {{ seo.company_founded }}</span>{% endif %}
+      {% if seo.company_website %}<span>· <a href="{{ seo.company_website }}" target="_blank" rel="noopener">{{ seo.company_website }}</a></span>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if seo.apply_url %}
+  <div style="margin-top:18px; text-align:center">
+    <a href="{{ seo.apply_url }}" target="_blank" rel="noopener nofollow" class="vd-apply">
+      Apply to this role
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+    </a>
+  </div>
+  {% endif %}
+</div>
 {% endblock %}

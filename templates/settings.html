@@ -68,6 +68,46 @@
         />
       </div>
 
+      <div class="pt-4 border-t border-slate-800">
+        <div class="text-sm font-semibold mb-1">Company cache (Perplexity enrichment)</div>
+        <div class="text-xs text-slate-400 mb-3">
+          Если компания уже есть в БД с summary и industry — отдаём её профиль из кэша вместо вызова Perplexity.
+          Экономит ~$3–5 за каждые 1000 постов с повторяющимися компаниями.
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="flex items-center gap-3 pt-2">
+            <input
+              id="company_cache_enabled"
+              name="company_cache_enabled"
+              value="true"
+              type="checkbox"
+              class="w-4 h-4"
+              {% if runtime.company_cache.enabled %}checked{% endif %}
+            />
+            <label for="company_cache_enabled" class="text-sm text-slate-200">
+              Использовать кэш компаний
+            </label>
+          </div>
+
+          <div>
+            <label class="text-sm text-slate-200">TTL (дней)</label>
+            <input
+              name="company_cache_ttl_days"
+              type="number"
+              min="0"
+              step="1"
+              required
+              value="{{ runtime.company_cache.ttl_days }}"
+              class="mt-2 w-full px-4 py-2 input-dark text-sm"
+            />
+            <div class="text-xs text-slate-500 mt-1">
+              Через сколько дней считать профиль устаревшим и повторно обогащать через Perplexity. 0 = всегда обогащать.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="pt-2">
         <button type="submit" class="px-5 py-2 btn-accent text-sm">
           Сохранить

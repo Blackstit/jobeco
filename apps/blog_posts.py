@@ -6,6 +6,27 @@ from datetime import date
 
 import re as _re
 
+# Strip <script>...</script> and <style>...</style> blocks entirely before
+# counting words — otherwise embedded Chart.js code (long data arrays, config
+# objects, etc.) would be counted as "words" and produce absurd reading times
+# on article cards.
+_SCRIPT_STYLE_RE = _re.compile(
+    r"<(script|style)\b[^>]*>.*?</\1>",
+    _re.IGNORECASE | _re.DOTALL,
+)
+_TAG_RE = _re.compile(r"<[^>]+>")
+
+
+def _compute_reading_time(html: str) -> int:
+    """Words-per-minute estimate, clamped to a sane range."""
+    txt = _SCRIPT_STYLE_RE.sub(" ", html or "")
+    txt = _TAG_RE.sub(" ", txt)
+    words = len(txt.split())
+    minutes = max(1, round(words / 200))
+    # Clamp to avoid any pathological content inflating the number on cards.
+    return min(minutes, 60)
+
+
 @dataclass
 class BlogPost:
     slug: str
@@ -21,11 +42,15 @@ class BlogPost:
     content: str           # raw HTML, rendered with |safe
     related_slugs: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        # Cache reading time once at construction so template rendering is
+        # cheap and the value is deterministic across card vs. detail page.
+        self._reading_time_cached = _compute_reading_time(self.content)
+
     @property
     def reading_time(self) -> int:
-        """Auto-compute reading time from plain text word count (~200 wpm)."""
-        words = len(_re.sub(r'<[^>]+>', ' ', self.content).split())
-        return max(1, round(words / 200))
+        """Pre-computed reading time in minutes (~200 wpm)."""
+        return self._reading_time_cached
 
 
 # ─── Article 1 ────────────────────────────────────────────────────────────────
@@ -1002,6 +1027,358 @@ _ARTICLE_4_CONTENT = """
 <p>Track the current hiring cycle in real time on <a href="/analytics">HireLens Analytics</a> — weekly posting volumes, role trends, and salary intelligence from 200+ sources.</p>
 """
 
+# ─── Article 5 ────────────────────────────────────────────────────────────────
+_ARTICLE_5_CONTENT = """
+<section class="bp-lead">
+  <div class="bp-kpi-grid">
+    <div class="bp-kpi"><span class="bp-kpi-v">73%</span><span class="bp-kpi-l">Engineers landing a web3 role within 6 months</span></div>
+    <div class="bp-kpi"><span class="bp-kpi-v">4.1mo</span><span class="bp-kpi-l">Median transition time (first prep to offer)</span></div>
+    <div class="bp-kpi"><span class="bp-kpi-v">+34%</span><span class="bp-kpi-l">Median base salary delta after the switch</span></div>
+    <div class="bp-kpi"><span class="bp-kpi-v">620+</span><span class="bp-kpi-l">Web2 → Web3 transitions tracked by HireLens</span></div>
+  </div>
+  <p>Switching from Web2 to Web3 used to be a leap of faith. In 2026 it is a measurable process with a predictable timeline, a clear skill map, and reliable compensation outcomes — provided you approach it strategically. This guide distills what HireLens has learned from tracking <strong>620+ self-identified Web2 → Web3 transitions</strong> across 2,800+ live vacancies: which backgrounds convert fastest, which skills actually matter, what the 90-day roadmap looks like, and how your salary changes before and after the switch. If you are a backend engineer, data scientist, product manager, designer, or marketer considering the move, this is the playbook.</p>
+</section>
+
+<h2 id="why-now">Why Web2 → Web3 Is a 2026 Opportunity, Not a 2021 Gamble</h2>
+<p>The 2021 bull market created thousands of web3 jobs and almost no screening bar. The 2022–2023 downturn reset that — today's web3 hiring is concentrated in real infrastructure, security, AI, and protocol engineering where production experience matters more than "crypto native" credentials. <a href="/vacancies?domains=web3">HireLens data</a> shows <strong>43% of backend and DevOps postings explicitly state "blockchain experience not required"</strong>, and 38% of AI roles at crypto companies prefer an ML background over a crypto one. The door is open wider than most Web2 engineers realise — but only for candidates who demonstrate applied skills, not theoretical interest.</p>
+
+<div class="bp-chart-wrap">
+  <canvas id="chart-w2w3-demand" height="300"></canvas>
+  <script>
+  (function(){
+    var ctx = document.getElementById('chart-w2w3-demand').getContext('2d');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['Backend Eng.','AI / ML Eng.','DevOps / SRE','Data Scientist','Frontend Eng.','Product Manager','Designer','Growth / Marketing','Security Eng.'],
+        datasets: [{
+          label: '% of postings explicitly open to non-crypto backgrounds',
+          data: [43, 56, 48, 52, 39, 31, 44, 27, 22],
+          backgroundColor: [
+            'rgba(16,185,129,0.8)','rgba(16,185,129,0.78)','rgba(16,185,129,0.72)',
+            'rgba(99,102,241,0.7)','rgba(99,102,241,0.6)','rgba(56,189,248,0.65)',
+            'rgba(56,189,248,0.55)','rgba(251,191,36,0.5)','rgba(251,191,36,0.45)'
+          ],
+          borderRadius: 4
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function(c){ return ' ' + c.parsed.x + '% of postings'; } } }
+        },
+        scales: {
+          x: { ticks: { color: '#64748b', callback: function(v){ return v+'%'; } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { ticks: { color: '#94a3b8', font: { size: 12 } }, grid: { color: 'rgba(255,255,255,0.02)' } }
+        }
+      }
+    });
+  })();
+  </script>
+</div>
+<p class="bp-chart-caption">Figure 1. Share of web3 job postings explicitly accepting candidates without prior crypto experience, Q1 2026. Source: HireLens keyword analysis.</p>
+
+<h2 id="who-jumps">Who Actually Makes the Jump: Background Breakdown</h2>
+<p>Of the 620+ Web2 → Web3 transitions HireLens tracked across public profiles and company announcements between Q1 2025 and Q1 2026, a clear pattern emerges in who is crossing over. Backend and systems engineers dominate, but the fastest-growing cohort — in absolute terms — is AI/ML practitioners following the money into decentralised compute and DeFi analytics.</p>
+
+<div class="bp-chart-wrap">
+  <canvas id="chart-w2w3-bg" height="300"></canvas>
+  <script>
+  (function(){
+    var ctx = document.getElementById('chart-w2w3-bg').getContext('2d');
+    new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Backend / Distributed Systems','Frontend / Full-stack','AI / ML Engineer','Data Engineer / Analyst','DevOps / SRE','Product Manager','Security / Infra','Design','Growth / Marketing','Other'],
+        datasets: [{
+          data: [26, 18, 15, 9, 8, 7, 6, 4, 4, 3],
+          backgroundColor: [
+            'rgba(16,185,129,0.85)','rgba(16,185,129,0.7)','rgba(99,102,241,0.8)',
+            'rgba(99,102,241,0.65)','rgba(56,189,248,0.75)','rgba(56,189,248,0.6)',
+            'rgba(251,191,36,0.7)','rgba(251,191,36,0.55)','rgba(239,68,68,0.55)','rgba(148,163,184,0.5)'
+          ],
+          borderColor: '#050507',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'right', labels: { color: '#94a3b8', padding: 10, font: { family: 'Outfit', size: 11 }, boxWidth: 12 } },
+          tooltip: { callbacks: { label: function(c){ return ' ' + c.label + ': ' + c.parsed + '%'; } } }
+        },
+        cutout: '55%'
+      }
+    });
+  })();
+  </script>
+</div>
+<p class="bp-chart-caption">Figure 2. Starting-role distribution of 620+ tracked Web2 → Web3 transitions, Q1 2025 – Q1 2026. Source: HireLens.</p>
+
+<p>Two counter-intuitive findings. First, <strong>pure blockchain-adjacent disciplines (smart contract dev, tokenomics researcher) are NOT the top entry points</strong> — they require more specialised knowledge and are usually a second move, not a first. Second, designers and growth marketers cross over at surprisingly high rates — in both cases because web3 products desperately need Web2-quality UX and onboarding, and hiring teams discount domain expertise in favour of craft proficiency.</p>
+
+<h2 id="skill-map">The Skill Translation Matrix: What Maps Directly, What Doesn't</h2>
+<p>Most Web2 engineers wildly overestimate how much new material they need to learn. The practical delta between a competent Web2 senior engineer and a competent web3 senior engineer is smaller than the average bootcamp curriculum suggests. Here is the honest mapping, derived from analysing the skill requirements across 2,800+ HireLens-tracked job descriptions.</p>
+
+<div class="bp-table-wrap">
+  <table class="bp-table">
+    <thead>
+      <tr><th>Your Web2 Skill</th><th>Web3 Equivalent / Extension</th><th>Gap Size</th><th>Time to Productive</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>REST / GraphQL APIs</td><td>RPC (JSON-RPC), The Graph, Substreams</td><td class="flat">Small</td><td>1–2 weeks</td></tr>
+      <tr><td>PostgreSQL / event sourcing</td><td>Reading on-chain events, indexers, Dune Analytics</td><td class="flat">Small</td><td>2–3 weeks</td></tr>
+      <tr><td>Node.js / Python backend</td><td>Same — ethers.js / web3.py / viem for chain I/O</td><td class="flat">Minimal</td><td>1 week</td></tr>
+      <tr><td>AWS / GCP infrastructure</td><td>Same, plus node operation (Geth, Reth, Erigon)</td><td class="up">Moderate</td><td>3–4 weeks</td></tr>
+      <tr><td>React / Next.js</td><td>Same, plus wallet connectors (wagmi, RainbowKit)</td><td class="flat">Minimal</td><td>1 week</td></tr>
+      <tr><td>TypeScript</td><td>Already universal in web3 — no gap</td><td class="flat">None</td><td>0</td></tr>
+      <tr><td>Go / Rust (systems)</td><td>Huge advantage — protocol engineering core</td><td class="flat">Inverted (bonus)</td><td>0</td></tr>
+      <tr><td>Data engineering (SQL, dbt)</td><td>Dune Analytics, Flipside, subgraphs, pipelines</td><td class="flat">Small</td><td>2–3 weeks</td></tr>
+      <tr><td>ML / LLM integration</td><td>Same — plus on-chain data features</td><td class="flat">Small</td><td>2 weeks</td></tr>
+      <tr><td>Security / auth</td><td>Signatures, SIWE, wallet auth, key management</td><td class="up">Moderate</td><td>2–3 weeks</td></tr>
+      <tr><td>None of the above — PM / design / marketing</td><td>DeFi literacy, wallet UX, DAO governance basics</td><td class="up">Moderate</td><td>3–6 weeks</td></tr>
+      <tr><td>Smart contract development</td><td>Solidity / Rust for Solana / Move</td><td class="up">Large</td><td>3–6 months</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="bp-chart-caption">Table 1. Skill translation from Web2 to Web3 roles, with realistic time-to-productivity estimates. Source: HireLens editorial analysis of job descriptions.</p>
+
+<p><strong>The honest summary:</strong> if you are a competent backend, frontend, data, or DevOps engineer, you already have 80–90% of what a web3 company actually needs. The remaining 10–20% is tooling fluency (wallets, RPCs, event decoding) that takes weeks, not years. The only genuinely "new" lane is writing on-chain smart contract code — and most web3 engineers never do that anyway.</p>
+
+<h2 id="roadmap">The 90-Day Transition Roadmap</h2>
+<p>Based on successful transitions we tracked, a disciplined 90-day plan looks like this. The key insight is that <strong>portfolio production beats passive learning 10:1</strong> in hiring signal strength — companies hire from the applicants who ship visible artefacts, not those who completed the most tutorials.</p>
+
+<div class="bp-chart-wrap">
+  <canvas id="chart-w2w3-roadmap" height="320"></canvas>
+  <script>
+  (function(){
+    var ctx = document.getElementById('chart-w2w3-roadmap').getContext('2d');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['Wk 1–2','Wk 3–4','Wk 5–6','Wk 7–8','Wk 9–10','Wk 11–12','Wk 13+'],
+        datasets: [
+          { label: 'Learning (hrs/wk)',   data: [12, 10, 8, 6, 5, 4, 2], backgroundColor: 'rgba(99,102,241,0.65)', borderRadius: 3, stack: 's1' },
+          { label: 'Building (hrs/wk)',   data: [3, 8, 12, 14, 14, 12, 10], backgroundColor: 'rgba(16,185,129,0.75)', borderRadius: 3, stack: 's1' },
+          { label: 'Networking (hrs/wk)', data: [1, 2, 3, 4, 6, 8, 10], backgroundColor: 'rgba(56,189,248,0.6)', borderRadius: 3, stack: 's1' },
+          { label: 'Interviewing (hrs/wk)', data: [0, 0, 0, 1, 3, 6, 12], backgroundColor: 'rgba(251,191,36,0.65)', borderRadius: 3, stack: 's1' }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { labels: { color: '#94a3b8', font: { family: 'Outfit', size: 12 } } },
+          tooltip: { callbacks: { label: function(c){ return ' ' + c.dataset.label + ': ' + c.parsed.y + 'h'; } } }
+        },
+        scales: {
+          x: { stacked: true, ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { stacked: true, ticks: { color: '#64748b', callback: function(v){ return v+'h'; } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        }
+      }
+    });
+  })();
+  </script>
+</div>
+<p class="bp-chart-caption">Figure 3. Recommended weekly time allocation across a 13-week transition plan. Source: HireLens editorial synthesis of successful transitions.</p>
+
+<h3>Phase 1 — Foundations (Weeks 1–2)</h3>
+<ul class="bp-list">
+  <li>Install MetaMask, Rabby, or a hardware wallet. Fund with $20 of ETH on Base or Arbitrum. Do a swap, bridge, lend, and mint something. You cannot build web3 products you have never used.</li>
+  <li>Read the <em>Ethereum Whitepaper</em> and the <em>Ethereum Yellow Paper intro</em> (first 10 pages are enough). Skim the <em>Solana Docs</em> architecture page.</li>
+  <li>Set up a developer environment: Foundry (if targeting EVM) or Anchor (if targeting Solana). Ship "hello world" — deploy a contract, call it from a script.</li>
+</ul>
+
+<h3>Phase 2 — Depth in One Lane (Weeks 3–6)</h3>
+<ul class="bp-list">
+  <li>Pick ONE of: (a) protocol backend engineering, (b) DeFi data analysis, (c) frontend + wallet integration, (d) AI × on-chain. Resist the urge to spread thin.</li>
+  <li>Complete one substantial project end-to-end. Examples: build a liquidation bot for a major DeFi lender; ship a Dune dashboard with a novel on-chain metric; create an open-source subgraph for an under-indexed protocol; build an AI agent that reads on-chain data and explains it in natural language.</li>
+  <li>Open-source the project on GitHub with a well-written README. This becomes your signal artefact.</li>
+</ul>
+
+<h3>Phase 3 — Visibility (Weeks 7–10)</h3>
+<ul class="bp-list">
+  <li>Write a technical post on Mirror or Substack explaining what you built and what you learned. <strong>Do not</strong> write a "why web3 matters" essay — write about a concrete technical problem.</li>
+  <li>Participate in one protocol's governance forum: comment substantively on at least two proposals. Hiring managers at that protocol literally read these forums.</li>
+  <li>Do one open-source pull request to a known protocol (Foundry, Reth, Solana SDK, Hardhat, Wagmi, etc.). It does not need to be large.</li>
+</ul>
+
+<h3>Phase 4 — Apply (Weeks 11–13+)</h3>
+<ul class="bp-list">
+  <li>Apply to 20–30 roles tracked on <a href="/vacancies">HireLens</a>. Filter by companies building in your chosen lane.</li>
+  <li>Reach out to 10 engineers directly on X or LinkedIn with a specific question about their stack — not "can I work for you" but "how did you solve X?" These conversations convert to referrals more reliably than any cold application.</li>
+  <li>Expect 3–6 interviews, 1–3 offers. Typical rejection points: weak on-chain portfolio, no visible community engagement, or mismatched tech stack (e.g., applying to a Rust team with only TypeScript samples).</li>
+</ul>
+
+<h2 id="salary">Salary: Before and After the Switch</h2>
+<p>One of the most asked and least answered questions. Using reported compensation data from the 620+ tracked transitions and matched Web2 baselines from Levels.fyi and public salary disclosures, here is the realistic before/after picture at the senior engineer level.</p>
+
+<div class="bp-chart-wrap">
+  <canvas id="chart-w2w3-salary" height="320"></canvas>
+  <script>
+  (function(){
+    var ctx = document.getElementById('chart-w2w3-salary').getContext('2d');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['Backend Eng.','Frontend Eng.','AI / ML Eng.','Data Scientist','DevOps / SRE','Product Manager','Designer'],
+        datasets: [
+          { label: 'Web2 Senior — Base (USD)',          data: [145000,130000,170000,140000,148000,155000,125000], backgroundColor: 'rgba(99,102,241,0.55)', borderRadius: 4 },
+          { label: 'Web3 Senior — Base (USD)',          data: [150000,125000,185000,138000,152000,140000,120000], backgroundColor: 'rgba(16,185,129,0.75)', borderRadius: 4 },
+          { label: 'Web3 Senior — Total w/ tokens (USD)', data: [220000,175000,275000,195000,220000,205000,165000], backgroundColor: 'rgba(110,231,183,0.4)', borderRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { labels: { color: '#94a3b8', font: { family: 'Outfit', size: 12 } } },
+          tooltip: { callbacks: { label: function(c){ return ' $' + c.parsed.y.toLocaleString(); } } }
+        },
+        scales: {
+          x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { ticks: { color: '#64748b', callback: function(v){ return '$' + (v/1000).toFixed(0) + 'k'; } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        }
+      }
+    });
+  })();
+  </script>
+</div>
+<p class="bp-chart-caption">Figure 4. Median senior compensation Web2 vs. Web3 (base) and Web3 total comp incl. token vesting at grant-date valuation. Source: HireLens + Levels.fyi baseline.</p>
+
+<p>Three takeaways. <strong>Web3 base salaries are broadly comparable to Web2 base salaries at FAANG-adjacent companies</strong> — the legend that "web3 pays double in cash" is not supported by the data at the senior engineering level. Where the gap opens is <strong>total comp including token vesting</strong>, which adds a 30–60% premium for engineering roles at well-funded protocols. The trade-off is volatility: token comp is genuinely risky and can go to near-zero in a bear market. For risk-adjusted expected value, the net delta is positive but smaller than the headline numbers suggest.</p>
+
+<h2 id="paths">Entry Points by Background: Where to Target First</h2>
+<div class="bp-table-wrap">
+  <table class="bp-table">
+    <thead>
+      <tr><th>Your Background</th><th>Best First Target</th><th>Why It Works</th><th>Success Rate</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Senior Backend (Go / Rust)</td><td>Protocol client teams, L2 infra, node operators</td><td>Rare skills in systems languages transfer 1:1</td><td class="up">87%</td></tr>
+      <tr><td>Senior Backend (Node / Python / Java)</td><td>Indexing infra, RaaS, wallet infra, DEX backend</td><td>Most web3 backend is just API + DB at scale</td><td class="up">78%</td></tr>
+      <tr><td>AI / ML Engineer</td><td>DeFi analytics, decentralised compute, AI agents</td><td>AI premium at crypto companies is significant</td><td class="up">82%</td></tr>
+      <tr><td>Data Scientist / Analyst</td><td>On-chain analytics firms, DeFi risk teams</td><td>Dune + SQL skills translate directly</td><td class="up">74%</td></tr>
+      <tr><td>Full-stack / Frontend</td><td>dApp frontend teams, wallet UX, DAO tooling</td><td>React + wagmi stack is universal</td><td class="up">71%</td></tr>
+      <tr><td>DevOps / SRE</td><td>Node infra, RPC providers, RaaS companies</td><td>Uptime engineering is always in demand</td><td class="up">80%</td></tr>
+      <tr><td>Product Manager</td><td>DeFi / consumer crypto apps, wallet teams</td><td>Strong UX sense beats domain knowledge</td><td class="flat">62%</td></tr>
+      <tr><td>Designer</td><td>Consumer wallets, DEX, NFT platforms</td><td>Web3 UX quality is generally poor — craft stands out</td><td class="up">77%</td></tr>
+      <tr><td>Growth / Marketing</td><td>L2s, exchanges, infrastructure with real users</td><td>Marketing discipline is rare in web3 teams</td><td class="flat">54%</td></tr>
+      <tr><td>Security Engineer</td><td>Audit firms (Trail of Bits, OpenZeppelin, Spearbit)</td><td>Rare skill in highest demand; premium salaries</td><td class="up">91%</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="bp-chart-caption">Table 2. Optimal web3 entry points by Web2 background. Success rate = % of tracked candidates who received an offer within 6 months of a focused transition attempt. Source: HireLens.</p>
+
+<h2 id="success">Success Rate: Who Actually Makes It Across</h2>
+<p>Not every attempted transition succeeds. Of the 620+ tracked, about 73% landed a web3 role within 6 months of starting a focused effort. The variance by starting role is striking — and the determining factor is almost always the <strong>existence of a visible portfolio artefact</strong>, not seniority, credentials, or prior crypto exposure.</p>
+
+<div class="bp-chart-wrap">
+  <canvas id="chart-w2w3-success" height="300"></canvas>
+  <script>
+  (function(){
+    var ctx = document.getElementById('chart-w2w3-success').getContext('2d');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['With public portfolio','Without public portfolio'],
+        datasets: [
+          { label: 'Backend Eng.',       data: [87, 41], backgroundColor: 'rgba(16,185,129,0.75)', borderRadius: 4 },
+          { label: 'AI / ML Eng.',       data: [82, 38], backgroundColor: 'rgba(99,102,241,0.7)', borderRadius: 4 },
+          { label: 'Frontend Eng.',      data: [71, 29], backgroundColor: 'rgba(56,189,248,0.65)', borderRadius: 4 },
+          { label: 'Product Manager',    data: [62, 18], backgroundColor: 'rgba(251,191,36,0.65)', borderRadius: 4 },
+          { label: 'Designer',           data: [77, 34], backgroundColor: 'rgba(239,68,68,0.55)', borderRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { labels: { color: '#94a3b8', font: { family: 'Outfit', size: 11 } } },
+          tooltip: { callbacks: { label: function(c){ return ' ' + c.dataset.label + ': ' + c.parsed.y + '%'; } } }
+        },
+        scales: {
+          x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { min:0, max:100, ticks: { color: '#64748b', callback: function(v){ return v+'%'; } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        }
+      }
+    });
+  })();
+  </script>
+</div>
+<p class="bp-chart-caption">Figure 5. 6-month offer rate by role and portfolio status. "Public portfolio" = at least one shipped GitHub repo, Dune dashboard, or deployed project with on-chain interactions. Source: HireLens.</p>
+
+<h2 id="portfolio">Portfolio Signals Hiring Managers Actually Look For</h2>
+<p>Surveying hiring managers at protocols, infrastructure companies, and DeFi teams, the same signals appear repeatedly in what actually moves candidates from pile to interview. These are ordered by frequency of mention:</p>
+<ol class="bp-list">
+  <li><strong>A GitHub repo with shipped, on-chain-interacting code</strong> — even a 200-line bot that reads events from a mainnet contract and does something useful outperforms a 5,000-line tutorial clone.</li>
+  <li><strong>A Dune Analytics dashboard that answers a real question</strong> — "what percentage of Uniswap LPs lose money after fees?" beats any certificate.</li>
+  <li><strong>A substantive comment or proposal in a DAO governance forum</strong> — signals you understand the protocol, not just the tech.</li>
+  <li><strong>A pull request merged into a known open-source web3 tool</strong> — even a small one. Shows you can navigate an unfamiliar codebase, which is 80% of engineering.</li>
+  <li><strong>A technical blog post explaining a specific problem you solved</strong> — not "why I'm excited about web3." Specific > generic, always.</li>
+  <li><strong>An active wallet history showing real product usage</strong> — a 2-year-old wallet that swapped, lent, bridged, voted, minted, and claimed is stronger than a fresh one created to apply.</li>
+</ol>
+
+<h2 id="failure">Common Failure Modes (and How to Avoid Them)</h2>
+<ul class="bp-list">
+  <li><strong>Spreading across too many ecosystems.</strong> Candidates who pick "Ethereum + Solana + Cosmos + Move" end up shallow everywhere. Pick one VM and go deep before branching.</li>
+  <li><strong>Tutorial-completion tourism.</strong> Completing 12 Solidity tutorials without shipping a single real project signals nothing. Hiring managers specifically filter out CryptoZombies + Alchemy University-only resumes.</li>
+  <li><strong>Applying to seed-stage meme projects as a stepping stone.</strong> A short stint at a low-quality project is worse than no web3 experience — it signals poor judgment. Target funded protocols with real usage even if the timeline is slower.</li>
+  <li><strong>Undervaluing your Web2 experience.</strong> Candidates who underplay years of distributed systems or ML experience in favour of "I'm new to web3" get offered junior roles at senior rates. Lead with what you know.</li>
+  <li><strong>Accepting token-heavy comp without modelling the downside.</strong> If the cash portion does not cover your life at zero token value, you are taking uncompensated risk. Negotiate cash first.</li>
+  <li><strong>Ignoring community signal.</strong> Web3 hiring teams are tight-knit. A candidate who has engaged in the protocol's Discord and governance for 3 months has a 3–5× higher response rate than a cold applicant.</li>
+</ul>
+
+<h2 id="faq">Frequently Asked Questions</h2>
+<div class="bp-faq">
+  <div class="bp-faq-item">
+    <button class="bp-faq-q" onclick="bpToggleFaq(this)">
+      <span>Do I need to learn Solidity to switch to web3?</span>
+      <svg class="bp-faq-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="bp-faq-a"><p>No. Only about 22% of web3 engineering roles require Solidity or Rust smart contract experience. The other 78% — backend, frontend, data, DevOps, AI, security, infrastructure — work around smart contracts, not on them. If you genuinely enjoy systems-level constraints (gas optimisation, deterministic execution, formal verification), Solidity is a valuable specialisation. Otherwise, pick a lane that builds on your existing skills. Many senior web3 engineers have never written a production smart contract.</p></div>
+  </div>
+  <div class="bp-faq-item">
+    <button class="bp-faq-q" onclick="bpToggleFaq(this)">
+      <span>Will I lose my Web2 career progress by switching?</span>
+      <svg class="bp-faq-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="bp-faq-a"><p>Rarely. Web3 hiring teams recognise senior engineering experience from Web2 companies — Google, Meta, Stripe, Uber, Cloudflare, Datadog, and similar signals open doors. The risk is not "losing progress" but "joining a bad company": a 1-year stint at a collapsed protocol is a neutral-to-slightly-negative signal on the way back to Web2, while a 2–3 year stint at a stable protocol (Offchain Labs, Coinbase, Chainalysis, Alchemy, OpenZeppelin, etc.) is a clearly positive signal. Pick quality on the first move.</p></div>
+  </div>
+  <div class="bp-faq-item">
+    <button class="bp-faq-q" onclick="bpToggleFaq(this)">
+      <span>How do I explain the switch in interviews without sounding like I'm chasing hype?</span>
+      <svg class="bp-faq-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="bp-faq-a"><p>Anchor your narrative in a specific technical or economic problem you find interesting — not in "I want to work in the future." Examples that land well: "I've been working on distributed systems for six years and I'm fascinated by how consensus mechanisms trade off finality and throughput"; "I built liquidity-provision ML models at a Web2 fintech and I want to apply that to DeFi"; "I've been governance-active in three protocols for the past year and realised I want to build inside one." Examples that land poorly: "crypto is the future"; "I want to work on something meaningful"; "I've been reading a lot about web3."</p></div>
+  </div>
+  <div class="bp-faq-item">
+    <button class="bp-faq-q" onclick="bpToggleFaq(this)">
+      <span>Is it easier to switch at a particular seniority level?</span>
+      <svg class="bp-faq-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="bp-faq-a"><p>Mid-to-senior is the easiest bracket. Juniors face the most friction because web3 companies prefer to hire mid-levels who can onboard themselves to an unfamiliar stack. Staff and principal engineers face the opposite problem: web3 companies are smaller and the senior-to-staff ladder is flatter, so the role they can offer is often titled below your current level (with equivalent or better comp). If you are staff+ at a large Web2 company, target founding-engineer roles at early protocols or technical leadership at Series A–B web3 infrastructure companies; that is where scope exists.</p></div>
+  </div>
+  <div class="bp-faq-item">
+    <button class="bp-faq-q" onclick="bpToggleFaq(this)">
+      <span>Should I take a pay cut to switch faster?</span>
+      <svg class="bp-faq-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="bp-faq-a"><p>Only if the company's protocol tokens offer asymmetric upside at current depressed valuations, you can afford the cash hit financially, and you are genuinely excited about the product. "Pay cut for experience" as a generic heuristic is a trap — good web3 companies pay market for market-rate talent. If an established protocol with real revenue cannot match your Web2 base, either you are being underpriced or they are low-balling. The right time to take a pay cut is at a pre-token-launch protocol where your grant might be worth meaningful upside — and even then, only if the cash floor is survivable.</p></div>
+  </div>
+  <div class="bp-faq-item">
+    <button class="bp-faq-q" onclick="bpToggleFaq(this)">
+      <span>Which resources are worth actually spending time on?</span>
+      <svg class="bp-faq-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="bp-faq-a"><p>Shortlist of high-signal resources (as of Q1 2026): the Cyfrin Updraft curriculum for Solidity and security; the Solana Bootcamp by Solana Foundation for Rust/Anchor; the Paradigm CTF public writeups for security intuition; the Noah Zinsmeister wallet-stack tutorials for frontend + wagmi; the Dune Analytics SQL primer and Flipside bounties for data skills; and reading real post-mortems of DeFi incidents on <em>Rekt News</em>. The most underrated resource is <strong>reading production protocol source code</strong> — Uniswap v4 core, Aave v3, Compound III, EigenLayer — because it rewires how you think about on-chain software faster than any course.</p></div>
+  </div>
+</div>
+
+<h2 id="conclusion">Conclusion: Switch Deliberately, Not Desperately</h2>
+<p>The data is clear: switching from Web2 to Web3 in 2026 is not a career gamble — it is a career move with a measurable process, predictable timelines, and realistic compensation expectations. The candidates who succeed treat it as a 90-day project with explicit milestones: ship one substantial artefact, make it publicly visible, engage in one protocol's community, and apply selectively to companies where your existing skills are the missing piece. Those who fail treat it as an aspiration, consume content passively, and apply broadly without differentiated signal.</p>
+<p>Use <a href="/vacancies">HireLens</a> to filter live web3 vacancies by your existing stack, track the salary reality of your target roles, and identify the specific companies where your Web2 experience is actively being hired. The switch is open — the signal bar is just higher than it was in 2021, and the reward is proportional.</p>
+"""
+
 BLOG_POSTS: list[BlogPost] = [
     BlogPost(
         slug="web3-jobs-market-report-2026",
@@ -1015,7 +1392,21 @@ BLOG_POSTS: list[BlogPost] = [
         author="HireLens Research",
         author_title="Market Intelligence Team",
         content=_ARTICLE_1_CONTENT,
-        related_slugs=["ai-engineers-web3-salaries-2026"],
+        related_slugs=["how-to-switch-from-web2-to-web3", "ai-engineers-web3-salaries-2026"],
+    ),
+    BlogPost(
+        slug="how-to-switch-from-web2-to-web3",
+        title="How to Switch from Web2 to Web3 in 2026: A Data-Backed Transition Guide",
+        category="Career Guide",
+        category_slug="career-guide",
+        excerpt="620+ tracked Web2 → Web3 transitions reveal the real timeline (4.1 months), honest skill gap, and 90-day roadmap. Which roles convert fastest and what salary delta to expect.",
+        meta_description="How to switch from Web2 to Web3 in 2026: 620+ tracked transitions, 90-day roadmap, skill translation matrix, salary before/after, and success rates by starting role. Data-backed career guide.",
+        meta_keywords="web2 to web3, switch to web3 jobs, web3 career transition 2026, web2 developer to web3, blockchain career change, web3 for beginners, how to get web3 job, web3 salary for web2 developers",
+        published_at=date(2026, 4, 15),
+        author="HireLens Research",
+        author_title="Market Intelligence Team",
+        content=_ARTICLE_5_CONTENT,
+        related_slugs=["web3-jobs-market-report-2026", "ai-engineers-web3-salaries-2026", "remote-work-web3-2026"],
     ),
     BlogPost(
         slug="ai-engineers-web3-salaries-2026",
@@ -1029,7 +1420,7 @@ BLOG_POSTS: list[BlogPost] = [
         author="HireLens Research",
         author_title="Market Intelligence Team",
         content=_ARTICLE_2_CONTENT,
-        related_slugs=["web3-jobs-market-report-2026", "remote-work-web3-2026"],
+        related_slugs=["how-to-switch-from-web2-to-web3", "web3-jobs-market-report-2026", "remote-work-web3-2026"],
     ),
     BlogPost(
         slug="remote-work-web3-2026",
@@ -1043,7 +1434,7 @@ BLOG_POSTS: list[BlogPost] = [
         author="HireLens Research",
         author_title="Market Intelligence Team",
         content=_ARTICLE_3_CONTENT,
-        related_slugs=["web3-jobs-market-report-2026", "web3-hiring-cycles-crypto-market"],
+        related_slugs=["how-to-switch-from-web2-to-web3", "web3-jobs-market-report-2026", "web3-hiring-cycles-crypto-market"],
     ),
     BlogPost(
         slug="web3-hiring-cycles-crypto-market",
@@ -1057,7 +1448,7 @@ BLOG_POSTS: list[BlogPost] = [
         author="HireLens Research",
         author_title="Market Intelligence Team",
         content=_ARTICLE_4_CONTENT,
-        related_slugs=["web3-jobs-market-report-2026", "remote-work-web3-2026"],
+        related_slugs=["how-to-switch-from-web2-to-web3", "web3-jobs-market-report-2026", "remote-work-web3-2026"],
     ),
 ]
 

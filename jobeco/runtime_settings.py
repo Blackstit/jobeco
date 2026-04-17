@@ -59,11 +59,16 @@ async def get_runtime_settings(ttl_seconds: int = 30) -> dict[str, Any]:
   prompts = raw.get("prompts") or {}
   admin = raw.get("admin") or {}
   limits = raw.get("limits") or {}
+  company_cache = raw.get("company_cache") or {}
 
   resolved = {
     "parser": {
       "dedup_threshold": float(parser.get("dedup_threshold", env_settings.dedup_threshold)),
       "enabled": bool(parser.get("enabled", True)),
+    },
+    "company_cache": {
+      "enabled": bool(company_cache.get("enabled", True)),
+      "ttl_days": int(company_cache.get("ttl_days", 90)),
     },
     "openrouter": {
       "api_key": str(openrouter.get("api_key") or env_settings.openrouter_api_key or ""),

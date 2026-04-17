@@ -31,6 +31,10 @@
 .vac-card-item:hover { border-color:rgba(255,255,255,.1); box-shadow:0 4px 16px rgba(0,0,0,.25); transform:translateY(-1px); }
 .vac-card-item:hover::before { opacity:1; }
 .vac-card-item.ring-1 { border-color:rgba(16,185,129,.3); box-shadow:0 0 20px rgba(16,185,129,.06); }
+/* Invisible SEO-link overlay: gives Googlebot a real <a href> to discover
+   vacancy pages from the list. pointer-events:none so the existing card
+   onclick (open side panel) is not blocked and the UX stays identical. */
+.vac-card-seolink { position:absolute; inset:0; z-index:0; opacity:0; pointer-events:none; }
 
 .vac-detail-pane { background:#08080e; border:1px solid rgba(255,255,255,.05); border-radius:14px; overflow:hidden; }
 .vac-detail-head { position:relative; overflow:hidden; border-bottom:1px solid rgba(255,255,255,.06); min-height:150px; }
@@ -226,10 +230,15 @@
   <div id="vacList" class="w-full transition-all overflow-y-auto h-full pr-1">
     <div class="space-y-3">
       {% for v in vacancies %}
+      {% set _seo_slug = vacancy_slug(v.title, v.company_name) %}
       <div id="vac-card-{{ v.id }}"
            class="vac-card-item"
            onclick="openVacancyPane({{ v.id }})">
-        <div class="flex items-start justify-between gap-4">
+        <a class="vac-card-seolink"
+           href="/vacancies/{{ _seo_slug }}-{{ v.id }}"
+           aria-hidden="true"
+           tabindex="-1">{{ v.title or 'Vacancy' }}{% if v.company_name %} at {{ v.company_name }}{% endif %}</a>
+        <div class="flex items-start justify-between gap-4" style="position:relative;z-index:1">
           {% if v is mapping %}
             {% set _logo = v.get('company_logo_url', '') %}
           {% else %}

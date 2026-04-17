@@ -19,58 +19,125 @@
   "name": {{ seo.name | tojson }},
   {% if seo.website %}"url": {{ seo.website | tojson }},{% endif %}
   {% if seo.logo_url %}"logo": {{ seo.logo_url | tojson }},{% endif %}
-  {% if seo.industry %}"industry": {{ seo.industry | tojson }},{% endif %}
   {% if seo.founded %}"foundingDate": {{ seo.founded | tojson }},{% endif %}
-  {% if seo.headquarters %}"location": {"@type": "Place", "name": {{ seo.headquarters | tojson }}},{% endif %}
-  {% if seo.size %}"numberOfEmployees": {"@type": "QuantitativeValue", "value": {{ seo.size | tojson }}},{% endif %}
-  "description": {{ seo.description | tojson }}
+  {% if seo.headquarters %}"address": {
+    "@type": "PostalAddress",
+    "addressLocality": {{ seo.headquarters | tojson }}
+  },{% endif %}
+  {% if seo.size %}"numberOfEmployees": {
+    "@type": "QuantitativeValue",
+    "value": {{ seo.size | tojson }}
+  },{% endif %}
+  {% if seo.same_as %}"sameAs": {{ seo.same_as | tojson }},{% endif %}
+  {% if seo.industry %}"knowsAbout": {{ seo.industry | tojson }},{% endif %}
+  "description": {{ (seo.summary or seo.description) | tojson }}
 }
 </script>
 {% endblock %}
 
 {% block extra_css %}
-.co-seo-noscript {
-  max-width:700px; margin:40px auto; padding:24px;
-  background:#0b0b10; border:1px solid rgba(255,255,255,.06); border-radius:14px;
-}
-.co-seo-noscript h1 { font-family:'Rajdhani',sans-serif; font-size:22px; font-weight:700; color:#fff; margin-bottom:8px; }
-.co-seo-noscript .meta { font-size:13px; color:#64748b; margin-bottom:12px; }
-.co-seo-noscript .desc { font-size:14px; color:#94a3b8; line-height:1.6; }
-.co-seo-noscript .chips { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
-.co-seo-noscript .chip { font-size:11px; padding:3px 10px; border-radius:6px; background:rgba(16,185,129,.1); color:#6ee7b7; border:1px solid rgba(16,185,129,.15); }
-.co-seo-spinner { width:32px; height:32px; border:3px solid rgba(255,255,255,.08); border-top-color:#10b981; border-radius:50%; animation:cospin .6s linear infinite; }
-@keyframes cospin { to { transform:rotate(360deg); } }
+.cd-wrap { max-width: 880px; margin: 0 auto; padding-bottom: 64px; }
+.cd-back { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#475569; text-decoration:none; transition:color .15s; margin-bottom:20px; }
+.cd-back:hover { color:#94a3b8; }
+.cd-card { background:#08080e; border:1px solid rgba(255,255,255,.05); border-radius:14px; overflow:hidden; margin-bottom:12px; }
+.cd-head { padding:22px 24px; border-bottom:1px solid rgba(255,255,255,.04); background:linear-gradient(180deg,rgba(16,185,129,.03),transparent); }
+.cd-name { font-family:'Rajdhani','Outfit',sans-serif; font-size:26px; font-weight:700; color:#fff; line-height:1.15; letter-spacing:-.01em; }
+.cd-meta { font-size:13px; color:#64748b; margin-top:8px; display:flex; flex-wrap:wrap; gap:4px 14px; }
+.cd-meta a { color:#94a3b8; text-decoration:none; transition:color .15s; }
+.cd-meta a:hover { color:#e2e8f0; }
+.cd-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.cd-chip { font-size:11px; padding:4px 10px; border-radius:6px; background:rgba(16,185,129,.08); color:#6ee7b7; border:1px solid rgba(16,185,129,.15); font-weight:500; }
+.cd-chip.neutral { background:rgba(255,255,255,.03); color:#94a3b8; border-color:rgba(255,255,255,.05); }
+.cd-sec { background:#0b0b10; border:1px solid rgba(255,255,255,.04); border-radius:10px; padding:16px 18px; margin-bottom:10px; }
+.cd-sec-title { font-family:'Rajdhani',sans-serif; font-size:12px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; }
+.cd-sec-body { font-size:14px; color:#cbd5e1; line-height:1.65; white-space:pre-wrap; }
+.cd-vac-item { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px 14px; border-radius:10px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); text-decoration:none; color:#cbd5e1; transition:background .15s, border-color .15s; margin-bottom:6px; }
+.cd-vac-item:hover { background:rgba(255,255,255,0.05); border-color:rgba(255,255,255,0.08); }
+.cd-vac-main { min-width:0; flex:1; }
+.cd-vac-title { font-weight:500; color:#e2e8f0; font-size:14px; margin-bottom:3px; }
+.cd-vac-meta { font-size:12px; color:#64748b; display:flex; gap:8px; flex-wrap:wrap; }
+.cd-vac-arrow { color:#475569; flex:none; }
+.cd-vac-item:hover .cd-vac-arrow { color:#10b981; }
 {% endblock %}
 
 {% block content %}
-<noscript>
-<div class="co-seo-noscript">
-  <h1>{{ seo.name }}</h1>
-  <div class="meta">
-    {% if seo.industry %}{{ seo.industry }}{% endif %}
-    {% if seo.headquarters %} &middot; {{ seo.headquarters }}{% endif %}
-    {% if seo.size %} &middot; {{ seo.size }} employees{% endif %}
-    {% if seo.founded %} &middot; Est. {{ seo.founded }}{% endif %}
-    {% if seo.vac_count %} &middot; {{ seo.vac_count }} open positions{% endif %}
-  </div>
-  <div class="chips">
-    {% for d in seo.domains %}<span class="chip">{{ d }}</span>{% endfor %}
-  </div>
-  {% if seo.summary %}<div class="desc">{{ seo.summary }}</div>{% endif %}
-  {% if seo.website %}<p style="margin-top:12px"><a href="{{ seo.website }}" target="_blank" style="color:#10b981">{{ seo.website }}</a></p>{% endif %}
-  <p style="margin-top:16px"><a href="/companies" style="color:#10b981">&larr; All companies</a></p>
-</div>
-</noscript>
+<div class="cd-wrap">
+  <a href="/companies" class="cd-back">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+    All companies
+  </a>
 
-<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:16px" id="seoLoading">
-  <div class="co-seo-spinner"></div>
-  <span style="color:#475569;font-size:13px">Loading company...</span>
-</div>
+  <article class="cd-card">
+    <div class="cd-head">
+      <div class="flex items-start gap-4">
+        {% if seo.logo_url %}
+        <img src="{{ seo.logo_url }}" alt="{{ seo.name }}"
+             class="w-16 h-16 rounded-xl bg-surface object-contain flex-none"
+             onerror="this.style.display='none'"/>
+        {% else %}
+        <div class="w-16 h-16 rounded-xl bg-white/[0.04] flex items-center justify-center flex-none text-2xl font-semibold text-slate-400">
+          {{ seo.name[0]|upper if seo.name else '?' }}
+        </div>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <h1 class="cd-name">{{ seo.name }}</h1>
+          <div class="cd-meta">
+            {% if seo.industry %}<span>{{ seo.industry }}</span>{% endif %}
+            {% if seo.size %}<span>· {{ seo.size }}</span>{% endif %}
+            {% if seo.headquarters %}<span>· {{ seo.headquarters }}</span>{% endif %}
+            {% if seo.founded %}<span>· Founded {{ seo.founded }}</span>{% endif %}
+            {% if seo.vac_count %}<span>· {{ seo.vac_count }} open positions</span>{% endif %}
+          </div>
 
-<script>
-(function() {
-  var id = {{ company_id }};
-  window.location.replace('/companies?open_id=' + id);
-})();
-</script>
+          {% if seo.website or seo.linkedin or seo.same_as %}
+          <div class="cd-meta" style="margin-top:6px">
+            {% if seo.website %}<a href="{{ seo.website }}" target="_blank" rel="noopener">Website ↗</a>{% endif %}
+            {% if seo.linkedin %}<span>· <a href="{{ seo.linkedin }}" target="_blank" rel="noopener">LinkedIn ↗</a></span>{% endif %}
+          </div>
+          {% endif %}
+
+          {% if seo.domains %}
+          <div class="cd-chips">
+            {% for d in seo.domains %}<span class="cd-chip">{{ d }}</span>{% endfor %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </article>
+
+  {% if seo.summary %}
+  <section class="cd-sec">
+    <div class="cd-sec-title">About {{ seo.name }}</div>
+    <div class="cd-sec-body">{{ seo.summary }}</div>
+  </section>
+  {% endif %}
+
+  {% if seo.vacancies %}
+  <section class="cd-sec">
+    <div class="cd-sec-title">Open positions ({{ seo.vac_count }})</div>
+    {% for v in seo.vacancies %}
+    <a href="{{ v.url }}" class="cd-vac-item">
+      <div class="cd-vac-main">
+        <div class="cd-vac-title">{{ v.title }}</div>
+        <div class="cd-vac-meta">
+          {% if v.seniority %}<span>{{ v.seniority }}</span>{% endif %}
+          {% if v.location_type %}<span>· {{ v.location_type }}</span>{% endif %}
+          {% if v.salary_min_usd or v.salary_max_usd %}<span>· ${{ v.salary_min_usd or '?' }}&ndash;${{ v.salary_max_usd or '?' }}</span>{% endif %}
+          {% if v.domains %}<span>· {{ v.domains|join(', ') }}</span>{% endif %}
+        </div>
+      </div>
+      <svg class="cd-vac-arrow w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+    </a>
+    {% endfor %}
+    {% if seo.vac_count and seo.vac_count > seo.vacancies|length %}
+    <div style="margin-top:10px; text-align:center">
+      <a href="/vacancies?search={{ seo.name|urlencode }}" class="text-xs text-slate-400 hover:text-slate-200">
+        See all {{ seo.vac_count }} positions &rarr;
+      </a>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
 {% endblock %}

@@ -111,6 +111,9 @@ templates = Jinja2Templates(directory="templates")
 templates.env.globals["company_url"] = lambda name, cid: (
     f"/companies/{_vacancy_slug(name or 'company')}-{cid}" if cid else ""
 )
+# Expose the slug helper to templates so we can render canonical vacancy URLs
+# directly from jinja (used for the SEO <a> overlay in the list cards).
+templates.env.globals["vacancy_slug"] = lambda title, company=None: _vacancy_slug(title, company)
 
 from starlette.staticfiles import StaticFiles
 import os as _os
@@ -471,6 +474,16 @@ async def settings_save(
     raw.setdefault("limits", {})["prevalidate_max_chars"] = int(prevalidate_max_chars)
     raw.setdefault("limits", {})["analyzer_max_chars"] = int(analyzer_max_chars)
     raw.setdefault("limits", {})["channel_max_chars"] = int(channel_max_chars)
+
+    company_cache_enabled = (form.get("company_cache_enabled") or "").lower() in ("1", "true", "yes", "on")
+    company_cache_ttl_days = form.get("company_cache_ttl_days")
+    try:
+      ttl_days_int = max(0, int(company_cache_ttl_days)) if company_cache_ttl_days else 90
+    except ValueError:
+      raise HTTPException(status_code=400, detail="company_cache_ttl_days must be an integer")
+    raw.setdefault("company_cache", {})["enabled"] = company_cache_enabled
+    raw["company_cache"]["ttl_days"] = ttl_days_int
+
     await upsert_system_settings(raw)
 
   elif tab == "openrouter":
@@ -703,6 +716,29 @@ from starlette.responses import PlainTextResponse as _PlainTextResponse
 from apps.blog_posts import BLOG_POSTS, BLOG_POSTS_BY_SLUG, BLOG_CATEGORIES
 
 import re as _re_mod
+# Lightweight transliteration: covers Russian/Ukrainian/Belarusian so that
+# cyrillic titles don't collapse to an empty slug and every vacancy ends up at
+# `/vacancies/vacancy-<id>` (which Google then treats as near-duplicates).
+_CYR_TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "ґ": "g", "д": "d", "е": "e",
+    "є": "ye", "ё": "e", "ж": "zh", "з": "z", "и": "i", "і": "i", "ї": "yi",
+    "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p",
+    "р": "r", "с": "s", "т": "t", "у": "u", "ў": "u", "ф": "f", "х": "kh",
+    "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "",
+    "э": "e", "ю": "yu", "я": "ya",
+}
+
+def _translit(s: str) -> str:
+    out_chars: list[str] = []
+    for ch in s:
+        lo = ch.lower()
+        if lo in _CYR_TRANSLIT:
+            out_chars.append(_CYR_TRANSLIT[lo])
+        else:
+            out_chars.append(ch)
+    return "".join(out_chars)
+
+
 def _vacancy_slug(title: str | None, company: str | None = None) -> str:
     """Generate SEO-friendly slug from vacancy title and company."""
     parts = []
@@ -710,7 +746,7 @@ def _vacancy_slug(title: str | None, company: str | None = None) -> str:
         parts.append(title)
     if company:
         parts.append("at-" + company)
-    raw = "-".join(parts).lower()
+    raw = _translit("-".join(parts)).lower()
     raw = _re_mod.sub(r"[^a-z0-9]+", "-", raw).strip("-")
     return raw[:80] if raw else "vacancy"
 
@@ -723,6 +759,7 @@ async def robots_txt():
         "Allow: /docs\n"
         "Allow: /about\n"
         "Allow: /landing\n"
+        "Allow: /api/public/\n"
         "Disallow: /api/\n"
         "Disallow: /settings\n"
         "Disallow: /login\n"
@@ -4513,7 +4550,9 @@ async def vacancy_detail_page(request: Request, slug_and_id: str):
     row = (
       await s.execute(
         select(Vacancy, Company.logo_url, Company.website.label("cw"),
-               Company.industry, Company.summary.label("cs"))
+               Company.industry.label("ci"), Company.summary.label("cs"),
+               Company.headquarters.label("chq"), Company.size.label("csize"),
+               Company.founded.label("cfounded"))
         .select_from(Vacancy)
         .outerjoin(Company, Company.id == Vacancy.company_id)
         .where(Vacancy.id == vacancy_id)
@@ -4524,9 +4563,16 @@ async def vacancy_detail_page(request: Request, slug_and_id: str):
 
     v = row[0]
     logo_url = row[1]
+    company_website = row[2]
+    company_industry = row[3]
+    company_summary = row[4]
+    company_headquarters = row[5]
+    company_size = row[6]
+    company_founded = row[7]
     meta = getattr(v, "metadata_json", {}) or {}
     scoring = meta.get("scoring") or {}
     total_score = scoring.get("total_score") or getattr(v, "ai_score_value", None)
+    employment_type = meta.get("employment_type")
 
     canonical_slug = _vacancy_slug(v.title, v.company_name)
     canonical_url = f"https://hirelens.xyz/vacancies/{canonical_slug}-{v.id}"
@@ -4537,26 +4583,77 @@ async def vacancy_detail_page(request: Request, slug_and_id: str):
     if actual_path != expected_path:
       return RedirectResponse(url=expected_path, status_code=301)
 
-    description = (getattr(v, "summary_en", None) or getattr(v, "description", None) or v.raw_text or "")[:200].replace("\n", " ").strip()
+    # Full SSR description: prefer the richest text we have so Googlebot sees
+    # the actual job posting without needing to run JS.
+    full_description = (
+      getattr(v, "description", None)
+      or getattr(v, "summary_en", None)
+      or v.raw_text
+      or ""
+    ).strip()
+    short_description = (
+      (getattr(v, "summary_en", None) or full_description)[:300].replace("\n", " ").strip()
+    )
     salary_text = ""
     if v.salary_min_usd or v.salary_max_usd:
       salary_text = f" | ${v.salary_min_usd or '?'}–${v.salary_max_usd or '?'}"
 
+    # Telegram post URL (used as apply URL fallback)
+    apply_url = v.source_url
+    if not apply_url and v.tg_channel_username and v.tg_message_id:
+      apply_url = f"https://t.me/{v.tg_channel_username.lstrip('@')}/{v.tg_message_id}"
+
+    # Google Jobs expects `validThrough` — we extend the posting validity
+    # 60 days past creation so stale vacancies drop out of rich results.
+    valid_through = None
+    if v.created_at:
+      valid_through = (v.created_at + timedelta(days=60)).isoformat()
+
+    # Normalize employment type for schema.org (FULL_TIME, PART_TIME, CONTRACTOR, ...)
+    _emp_map = {
+      "full-time": "FULL_TIME", "fulltime": "FULL_TIME", "full_time": "FULL_TIME",
+      "part-time": "PART_TIME", "parttime": "PART_TIME", "part_time": "PART_TIME",
+      "contract": "CONTRACTOR", "contractor": "CONTRACTOR", "freelance": "CONTRACTOR",
+      "internship": "INTERN", "intern": "INTERN",
+      "temporary": "TEMPORARY",
+    }
+    employment_type_schema = _emp_map.get((employment_type or "").strip().lower()) if employment_type else None
+
     seo = {
       "title": f"{v.title or 'Vacancy'} at {v.company_name or 'Company'} | HireLens",
-      "description": description + salary_text,
+      "description": short_description + salary_text,
       "canonical": canonical_url,
       "og_type": "article",
       "logo_url": logo_url,
       "company_name": v.company_name,
+      "company_website": company_website,
+      "company_industry": company_industry,
+      "company_summary": company_summary,
+      "company_headquarters": company_headquarters,
+      "company_size": company_size,
+      "company_founded": company_founded,
       "vacancy_title": v.title,
       "location_type": v.location_type,
+      "country_city": getattr(v, "country_city", None),
       "salary_min": v.salary_min_usd,
       "salary_max": v.salary_max_usd,
+      "currency": getattr(v, "currency", None) or "USD",
       "created_at": v.created_at.isoformat() if v.created_at else None,
+      "valid_through": valid_through,
       "domains": getattr(v, "domains", []) or [],
       "stack": getattr(v, "stack", []) or [],
       "seniority": getattr(v, "seniority", None),
+      "role": getattr(v, "role", None),
+      "employment_type": employment_type,
+      "employment_type_schema": employment_type_schema,
+      "apply_url": apply_url,
+      "full_description": full_description,
+      "responsibilities": getattr(v, "responsibilities", None),
+      "requirements": getattr(v, "requirements", None),
+      "conditions": getattr(v, "conditions", None),
+      "total_score": total_score,
+      "overall_summary": scoring.get("overall_summary") if isinstance(scoring, dict) else None,
+      "red_flags": (scoring.get("red_flags") or []) if isinstance(scoring, dict) else [],
     }
 
     return templates.TemplateResponse(
@@ -4565,62 +4662,15 @@ async def vacancy_detail_page(request: Request, slug_and_id: str):
     )
 
 
-@app.get("/vacancy/{slug_and_id:path}", response_class=HTMLResponse)
-async def vacancy_fullpage(request: Request, slug_and_id: str):
-  """Standalone full-page vacancy view: /vacancy/senior-dev-at-binance-1234"""
-  m = _re_mod.search(r"(\d+)$", slug_and_id.rstrip("/"))
-  if not m:
-    return RedirectResponse(url="/vacancies", status_code=302)
-  vacancy_id = int(m.group(1))
+@app.get("/vacancy/{slug_and_id:path}")
+async def vacancy_fullpage(slug_and_id: str):
+  """Legacy route — consolidate into canonical `/vacancies/{slug}-{id}` (301).
 
-  async with SessionLocal() as s:
-    row = (
-      await s.execute(
-        select(Vacancy, Company.logo_url)
-        .select_from(Vacancy)
-        .outerjoin(Company, Company.id == Vacancy.company_id)
-        .where(Vacancy.id == vacancy_id)
-      )
-    ).one_or_none()
-    if not row:
-      return RedirectResponse(url="/vacancies", status_code=302)
-
-    v = row[0]
-    logo_url = row[1]
-
-    canonical_slug = _vacancy_slug(v.title, v.company_name)
-    canonical_url = f"https://hirelens.xyz/vacancy/{canonical_slug}-{v.id}"
-
-    expected_path = f"/vacancy/{canonical_slug}-{v.id}"
-    actual_path = f"/vacancy/{slug_and_id}"
-    if actual_path != expected_path:
-      return RedirectResponse(url=expected_path, status_code=301)
-
-    description = (getattr(v, "summary_en", None) or getattr(v, "description", None) or v.raw_text or "")[:200].replace("\n", " ").strip()
-    salary_text = ""
-    if v.salary_min_usd or v.salary_max_usd:
-      salary_text = f" | ${v.salary_min_usd or '?'}–${v.salary_max_usd or '?'}"
-
-    seo = {
-      "title": f"{v.title or 'Vacancy'} at {v.company_name or 'Company'} | HireLens",
-      "description": description + salary_text,
-      "canonical": canonical_url,
-      "logo_url": logo_url,
-      "company_name": v.company_name,
-      "vacancy_title": v.title,
-      "location_type": v.location_type,
-      "salary_min": v.salary_min_usd,
-      "salary_max": v.salary_max_usd,
-      "created_at": v.created_at.isoformat() if v.created_at else None,
-      "domains": getattr(v, "domains", []) or [],
-      "stack": getattr(v, "stack", []) or [],
-      "seniority": getattr(v, "seniority", None),
-    }
-
-    return templates.TemplateResponse(
-      request, "vacancy_page.html",
-      {"vacancy_id": vacancy_id, "seo": seo},
-    )
+  Keeping two parallel URLs for the same resource splits Google's ranking signals
+  and creates duplicates in the index. Redirect old URL shape to the canonical
+  one so both external and internal links converge.
+  """
+  return RedirectResponse(url=f"/vacancies/{slug_and_id}", status_code=301)
 
 
 # ─── Companies page ──────────────────────────────────────────────────────────
@@ -4778,7 +4828,37 @@ async def company_detail_page(request: Request, slug_and_id: str):
     if actual_path != expected_path:
       return RedirectResponse(url=expected_path, status_code=301)
 
-    description = (comp.summary or f"{comp.name} company profile")[:200]
+    # Fetch recent vacancies for this company so that the SSR page has real
+    # content indexable by Google (internal linking to individual job postings).
+    vac_rows = (await s.execute(
+      select(
+        Vacancy.id, Vacancy.title, Vacancy.company_name, Vacancy.role, Vacancy.seniority,
+        Vacancy.salary_min_usd, Vacancy.salary_max_usd, Vacancy.location_type,
+        Vacancy.domains, Vacancy.created_at, Vacancy.ai_score_value,
+      )
+      .where(Vacancy.company_id == company_id)
+      .order_by(desc(Vacancy.created_at))
+      .limit(30)
+    )).all()
+
+    vacancies_list = []
+    for r in vac_rows:
+      slug = _vacancy_slug(r.title or "", r.company_name or comp.name)
+      vacancies_list.append({
+        "id": r.id,
+        "title": r.title or "Vacancy",
+        "url": f"/vacancies/{slug}-{r.id}",
+        "role": r.role,
+        "seniority": r.seniority,
+        "salary_min_usd": r.salary_min_usd,
+        "salary_max_usd": r.salary_max_usd,
+        "location_type": r.location_type,
+        "domains": list(r.domains or []),
+        "ai_score_value": r.ai_score_value,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+      })
+
+    description = (comp.summary or f"{comp.name} company profile")[:300]
     meta_parts = []
     if comp.industry:
       meta_parts.append(comp.industry)
@@ -4789,6 +4869,15 @@ async def company_detail_page(request: Request, slug_and_id: str):
     if meta_parts:
       description += " | " + ", ".join(meta_parts)
 
+    socials = comp.socials or {}
+    same_as = []
+    if comp.linkedin:
+      same_as.append(comp.linkedin)
+    for _k in ("twitter", "github", "facebook", "youtube", "instagram"):
+      val = socials.get(_k) if isinstance(socials, dict) else None
+      if val:
+        same_as.append(val)
+
     seo = {
       "title": f"{comp.name} — Company Profile | HireLens",
       "description": description,
@@ -4796,6 +4885,8 @@ async def company_detail_page(request: Request, slug_and_id: str):
       "logo_url": comp.logo_url,
       "name": comp.name,
       "website": comp.website,
+      "linkedin": comp.linkedin,
+      "same_as": same_as,
       "industry": comp.industry,
       "size": comp.size,
       "founded": comp.founded,
@@ -4803,6 +4894,7 @@ async def company_detail_page(request: Request, slug_and_id: str):
       "summary": comp.summary,
       "domains": comp.domains or [],
       "vac_count": vac_count,
+      "vacancies": vacancies_list,
     }
 
     return templates.TemplateResponse(
